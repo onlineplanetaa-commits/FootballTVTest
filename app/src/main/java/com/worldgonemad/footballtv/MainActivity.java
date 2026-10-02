@@ -1576,53 +1576,53 @@ public class MainActivity extends Activity {
                 String js =
                         "(function(){" +
                         "try{" +
-
-                        // Catch a direct manifest already requested by the page.
                         "var e=performance.getEntriesByType('resource');" +
                         "for(var i=0;i<e.length;i++){" +
                         "var p=e[i].name||'';" +
-                        "if(/\\.m3u8(?:\\?|$)/i.test(p)){" +
-                        "location.href=p;return;" +
+                        "if(p.toLowerCase().indexOf('.m3u8')>=0){location.href=p;return;}" +
                         "}" +
+                        "window.open=function(u){if(u){location.href=new URL(u,location.href).href;}return null;};" +
+                        "var nodes=document.querySelectorAll('a,iframe,source,video,button');" +
+                        "for(var j=0;j<nodes.length;j++){" +
+                        "var u=nodes[j].href||nodes[j].src||'';" +
+                        "var d=nodes[j].getAttribute('data-url')||nodes[j].getAttribute('data-href')||'';" +
+                        "var oc=nodes[j].getAttribute('onclick')||'';" +
+                        "var all=(u+' '+d+' '+oc).toLowerCase();" +
+                        "if(all.indexOf('.m3u8')>=0){" +
+                        "var z=(u||d||oc);var q=z.toLowerCase().indexOf('http');" +
+                        "if(q>=0){location.href=z.substring(q);return;}" +
                         "}" +
-
-                        // Make window.open stay inside this WebView.
-                        "window.open=function(u){if(u)location.href=u;};" +
-
-                        "var a=document.querySelectorAll('a,iframe,source,video');" +
-                        "for(var j=0;j<a.length;j++){" +
-                        "var u='';" +
-                        "u=a[j].href||a[j].src||'';" +
-                        "var d=a[j].getAttribute('data-url')||a[j].getAttribute('data-href')||'';" +
-                        "var oc=a[j].getAttribute('onclick')||'';" +
-                        "var all=(u+' '+d+' '+oc);" +
-
-                        // Direct HLS.
-                        "if(/\\.m3u8(?:\\?|$)/i.test(all)){" +
-                        "var mh=all.match(/https?:[^\\\"'\\s]+\\.m3u8(?:\\?[^\\\"'\\s]*)?/i);" +
-                        "if(mh){location.href=mh[0];return;}" +
-                        "}" +
-
-                        // Navigate to the actual player/source endpoint.
-                        "if(/webplayer|\\/player\\/|\\/export\\/|apl614|azplay/i.test(all)){" +
-                        "var mu=all.match(/https?:[^\\\"'\\s)]+/i);" +
-                        "if(mu){location.href=mu[0];return;}" +
-                        "}" +
-                        "}" +
-
-                        // On the Browser Links page, activate a public source
-                        // button instead of merely reading its label. This is
-                        // needed when the site hides the real URL in JavaScript.
-                        "if(/\\/player\\/links\\//i.test(location.href)){" +
-                        "var links=document.querySelectorAll('a,button');" +
-                        "for(var k=0;k<links.length;k++){" +
-                        "var txt=(links[k].innerText||links[k].textContent||'').trim();" +
-                        "if(/Aliez|Web/i.test(txt)){" +
-                        "try{links[k].click();return;}catch(x){}" +
+                        "if(all.indexOf('webplayer')>=0||all.indexOf('/player/')>=0||all.indexOf('/export/')>=0||all.indexOf('apl614')>=0||all.indexOf('azplay')>=0){" +
+                        "var candidate=u||d||'';" +
+                        "if(candidate&&candidate.toLowerCase().indexOf('javascript:')!==0){" +
+                        "try{candidate=new URL(candidate,location.href).href;}catch(x){}" +
+                        "if(candidate.indexOf('http://')===0||candidate.indexOf('https://')===0){location.href=candidate;return;}" +
                         "}" +
                         "}" +
                         "}" +
-
+                        "var raw=document.documentElement?document.documentElement.innerHTML:'';" +
+                        "var low=raw.toLowerCase();" +
+                        "var keys=['webplayer','/player/links/','/export/','apl614','azplay'];" +
+                        "for(var kk=0;kk<keys.length;kk++){" +
+                        "var pos=low.indexOf(keys[kk]);" +
+                        "if(pos>=0){" +
+                        "var left=pos;" +
+                        "while(left>0&&raw.charAt(left)!=='\\\"'&&raw.charAt(left)!=='\\\''&&raw.charAt(left)!=='<')left--;" +
+                        "var right=pos;" +
+                        "while(right<raw.length&&raw.charAt(right)!=='\\\"'&&raw.charAt(right)!=='\\\''&&raw.charAt(right)!=='>'&&raw.charAt(right)!==' '&&raw.charAt(right)!=='\\n')right++;" +
+                        "var candidate=raw.substring(left+1,right);" +
+                        "if(candidate.indexOf('http')===0){location.href=candidate;return;}" +
+                        "if(candidate.indexOf('/')===0){location.href=new URL(candidate,location.href).href;return;}" +
+                        "}" +
+                        "}" +
+                        "if(location.href.toLowerCase().indexOf('/player/links/')>=0){" +
+                        "for(var k=0;k<nodes.length;k++){" +
+                        "var txt=(nodes[k].innerText||nodes[k].textContent||'').trim().toLowerCase();" +
+                        "if(txt==='aliez'||txt.indexOf('aliez ')===0||txt==='web'||txt.indexOf('web ')===0){" +
+                        "try{nodes[k].click();return;}catch(x){}" +
+                        "}" +
+                        "}" +
+                        "}" +
                         "}catch(x){}" +
                         "})()";
 
