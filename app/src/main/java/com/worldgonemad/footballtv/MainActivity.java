@@ -607,13 +607,25 @@ public class MainActivity extends Activity {
 
             connection.setRequestProperty(
                     "User-Agent",
-                    "Mozilla/5.0 (Android TV) AppleWebKit/537.36"
+                    "Mozilla/5.0 (Linux; Android 11; Android TV) AppleWebKit/537.36 Chrome/124.0.0.0 Safari/537.36"
             );
 
             connection.setRequestProperty(
                     "Accept",
-                    "text/html,application/xhtml+xml"
+                    "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8"
             );
+
+            connection.setRequestProperty(
+                    "Accept-Language",
+                    "en-US,en;q=0.9,ru;q=0.8"
+            );
+
+            if (address.startsWith("https://livetv904.me/")) {
+                connection.setRequestProperty(
+                        "Referer",
+                        "https://livetv904.me/"
+                );
+            }
 
             int code =
                     connection.getResponseCode();
@@ -1217,15 +1229,23 @@ public class MainActivity extends Activity {
     ) {
         if (html == null || html.isEmpty()) return;
 
+        // LiveTV904 frequently puts player URLs inside JavaScript/onClick
+        // strings rather than normal href/src attributes. Extract both
+        // absolute and relative quoted URLs.
         Pattern p = Pattern.compile(
-                "(?i)(https?:\\\\/\\\\/[^\\\\\"'\\\\s<>]+|//[^\\\\\"'\\\\s<>]+)"
+                "(?is)(?:https?:\\/\\/|//|/|\\b)([^\\\"'<>\\s]+)"
         );
 
         Matcher m = p.matcher(html);
 
         while (m.find()) {
-            String url = decodeUrl(m.group(1));
+            String raw = m.group(0);
+            if (raw == null || raw.isEmpty()) continue;
 
+            String url = decodeUrl(raw);
+
+            // Ignore ordinary text. Keep only strings that look like one
+            // of LiveTV904's player/source endpoints.
             String lower = url.toLowerCase();
 
             if (!lower.contains("webplayer")
@@ -1236,6 +1256,25 @@ public class MainActivity extends Activity {
                     && !lower.contains("azplay")) {
                 continue;
             }
+
+            String absolute = absoluteUrl(url, baseUrl);
+
+            if (!absolute.isEmpty()) {
+                addCandidate(candidates, absolute);
+            }
+        }
+
+        // Also catch protocol-relative URLs even when the generic expression
+        // above starts in the middle of a JavaScript string.
+        Pattern quoted = Pattern.compile(
+                "(?is)[\\\"']([^\\\"']*(?:webplayer|/player/|/export/|apl614|azplay)[^\\\"']*)[\\\"']"
+        );
+
+        Matcher qm = quoted.matcher(html);
+
+        while (qm.find()) {
+            String url = decodeUrl(qm.group(1));
+            if (url.isEmpty()) continue;
 
             String absolute = absoluteUrl(url, baseUrl);
 
@@ -1306,7 +1345,7 @@ public class MainActivity extends Activity {
         if (html == null || html.isEmpty()) return result;
 
         Pattern p = Pattern.compile(
-                "(?is)(?:href|src)\\s*=\\s*[\\\"']([^\\\"']+)[\\\"']"
+                "(?is)(?:href|src|data-url|data-href|onclick)\\s*=\\s*[\\\"']([^\\\"']+)[\\\"']"
         );
 
         Matcher m = p.matcher(html);
@@ -1331,6 +1370,25 @@ public class MainActivity extends Activity {
                     && (absolute.startsWith("https://")
                     || absolute.startsWith("http://"))) {
                 if (!result.contains(absolute)) result.add(absolute);
+            }
+        }
+
+        // Some source links are plain quoted JavaScript strings.
+        Pattern quoted = Pattern.compile(
+                "(?is)[\\\"']([^\\\"']*(?:webplayer|/player/|/export/|apl614|azplay)[^\\\"']*)[\\\"']"
+        );
+
+        Matcher qm = quoted.matcher(html);
+
+        while (qm.find()) {
+            String href = decodeUrl(qm.group(1));
+            String absolute = absoluteUrl(href, baseUrl);
+
+            if (!absolute.isEmpty()
+                    && (absolute.startsWith("https://")
+                    || absolute.startsWith("http://"))
+                    && !result.contains(absolute)) {
+                result.add(absolute);
             }
         }
 
