@@ -1,4 +1,3 @@
-```java
 package com.worldgonemad.footballtv;
 
 import android.app.Activity;
@@ -10,14 +9,10 @@ import android.net.Uri;
 import android.os.Bundle;
 import android.os.Handler;
 import android.view.Gravity;
-import android.view.View;
 import android.widget.Button;
 import android.widget.LinearLayout;
 import android.widget.ScrollView;
 import android.widget.TextView;
-
-import org.json.JSONArray;
-import org.json.JSONObject;
 
 import java.io.BufferedReader;
 import java.io.InputStream;
@@ -37,10 +32,10 @@ public class MainActivity extends Activity {
     private final int TEXT = Color.WHITE;
     private final int MUTED = Color.rgb(160, 168, 180);
     private final int ACCENT = Color.rgb(55, 125, 255);
-    private final int LIVE = Color.rgb(90, 220, 140);
 
     private LinearLayout list;
     private TextView statusText;
+
     private final Handler handler = new Handler();
 
     private final Runnable refreshRunnable = new Runnable() {
@@ -54,28 +49,36 @@ public class MainActivity extends Activity {
     @Override
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
+
         showMatchesScreen();
         loadMatches();
     }
 
     private TextView label(String text, float size, int color) {
+
         TextView t = new TextView(this);
+
         t.setText(text);
         t.setTextColor(color);
         t.setTextSize(size);
         t.setGravity(Gravity.CENTER_VERTICAL);
         t.setFontFeatureSettings("kern");
+
         return t;
     }
 
     private GradientDrawable bg(int color, float radius) {
+
         GradientDrawable d = new GradientDrawable();
+
         d.setColor(color);
         d.setCornerRadius(radius);
+
         return d;
     }
 
     private Button action(String caption) {
+
         Button b = new Button(this);
 
         b.setText(caption);
@@ -85,11 +88,12 @@ public class MainActivity extends Activity {
         b.setTypeface(Typeface.DEFAULT, Typeface.BOLD);
         b.setGravity(Gravity.CENTER);
         b.setFocusable(true);
+        b.setFocusableInTouchMode(false);
         b.setBackground(bg(ACCENT, 14));
         b.setPadding(18, 2, 18, 2);
 
-        b.setOnFocusChangeListener((v, hasFocus) ->
-                v.setAlpha(hasFocus ? 1f : 0.82f)
+        b.setOnFocusChangeListener(
+                (v, hasFocus) -> v.setAlpha(hasFocus ? 1f : 0.82f)
         );
 
         return b;
@@ -98,10 +102,12 @@ public class MainActivity extends Activity {
     private void showMatchesScreen() {
 
         LinearLayout root = new LinearLayout(this);
+
         root.setOrientation(LinearLayout.VERTICAL);
         root.setBackgroundColor(BG);
 
         LinearLayout header = new LinearLayout(this);
+
         header.setOrientation(LinearLayout.HORIZONTAL);
         header.setGravity(Gravity.CENTER_VERTICAL);
         header.setPadding(42, 20, 42, 12);
@@ -112,11 +118,18 @@ public class MainActivity extends Activity {
                 TEXT
         );
 
-        logo.setTypeface(Typeface.DEFAULT, Typeface.BOLD);
+        logo.setTypeface(
+                Typeface.DEFAULT,
+                Typeface.BOLD
+        );
 
         header.addView(
                 logo,
-                new LinearLayout.LayoutParams(0, 65, 1)
+                new LinearLayout.LayoutParams(
+                        0,
+                        65,
+                        1
+                )
         );
 
         statusText = label(
@@ -131,7 +144,10 @@ public class MainActivity extends Activity {
 
         header.addView(
                 statusText,
-                new LinearLayout.LayoutParams(-2, 65)
+                new LinearLayout.LayoutParams(
+                        -2,
+                        65
+                )
         );
 
         root.addView(header);
@@ -147,11 +163,19 @@ public class MainActivity extends Activity {
                 Typeface.BOLD
         );
 
-        title.setPadding(42, 4, 42, 12);
+        title.setPadding(
+                42,
+                4,
+                42,
+                12
+        );
 
         root.addView(
                 title,
-                new LinearLayout.LayoutParams(-1, 55)
+                new LinearLayout.LayoutParams(
+                        -1,
+                        55
+                )
         );
 
         ScrollView scroll = new ScrollView(this);
@@ -161,13 +185,20 @@ public class MainActivity extends Activity {
         scroll.setPadding(34, 0, 34, 30);
 
         list = new LinearLayout(this);
-        list.setOrientation(LinearLayout.VERTICAL);
+
+        list.setOrientation(
+                LinearLayout.VERTICAL
+        );
 
         scroll.addView(list);
 
         root.addView(
                 scroll,
-                new LinearLayout.LayoutParams(-1, 0, 1)
+                new LinearLayout.LayoutParams(
+                        -1,
+                        0,
+                        1
+                )
         );
 
         setContentView(root);
@@ -175,12 +206,13 @@ public class MainActivity extends Activity {
 
     private void loadMatches() {
 
-        statusText.setText("Updating...");
+        if (statusText != null) {
+            statusText.setText("Updating...");
+        }
 
         new Thread(() -> {
 
-            ArrayList<Match> matches =
-                    parseLiveTV();
+            ArrayList<Match> matches = parseLiveTV();
 
             runOnUiThread(() -> {
 
@@ -194,11 +226,18 @@ public class MainActivity extends Activity {
                             MUTED
                     );
 
-                    empty.setPadding(20, 30, 20, 30);
+                    empty.setPadding(
+                            20,
+                            30,
+                            20,
+                            30
+                    );
 
                     list.addView(empty);
 
-                    statusText.setText("No matches");
+                    statusText.setText(
+                            "No matches"
+                    );
 
                     return;
                 }
@@ -230,12 +269,23 @@ public class MainActivity extends Activity {
                     (HttpURLConnection) url.openConnection();
 
             connection.setRequestMethod("GET");
-            connection.setConnectTimeout(10000);
-            connection.setReadTimeout(15000);
+
+            connection.setConnectTimeout(
+                    10000
+            );
+
+            connection.setReadTimeout(
+                    15000
+            );
 
             connection.setRequestProperty(
                     "User-Agent",
                     "Mozilla/5.0"
+            );
+
+            connection.setRequestProperty(
+                    "Accept",
+                    "text/html,application/xhtml+xml"
             );
 
             InputStream input =
@@ -252,18 +302,14 @@ public class MainActivity extends Activity {
             String line;
 
             while ((line = reader.readLine()) != null) {
-                html.append(line).append("\n");
+
+                html.append(line);
+                html.append("\n");
             }
 
             reader.close();
 
             String page = html.toString();
-
-            /*
-             * LiveTV uses links to individual events.
-             * We collect links containing /event/
-             * and keep football entries.
-             */
 
             Pattern linkPattern = Pattern.compile(
                     "<a[^>]+href=[\"']([^\"']+)[\"'][^>]*>(.*?)</a>",
@@ -279,17 +325,33 @@ public class MainActivity extends Activity {
                 String link = matcher.group(1);
                 String rawTitle = matcher.group(2);
 
-                if (link == null || rawTitle == null) {
+                if (link == null ||
+                        rawTitle == null) {
                     continue;
                 }
 
                 String title =
                         rawTitle
-                                .replaceAll("<[^>]+>", " ")
-                                .replace("&ndash;", "–")
-                                .replace("&nbsp;", " ")
-                                .replace("&amp;", "&")
-                                .replaceAll("\\s+", " ")
+                                .replaceAll(
+                                        "<[^>]+>",
+                                        " "
+                                )
+                                .replace(
+                                        "&ndash;",
+                                        "–"
+                                )
+                                .replace(
+                                        "&nbsp;",
+                                        " "
+                                )
+                                .replace(
+                                        "&amp;",
+                                        "&"
+                                )
+                                .replaceAll(
+                                        "\\s+",
+                                        " "
+                                )
                                 .trim();
 
                 if (title.length() < 5) {
@@ -300,9 +362,6 @@ public class MainActivity extends Activity {
                         (title + " " + link)
                                 .toLowerCase();
 
-                /*
-                 * Keep football-related events.
-                 */
                 if (!isFootball(lower)) {
                     continue;
                 }
@@ -310,9 +369,16 @@ public class MainActivity extends Activity {
                 if (!link.startsWith("http")) {
 
                     if (link.startsWith("/")) {
-                        link = "https://livetv904.me" + link;
+
+                        link =
+                                "https://livetv904.me"
+                                        + link;
+
                     } else {
-                        link = LIVETV_URL + link;
+
+                        link =
+                                LIVETV_URL
+                                        + link;
                     }
                 }
 
@@ -321,6 +387,7 @@ public class MainActivity extends Activity {
                 for (Match m : result) {
 
                     if (m.url.equals(link)) {
+
                         exists = true;
                         break;
                     }
@@ -422,7 +489,10 @@ public class MainActivity extends Activity {
         );
 
         card.setPadding(
-                24, 14, 18, 14
+                24,
+                14,
+                18,
+                14
         );
 
         card.setBackground(
@@ -436,10 +506,16 @@ public class MainActivity extends Activity {
                 );
 
         cp.setMargins(
-                8, 7, 8, 7
+                8,
+                7,
+                8,
+                7
         );
 
-        list.addView(card, cp);
+        list.addView(
+                card,
+                cp
+        );
 
         LinearLayout info =
                 new LinearLayout(this);
@@ -525,6 +601,7 @@ public class MainActivity extends Activity {
             startActivity(intent);
 
         } catch (Exception e) {
+
             e.printStackTrace();
         }
     }
@@ -569,4 +646,3 @@ public class MainActivity extends Activity {
         }
     }
 }
-```
