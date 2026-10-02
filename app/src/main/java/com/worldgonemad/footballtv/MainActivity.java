@@ -537,13 +537,12 @@ public class MainActivity extends Activity {
          */
 
         watch.setOnClickListener(
-                v ->
-                        playMatch(
-                                match.home
-                                        + " — "
-                                        + match.away
-                        )
-        );
+        v ->
+                playMatch(
+                        match.home + " — " + match.away,
+                        match.eventUrl
+                )
+);
 
         card.addView(
                 watch,
@@ -1192,10 +1191,10 @@ public class MainActivity extends Activity {
      * =========================================================
      */
 
-    private void playMatch(
-            String matchName
-    ) {
-
+private void playMatch(
+        String matchName,
+        String eventUrl
+) {
         LinearLayout root =
                 new LinearLayout(this);
 
