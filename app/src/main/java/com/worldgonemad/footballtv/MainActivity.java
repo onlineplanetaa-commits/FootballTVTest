@@ -1579,82 +1579,43 @@ public class MainActivity extends Activity {
                 String js =
                         "(function(){" +
                         "try{" +
-
-                        // First, inspect resources already requested by the page.
                         "var e=performance.getEntriesByType('resource');" +
                         "for(var i=0;i<e.length;i++){" +
                         "var p=e[i].name||'';" +
-                        "if(/\\.m3u8(?:\\?|$)/i.test(p)){location.href=p;return;}" +
+                        "if(p.toLowerCase().indexOf('.m3u8')>=0){location.href=p;return;}" +
                         "}" +
-
-                        // Keep popups in this WebView.
                         "window.open=function(u){if(u){location.href=new URL(u,location.href).href;}return null;};" +
-
-                        // Search the complete HTML too. LiveTV904 can put the
-                        // current player URL in JavaScript rather than an href.
                         "var raw=document.documentElement?document.documentElement.innerHTML:'';" +
-                        "var direct=raw.match(/https?:[^\\\\\\\"'<>\\\\s]+\\.m3u8(?:\\\\?[^\\\\\\\"'<>\\\\s]*)?/i);" +
-                        "if(direct){location.href=direct[0];return;}" +
-
-                        // Prefer the real player/source endpoints exposed by
-                        // the event page. Resolve relative URLs against it.
-                        "var patterns=[" +
-                        "/(?:https?:\\\\/\\\\/[^\\\\\\\"'<>\\\\s]+)?(?:webplayer2?\\\\.php|\\\\/player\\\\/links\\\\/|\\\\/export\\\\/)[^\\\\\\\"'<>\\\\s]*/i," +
-                        "/https?:[^\\\\\\\"'<>\\\\s]*(?:apl614|azplay)[^\\\\\\\"'<>\\\\s]*/i" +
-                        "];" +
-                        "for(var pi=0;pi<patterns.length;pi++){" +
-                        "var pm=raw.match(patterns[pi]);" +
-                        "if(pm&&pm[0]){" +
-                        "var pu=pm[0].replace(/&amp;/g,'&').replace(/\\\\\\\\\\\\//g,'/');" +
-                        "try{pu=new URL(pu,location.href).href;}catch(x){}" +
-                        "if(/^https?:/i.test(pu)){location.href=pu;return;}" +
+                        "var low=raw.toLowerCase();" +
+                        "var mi=low.indexOf('.m3u8');" +
+                        "if(mi>=0){" +
+                        "var a=low.lastIndexOf('http',mi);" +
+                        "if(a>=0){var b=mi+5;while(b<raw.length && '\\"\\\'<> \\t\\r\\n'.indexOf(raw.charAt(b))<0)b++;location.href=raw.substring(a,b);return;}" +
                         "}" +
-                        "}" +
-
-                        // Inspect normal DOM attributes and inline handlers.
-                        "var a=document.querySelectorAll('a,iframe,source,video,button');" +
-                        "for(var j=0;j<a.length;j++){" +
-                        "var u=a[j].href||a[j].src||'';" +
-                        "var d=a[j].getAttribute('data-url')||a[j].getAttribute('data-href')||'';" +
-                        "var oc=a[j].getAttribute('onclick')||'';" +
-                        "var txt=(a[j].innerText||a[j].textContent||'').trim();" +
-                        "var all=(u+' '+d+' '+oc);" +
-
-                        "if(/\\.m3u8(?:\\?|$)/i.test(all)){" +
-                        "var mh=all.match(/https?:[^\\\\\\\"'\\\\s]+\\.m3u8(?:\\\\?[^\\\\\\\"'\\\\s]*)?/i);" +
-                        "if(mh){location.href=mh[0];return;}" +
-                        "}" +
-
-                        // Resolve relative player/source URLs instead of requiring
-                        // them to be absolute in the HTML.
-                        "if(/webplayer2?\\\\.php|\\\\/player\\\\/links\\\\/|\\\\/export\\\\/|apl614|azplay/i.test(all)){" +
+                        "var nodes=document.querySelectorAll('a,iframe,source,video,button');" +
+                        "for(var j=0;j<nodes.length;j++){" +
+                        "var u=nodes[j].href||nodes[j].src||'';" +
+                        "var d=nodes[j].getAttribute('data-url')||nodes[j].getAttribute('data-href')||'';" +
+                        "var oc=nodes[j].getAttribute('onclick')||'';" +
+                        "var txt=(nodes[j].innerText||nodes[j].textContent||'').trim();" +
+                        "var all=(u+' '+d+' '+oc).toLowerCase();" +
+                        "if(all.indexOf('.m3u8')>=0){var hu=(u||d||oc);var hi=hu.toLowerCase().indexOf('http');if(hi>=0){var he=hu.toLowerCase().indexOf('.m3u8',hi)+5;location.href=hu.substring(hi,he);return;}}" +
+                        "if(all.indexOf('webplayer')>=0||all.indexOf('/player/')>=0||all.indexOf('/export/')>=0||all.indexOf('apl614')>=0||all.indexOf('azplay')>=0){" +
                         "var candidate=u||d||'';" +
-                        "if(!candidate){" +
-                        "var cm=all.match(/(?:https?:[^\\\\\\\"'\\\\s)]+|\\\\/[^\\\\\\\"'\\\\s)]+)/i);" +
-                        "candidate=cm?cm[0]:'';" +
-                        "}" +
-                        "if(candidate&& !/^javascript:/i.test(candidate)){" +
+                        "if(candidate && candidate.toLowerCase().indexOf('javascript:')!==0){" +
                         "try{candidate=new URL(candidate,location.href).href;}catch(x){}" +
-                        "if(/^https?:/i.test(candidate)){location.href=candidate;return;}" +
+                        "if(candidate.indexOf('http://')===0||candidate.indexOf('https://')===0){location.href=candidate;return;}" +
                         "}" +
                         "}" +
                         "}" +
-
-                        // Browser Links can expose sources only through a click.
-                        // Try source links/buttons one by one, prioritizing the
-                        // actual player/source endpoints over generic labels.
-                        "if(/\\\\/player\\\\/links\\\\//i.test(location.href)){" +
-                        "var links=document.querySelectorAll('a,button');" +
-                        "for(var k=0;k<links.length;k++){" +
-                        "var lu=links[k].href||links[k].getAttribute('data-url')||links[k].getAttribute('data-href')||'';" +
-                        "var lo=links[k].getAttribute('onclick')||'';" +
-                        "var lt=(links[k].innerText||links[k].textContent||'').trim();" +
-                        "var la=(lu+' '+lo+' '+lt);" +
-                        "if(/webplayer2?\\\\.php|\\\\/export\\\\/|apl614|azplay|Aliez|Web/i.test(la)){" +
-                        "try{links[k].click();return;}catch(x){}" +
+                        "if(location.href.toLowerCase().indexOf('/player/links/')>=0){" +
+                        "for(var k=0;k<nodes.length;k++){" +
+                        "var lu=nodes[k].href||nodes[k].getAttribute('data-url')||nodes[k].getAttribute('data-href')||'';" +
+                        "var lo=nodes[k].getAttribute('onclick')||'';" +
+                        "var lt=(nodes[k].innerText||nodes[k].textContent||'').trim();" +
+                        "var la=(lu+' '+lo+' '+lt).toLowerCase();" +
+                        "if(la.indexOf('webplayer')>=0||la.indexOf('/export/')>=0||la.indexOf('apl614')>=0||la.indexOf('azplay')>=0||lt.toLowerCase()==='aliez'||lt.toLowerCase().indexOf('web')===0){try{nodes[k].click();return;}catch(x){}}" +
                         "}" +
                         "}" +
-                        "}" +
-
                         "}catch(x){}" +
                         "})()";}
