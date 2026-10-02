@@ -1,31 +1,25 @@
 package com.worldgonemad.footballtv;
 
 import android.app.Activity;
-import android.content.Intent;
 import android.graphics.Color;
 import android.graphics.Typeface;
 import android.graphics.drawable.GradientDrawable;
-import android.net.Uri;
 import android.os.Bundle;
-import android.os.Handler;
 import android.view.Gravity;
+import android.view.View;
 import android.widget.Button;
 import android.widget.LinearLayout;
 import android.widget.ScrollView;
 import android.widget.TextView;
 
-import java.io.BufferedReader;
-import java.io.InputStream;
-import java.io.InputStreamReader;
-import java.net.HttpURLConnection;
-import java.net.URL;
-import java.util.ArrayList;
-import java.util.regex.Matcher;
-import java.util.regex.Pattern;
+import androidx.media3.common.MediaItem;
+import androidx.media3.exoplayer.ExoPlayer;
+import androidx.media3.ui.PlayerView;
 
 public class MainActivity extends Activity {
 
-    private final String LIVETV_URL = "https://livetv904.me/";
+    private ExoPlayer player;
+    private PlayerView playerView;
 
     private final int BG = Color.rgb(10, 12, 16);
     private final int PANEL = Color.rgb(20, 23, 29);
@@ -33,25 +27,21 @@ public class MainActivity extends Activity {
     private final int MUTED = Color.rgb(160, 168, 180);
     private final int ACCENT = Color.rgb(55, 125, 255);
 
-    private LinearLayout list;
-    private TextView statusText;
-
-    private final Handler handler = new Handler();
-
-    private final Runnable refreshRunnable = new Runnable() {
-        @Override
-        public void run() {
-            loadMatches();
-            handler.postDelayed(this, 5 * 60 * 1000);
-        }
-    };
+    /*
+     * ТЕСТОВЫЙ HLS-ПОТОК.
+     *
+     * Это только для проверки встроенного плеера.
+     * Позже сюда подставляются разрешённые HLS-источники
+     * конкретных матчей.
+     */
+    private static final String TEST_HLS =
+            "https://test-streams.mux.dev/x36xhzz/x36xhzz.m3u8";
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
 
-        showMatchesScreen();
-        loadMatches();
+        showMatches();
     }
 
     private TextView label(String text, float size, int color) {
@@ -62,7 +52,6 @@ public class MainActivity extends Activity {
         t.setTextColor(color);
         t.setTextSize(size);
         t.setGravity(Gravity.CENTER_VERTICAL);
-        t.setFontFeatureSettings("kern");
 
         return t;
     }
@@ -90,16 +79,18 @@ public class MainActivity extends Activity {
         b.setFocusable(true);
         b.setFocusableInTouchMode(false);
         b.setBackground(bg(ACCENT, 14));
+
         b.setPadding(18, 2, 18, 2);
 
         b.setOnFocusChangeListener(
-                (v, hasFocus) -> v.setAlpha(hasFocus ? 1f : 0.82f)
+                (v, hasFocus) ->
+                        v.setAlpha(hasFocus ? 1f : 0.82f)
         );
 
         return b;
     }
 
-    private void showMatchesScreen() {
+    private void showMatches() {
 
         LinearLayout root = new LinearLayout(this);
 
@@ -132,18 +123,18 @@ public class MainActivity extends Activity {
                 )
         );
 
-        statusText = label(
-                "Loading...",
+        TextView status = label(
+                "LIVE FOOTBALL",
                 14,
                 MUTED
         );
 
-        statusText.setGravity(
+        status.setGravity(
                 Gravity.CENTER_VERTICAL | Gravity.RIGHT
         );
 
         header.addView(
-                statusText,
+                status,
                 new LinearLayout.LayoutParams(
                         -2,
                         65
@@ -184,7 +175,7 @@ public class MainActivity extends Activity {
         scroll.setClipToPadding(false);
         scroll.setPadding(34, 0, 34, 30);
 
-        list = new LinearLayout(this);
+        LinearLayout list = new LinearLayout(this);
 
         list.setOrientation(
                 LinearLayout.VERTICAL
@@ -201,281 +192,70 @@ public class MainActivity extends Activity {
                 )
         );
 
+        /*
+         * Пока это тестовый список.
+         * Главное сейчас — проверить, что выбор матча
+         * открывает ВСТРОЕННЫЙ плеер, а не LiveTV904.
+         */
+
+        addMatch(
+                list,
+                "LIVE",
+                "Premier League",
+                "Manchester United",
+                "Arsenal"
+        );
+
+        addMatch(
+                list,
+                "LIVE",
+                "La Liga",
+                "Real Madrid",
+                "Barcelona"
+        );
+
+        addMatch(
+                list,
+                "UPCOMING",
+                "Champions League",
+                "Bayern Munich",
+                "Inter Milan"
+        );
+
+        addMatch(
+                list,
+                "UPCOMING",
+                "Serie A",
+                "Juventus",
+                "AC Milan"
+        );
+
+        addMatch(
+                list,
+                "UPCOMING",
+                "Bundesliga",
+                "Dortmund",
+                "Bayer Leverkusen"
+        );
+
+        addMatch(
+                list,
+                "UPCOMING",
+                "Ligue 1",
+                "PSG",
+                "Marseille"
+        );
+
         setContentView(root);
     }
 
-    private void loadMatches() {
-
-        if (statusText != null) {
-            statusText.setText("Updating...");
-        }
-
-        new Thread(() -> {
-
-            ArrayList<Match> matches = parseLiveTV();
-
-            runOnUiThread(() -> {
-
-                list.removeAllViews();
-
-                if (matches.isEmpty()) {
-
-                    TextView empty = label(
-                            "No football events found.",
-                            18,
-                            MUTED
-                    );
-
-                    empty.setPadding(
-                            20,
-                            30,
-                            20,
-                            30
-                    );
-
-                    list.addView(empty);
-
-                    statusText.setText(
-                            "No matches"
-                    );
-
-                    return;
-                }
-
-                for (Match match : matches) {
-                    addMatch(match);
-                }
-
-                statusText.setText(
-                        matches.size() + " matches"
-                );
-            });
-
-        }).start();
-    }
-
-    private ArrayList<Match> parseLiveTV() {
-
-        ArrayList<Match> result =
-                new ArrayList<>();
-
-        HttpURLConnection connection = null;
-
-        try {
-
-            URL url = new URL(LIVETV_URL);
-
-            connection =
-                    (HttpURLConnection) url.openConnection();
-
-            connection.setRequestMethod("GET");
-
-            connection.setConnectTimeout(
-                    10000
-            );
-
-            connection.setReadTimeout(
-                    15000
-            );
-
-            connection.setRequestProperty(
-                    "User-Agent",
-                    "Mozilla/5.0"
-            );
-
-            connection.setRequestProperty(
-                    "Accept",
-                    "text/html,application/xhtml+xml"
-            );
-
-            InputStream input =
-                    connection.getInputStream();
-
-            BufferedReader reader =
-                    new BufferedReader(
-                            new InputStreamReader(input)
-                    );
-
-            StringBuilder html =
-                    new StringBuilder();
-
-            String line;
-
-            while ((line = reader.readLine()) != null) {
-
-                html.append(line);
-                html.append("\n");
-            }
-
-            reader.close();
-
-            String page = html.toString();
-
-            Pattern linkPattern = Pattern.compile(
-                    "<a[^>]+href=[\"']([^\"']+)[\"'][^>]*>(.*?)</a>",
-                    Pattern.CASE_INSENSITIVE |
-                    Pattern.DOTALL
-            );
-
-            Matcher matcher =
-                    linkPattern.matcher(page);
-
-            while (matcher.find()) {
-
-                String link = matcher.group(1);
-                String rawTitle = matcher.group(2);
-
-                if (link == null ||
-                        rawTitle == null) {
-                    continue;
-                }
-
-                String title =
-                        rawTitle
-                                .replaceAll(
-                                        "<[^>]+>",
-                                        " "
-                                )
-                                .replace(
-                                        "&ndash;",
-                                        "–"
-                                )
-                                .replace(
-                                        "&nbsp;",
-                                        " "
-                                )
-                                .replace(
-                                        "&amp;",
-                                        "&"
-                                )
-                                .replaceAll(
-                                        "\\s+",
-                                        " "
-                                )
-                                .trim();
-
-                if (title.length() < 5) {
-                    continue;
-                }
-
-                String lower =
-                        (title + " " + link)
-                                .toLowerCase();
-
-                if (!isFootball(lower)) {
-                    continue;
-                }
-
-                if (!link.startsWith("http")) {
-
-                    if (link.startsWith("/")) {
-
-                        link =
-                                "https://livetv904.me"
-                                        + link;
-
-                    } else {
-
-                        link =
-                                LIVETV_URL
-                                        + link;
-                    }
-                }
-
-                boolean exists = false;
-
-                for (Match m : result) {
-
-                    if (m.url.equals(link)) {
-
-                        exists = true;
-                        break;
-                    }
-                }
-
-                if (!exists) {
-
-                    result.add(
-                            new Match(
-                                    title,
-                                    link
-                            )
-                    );
-                }
-
-                if (result.size() >= 60) {
-                    break;
-                }
-            }
-
-        } catch (Exception e) {
-
-            e.printStackTrace();
-
-        } finally {
-
-            if (connection != null) {
-                connection.disconnect();
-            }
-        }
-
-        return result;
-    }
-
-    private boolean isFootball(String text) {
-
-        String[] words = {
-
-                "футбол",
-                "football",
-                "soccer",
-
-                "premier league",
-                "премьер лига",
-
-                "la liga",
-                "примера",
-
-                "bundesliga",
-                "бундеслига",
-
-                "serie a",
-                "серия а",
-
-                "ligue 1",
-
-                "champions league",
-                "лига чемпионов",
-
-                "europa league",
-                "лига европы",
-
-                "conference league",
-
-                "uefa",
-
-                "fifa",
-
-                "mls",
-
-                "national league",
-                "лига наций",
-
-                "world cup",
-                "чемпионат мира"
-        };
-
-        for (String word : words) {
-
-            if (text.contains(word)) {
-                return true;
-            }
-        }
-
-        return false;
-    }
-
-    private void addMatch(Match match) {
+    private void addMatch(
+            LinearLayout list,
+            String status,
+            String league,
+            String home,
+            String away
+    ) {
 
         LinearLayout card =
                 new LinearLayout(this);
@@ -499,13 +279,13 @@ public class MainActivity extends Activity {
                 bg(PANEL, 18)
         );
 
-        LinearLayout.LayoutParams cp =
+        LinearLayout.LayoutParams cardParams =
                 new LinearLayout.LayoutParams(
                         -1,
-                        100
+                        110
                 );
 
-        cp.setMargins(
+        cardParams.setMargins(
                 8,
                 7,
                 8,
@@ -514,7 +294,7 @@ public class MainActivity extends Activity {
 
         list.addView(
                 card,
-                cp
+                cardParams
         );
 
         LinearLayout info =
@@ -528,38 +308,55 @@ public class MainActivity extends Activity {
                 Gravity.CENTER_VERTICAL
         );
 
-        TextView name =
+        TextView leagueText =
                 label(
-                        match.title,
-                        18,
-                        TEXT
-                );
-
-        name.setTypeface(
-                Typeface.DEFAULT,
-                Typeface.BOLD
-        );
-
-        info.addView(
-                name,
-                new LinearLayout.LayoutParams(
-                        -1,
-                        45
-                )
-        );
-
-        TextView source =
-                label(
-                        "LiveTV event",
+                        league,
                         12,
                         MUTED
                 );
 
         info.addView(
-                source,
+                leagueText,
                 new LinearLayout.LayoutParams(
                         -1,
-                        28
+                        25
+                )
+        );
+
+        TextView teams =
+                label(
+                        home + "  —  " + away,
+                        18,
+                        TEXT
+                );
+
+        teams.setTypeface(
+                Typeface.DEFAULT,
+                Typeface.BOLD
+        );
+
+        info.addView(
+                teams,
+                new LinearLayout.LayoutParams(
+                        -1,
+                        38
+                )
+        );
+
+        TextView statusText =
+                label(
+                        status,
+                        11,
+                        status.equals("LIVE")
+                                ? Color.rgb(90, 220, 140)
+                                : MUTED
+                );
+
+        info.addView(
+                statusText,
+                new LinearLayout.LayoutParams(
+                        -1,
+                        25
                 )
         );
 
@@ -572,77 +369,160 @@ public class MainActivity extends Activity {
                 )
         );
 
-        Button open =
-                action("OPEN");
+        Button watch =
+                action("WATCH");
 
-        open.setOnClickListener(
-                v -> openEvent(match.url)
+        watch.setOnClickListener(
+                v -> playMatch(
+                        home + " — " + away
+                )
         );
 
         card.addView(
-                open,
+                watch,
                 new LinearLayout.LayoutParams(
-                        125,
-                        56
+                        130,
+                        58
                 )
         );
     }
 
-    private void openEvent(String url) {
+    private void playMatch(String matchName) {
 
-        try {
+        LinearLayout root =
+                new LinearLayout(this);
 
-            Intent intent =
-                    new Intent(
-                            Intent.ACTION_VIEW,
-                            Uri.parse(url)
-                    );
+        root.setOrientation(
+                LinearLayout.VERTICAL
+        );
 
-            startActivity(intent);
+        root.setBackgroundColor(
+                Color.BLACK
+        );
 
-        } catch (Exception e) {
+        LinearLayout top =
+                new LinearLayout(this);
 
-            e.printStackTrace();
+        top.setOrientation(
+                LinearLayout.HORIZONTAL
+        );
+
+        top.setGravity(
+                Gravity.CENTER_VERTICAL
+        );
+
+        top.setPadding(
+                28,
+                8,
+                20,
+                8
+        );
+
+        TextView title =
+                label(
+                        matchName,
+                        20,
+                        TEXT
+                );
+
+        title.setTypeface(
+                Typeface.DEFAULT,
+                Typeface.BOLD
+        );
+
+        top.addView(
+                title,
+                new LinearLayout.LayoutParams(
+                        0,
+                        56,
+                        1
+                )
+        );
+
+        Button back =
+                action("BACK");
+
+        top.addView(
+                back,
+                new LinearLayout.LayoutParams(
+                        120,
+                        52
+                )
+        );
+
+        root.addView(top);
+
+        playerView =
+                new PlayerView(this);
+
+        playerView.setUseController(true);
+
+        root.addView(
+                playerView,
+                new LinearLayout.LayoutParams(
+                        -1,
+                        0,
+                        1
+                )
+        );
+
+        back.setOnClickListener(
+                v -> {
+                    releasePlayer();
+                    showMatches();
+                }
+        );
+
+        setContentView(root);
+
+        player =
+                new ExoPlayer.Builder(this)
+                        .build();
+
+        playerView.setPlayer(player);
+
+        MediaItem mediaItem =
+                MediaItem.fromUri(TEST_HLS);
+
+        player.setMediaItem(mediaItem);
+
+        player.prepare();
+
+        player.play();
+    }
+
+    private void releasePlayer() {
+
+        if (player != null) {
+
+            player.release();
+
+            player = null;
         }
     }
 
     @Override
-    protected void onResume() {
+    protected void onStop() {
 
-        super.onResume();
+        super.onStop();
 
-        handler.removeCallbacks(
-                refreshRunnable
-        );
-
-        handler.postDelayed(
-                refreshRunnable,
-                5 * 60 * 1000
-        );
+        if (isFinishing()) {
+            releasePlayer();
+        }
     }
 
     @Override
-    protected void onPause() {
+    public void onBackPressed() {
 
-        super.onPause();
+        if (player != null) {
 
-        handler.removeCallbacks(
-                refreshRunnable
-        );
-    }
+            releasePlayer();
 
-    private static class Match {
+            showMatches();
 
-        String title;
-        String url;
+        } else {
 
-        Match(
-                String title,
-                String url
-        ) {
-
-            this.title = title;
-            this.url = url;
+            super.onBackPressed();
         }
     }
 }
