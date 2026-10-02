@@ -14,6 +14,11 @@ import android.widget.Button;
 import android.widget.LinearLayout;
 import android.widget.ScrollView;
 import android.widget.TextView;
+import android.webkit.CookieManager;
+import android.webkit.WebChromeClient;
+import android.webkit.WebResourceRequest;
+import android.webkit.WebView;
+import android.webkit.WebViewClient;
 
 import java.io.BufferedReader;
 import java.io.InputStream;
@@ -35,6 +40,7 @@ public class MainActivity extends Activity {
 
     private ExoPlayer player;
     private PlayerView playerView;
+    private WebView resolverWebView;
 
     private final Handler handler =
             new Handler(Looper.getMainLooper());
@@ -1109,13 +1115,12 @@ public class MainActivity extends Activity {
         new Thread(() -> {
             String hls = resolvePublicHls(match.eventUrl);
 
-            runOnUiThread(() -> {
-                if (hls != null && !hls.isEmpty()) {
-                    playHls(hls);
-                } else {
-                    showPlayer(match, "No public video stream was found for this match.");
-                }
-            });
+            if (hls != null && !hls.isEmpty()) {
+                runOnUiThread(() -> playHls(hls));
+                return;
+            }
+
+            runOnUiThread(() -> resolveWithWebView(match));
         }).start();
     }
 
@@ -1419,6 +1424,116 @@ public class MainActivity extends Activity {
         }
     }
 
+    private void resolveWithWebView(Match match) {
+        if (match == null || match.eventUrl == null || match.eventUrl.isEmpty()) {
+            showPlayer(match, "Match page is unavailable.");
+            return;
+        }
+
+        if (resolverWebView != null) {
+            try { resolverWebView.stopLoading(); resolverWebView.destroy(); } catch (Exception ignored) {}
+            resolverWebView = null;
+        }
+
+        WebView web = new WebView(this);
+        resolverWebView = web;
+        web.setVisibility(View.VISIBLE);
+        web.setAlpha(0.01f);
+        web.getSettings().setJavaScriptEnabled(true);
+        web.getSettings().setDomStorageEnabled(true);
+        web.getSettings().setDatabaseEnabled(true);
+        web.getSettings().setMediaPlaybackRequiresUserGesture(false);
+        web.getSettings().setUserAgentString(
+                "Mozilla/5.0 (Linux; Android 11; Android TV) AppleWebKit/537.36 " +
+                "(KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36"
+        );
+
+        CookieManager.getInstance().setAcceptCookie(true);
+        CookieManager.getInstance().setAcceptThirdPartyCookies(web, true);
+
+        final ArrayList<String> urls = new ArrayList<>();
+        urls.add(match.eventUrl);
+
+        String eid = extractFirst(match.eventUrl, "(?i)eventinfo/([0-9]+)");
+        if (!eid.isEmpty()) {
+            urls.add("https://livetv904.me/player/links/ru/" + eid + "?mob=1");
+            urls.add("https://livetv904.me/player/links/en/" + eid + "?mob=1");
+        }
+
+        web.setWebChromeClient(new WebChromeClient());
+        web.setWebViewClient(new WebViewClient() {
+            private int index = 0;
+            private final Set<String> loaded = new HashSet<>();
+
+            private void nextPage() {
+                if (index >= urls.size()) return;
+                String next = urls.get(index++);
+                if (loaded.add(next)) web.loadUrl(next);
+            }
+
+            private boolean isHls(String url) {
+                return url != null && url.toLowerCase().contains(".m3u8");
+            }
+
+            private void found(String url) {
+                if (!isHls(url)) return;
+                runOnUiThread(() -> {
+                    if (resolverWebView == web) {
+                        try { web.stopLoading(); web.destroy(); } catch (Exception ignored) {}
+                        resolverWebView = null;
+                        playHls(url);
+                    }
+                });
+            }
+
+            @Override
+            public WebResourceRequest shouldInterceptRequest(WebView view, WebResourceRequest request) {
+                String url = request.getUrl().toString();
+                if (isHls(url)) found(url);
+                return super.shouldInterceptRequest(view, request);
+            }
+
+            @Override
+            public boolean shouldOverrideUrlLoading(WebView view, WebResourceRequest request) {
+                return false;
+            }
+
+            @Override
+            public void onPageFinished(WebView view, String url) {
+                super.onPageFinished(view, url);
+
+                String js =
+                        "(function(){" +
+                        "var a=document.querySelectorAll('a[href],iframe[src],source[src]');" +
+                        "for(var i=0;i<a.length;i++){" +
+                        "var u=a[i].href||a[i].src||'';" +
+                        "if(/webplayer|\\/player\\/|\\/export\\/|apl614|azplay/i.test(u)){" +
+                        "window.location.href=u;return;}" +
+                        "}" +
+                        "})()";
+
+                view.evaluateJavascript(js, null);
+
+                if (index == 0) nextPage();
+            }
+        });
+
+        if (playerView != null && playerView.getParent() instanceof LinearLayout) {
+            LinearLayout parent = (LinearLayout) playerView.getParent();
+            parent.addView(web, new LinearLayout.LayoutParams(2, 2));
+        }
+
+        web.loadUrl(urls.get(0));
+
+        handler.postDelayed(() -> {
+            if (resolverWebView == web) {
+                try { web.stopLoading(); web.destroy(); } catch (Exception ignored) {}
+                resolverWebView = null;
+                showPlayer(match, "No public video stream was found for this match.");
+            }
+        }, 30000);
+    }
+
     private void showPlayer(Match match, String message) {
         releasePlayer();
 
@@ -1534,6 +1649,11 @@ public class MainActivity extends Activity {
     }
 
     private void releasePlayer() {
+        if (resolverWebView != null) {
+            try { resolverWebView.stopLoading(); resolverWebView.destroy(); } catch (Exception ignored) {}
+            resolverWebView = null;
+        }
+
         if (player != null) {
             player.stop();
             player.release();
