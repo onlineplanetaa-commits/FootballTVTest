@@ -8,14 +8,16 @@ import android.os.Bundle;
 import android.os.Handler;
 import android.os.Looper;
 import android.view.Gravity;
+import android.view.View;
+import android.webkit.WebChromeClient;
+import android.webkit.WebResourceRequest;
+import android.webkit.WebSettings;
+import android.webkit.WebView;
+import android.webkit.WebViewClient;
 import android.widget.Button;
 import android.widget.LinearLayout;
 import android.widget.ScrollView;
 import android.widget.TextView;
-
-import androidx.media3.common.MediaItem;
-import androidx.media3.exoplayer.ExoPlayer;
-import androidx.media3.ui.PlayerView;
 
 import java.io.BufferedReader;
 import java.io.InputStream;
@@ -28,8 +30,7 @@ import java.util.regex.Pattern;
 
 public class MainActivity extends Activity {
 
-    private ExoPlayer player;
-    private PlayerView playerView;
+    private WebView webView;
 
     private final Handler handler =
             new Handler(Looper.getMainLooper());
@@ -44,13 +45,6 @@ public class MainActivity extends Activity {
     private static final String LIVE_TV_URL =
             "https://livetv904.me/enx/allupcoming/";
 
-    /*
-     * Пока оставляем тестовый HLS.
-     * Он нужен только для проверки встроенного плеера.
-     */
-    private static final String TEST_HLS =
-            "https://a119.azplay48.me/hls/streama268709/index.m3u8?cst=54415b64ee3036903cbfca5a81d2522b";
-
     private final ArrayList<Match> matches =
             new ArrayList<>();
 
@@ -61,7 +55,6 @@ public class MainActivity extends Activity {
             new Runnable() {
                 @Override
                 public void run() {
-
                     loadMatches();
 
                     handler.postDelayed(
@@ -129,7 +122,6 @@ public class MainActivity extends Activity {
 
         b.setGravity(Gravity.CENTER);
         b.setFocusable(true);
-        b.setFocusableInTouchMode(false);
 
         b.setBackground(
                 bg(ACCENT, 14)
@@ -217,10 +209,6 @@ public class MainActivity extends Activity {
 
         root.setBackgroundColor(BG);
 
-        /*
-         * HEADER
-         */
-
         LinearLayout header =
                 new LinearLayout(this);
 
@@ -283,10 +271,6 @@ public class MainActivity extends Activity {
 
         root.addView(header);
 
-        /*
-         * TITLE
-         */
-
         TextView title =
                 label(
                         "LIVE & UPCOMING",
@@ -313,10 +297,6 @@ public class MainActivity extends Activity {
                         55
                 )
         );
-
-        /*
-         * LIST
-         */
 
         ScrollView scroll =
                 new ScrollView(this);
@@ -392,7 +372,6 @@ public class MainActivity extends Activity {
         }
 
         if (statusText != null) {
-
             statusText.setText(
                     matches.size()
                             + " MATCHES"
@@ -444,10 +423,6 @@ public class MainActivity extends Activity {
                 card,
                 cardParams
         );
-
-        /*
-         * INFO
-         */
 
         LinearLayout info =
                 new LinearLayout(this);
@@ -523,26 +498,15 @@ public class MainActivity extends Activity {
                 )
         );
 
-        /*
-         * WATCH
-         */
-
         Button watch =
                 action("WATCH");
 
-        /*
-         * Пока тестовый поток.
-         * Ссылка конкретного события уже хранится
-         * в match.eventUrl.
-         */
-
         watch.setOnClickListener(
-        v ->
-                playMatch(
-                        match.home + " — " + match.away,
-                        match.eventUrl
-                )
-);
+                v ->
+                        openMatchPage(
+                                match
+                        )
+        );
 
         card.addView(
                 watch,
@@ -555,7 +519,7 @@ public class MainActivity extends Activity {
 
     /*
      * =========================================================
-     * DOWNLOAD
+     * LOAD MATCHES
      * =========================================================
      */
 
@@ -704,18 +668,6 @@ public class MainActivity extends Activity {
      * =========================================================
      * PARSER
      * =========================================================
-     *
-     * Реальная страница LiveTV904 устроена примерно так:
-     *
-     * img alt="Football. UEFA Nations League"
-     * ...
-     * a href="EVENT_URL">Cyprus CYP – Armenia ARM</a>
-     * ...
-     * 17:00 (UEFA Nations League)
-     *
-     * Поэтому больше НЕ ищем матч как обычный текст.
-     * Сначала находим Football + название турнира,
-     * затем ближайшую ссылку на матч.
      */
 
     private ArrayList<Match> parseMatches(
@@ -731,11 +683,6 @@ public class MainActivity extends Activity {
         ) {
             return result;
         }
-
-        /*
-         * Ищем изображения, у которых ALT начинается
-         * именно с "Football."
-         */
 
         Pattern footballImagePattern =
                 Pattern.compile(
@@ -758,13 +705,6 @@ public class MainActivity extends Activity {
                     cleanText(
                             imageMatcher.group(1)
                     );
-
-            /*
-             * Ограничиваем область поиска после иконки.
-             *
-             * Следующий матч обычно находится
-             * в ближайших нескольких тысячах символов.
-             */
 
             int start =
                     imageMatcher.end();
@@ -833,12 +773,6 @@ public class MainActivity extends Activity {
             String league
     ) {
 
-        /*
-         * Находим ссылки с названиями команд.
-         *
-         * Не берём картинки, CSS и прочее.
-         */
-
         Pattern linkPattern =
                 Pattern.compile(
                         "(?is)"
@@ -864,10 +798,6 @@ public class MainActivity extends Activity {
                             linkMatcher.group(2)
                     );
 
-            /*
-             * Пропускаем мусорные ссылки.
-             */
-
             if (
                     href == null ||
                     href.isEmpty()
@@ -881,10 +811,6 @@ public class MainActivity extends Activity {
                 continue;
             }
 
-            /*
-             * Нужна именно пара команд.
-             */
-
             if (
                     !anchorText.contains("–")
                     &&
@@ -894,10 +820,6 @@ public class MainActivity extends Activity {
             ) {
                 continue;
             }
-
-            /*
-             * Не допускаем другие виды спорта.
-             */
 
             String lower =
                     anchorText.toLowerCase();
@@ -917,10 +839,6 @@ public class MainActivity extends Activity {
             ) {
                 continue;
             }
-
-            /*
-             * Ищем время после этой ссылки.
-             */
 
             int timeStart =
                     linkMatcher.end();
@@ -948,14 +866,9 @@ public class MainActivity extends Activity {
             String time = "";
 
             if (timeMatcher.find()) {
-
                 time =
                         timeMatcher.group(1);
             }
-
-            /*
-             * Если времени нет, возможно матч LIVE.
-             */
 
             boolean live =
                     after.matches(
@@ -969,10 +882,6 @@ public class MainActivity extends Activity {
                                 ? "LIVE"
                                 : "UPCOMING";
             }
-
-            /*
-             * Разбираем команды.
-             */
 
             String[] teams =
                     splitTeams(
@@ -1002,10 +911,6 @@ public class MainActivity extends Activity {
             ) {
                 continue;
             }
-
-            /*
-             * Нормализуем URL события.
-             */
 
             String eventUrl =
                     normalizeUrl(href);
@@ -1054,27 +959,12 @@ public class MainActivity extends Activity {
         return parts;
     }
 
-    /*
-     * Убираем коды стран:
-     *
-     * Cyprus CYP -> Cyprus
-     * Armenia ARM -> Armenia
-     * France FRA -> France
-     *
-     * Но оставляем U-21, (W), U18 и т.п.
-     */
-
     private String cleanTeamName(
             String value
     ) {
 
         value =
                 cleanText(value);
-
-        /*
-         * Удаляем трёхбуквенный код страны
-         * в самом конце.
-         */
 
         value =
                 value.replaceFirst(
@@ -1187,14 +1077,27 @@ public class MainActivity extends Activity {
 
     /*
      * =========================================================
-     * PLAYER
+     * MATCH PAGE INSIDE APP
      * =========================================================
      */
 
-private void playMatch(
-        String matchName,
-        String eventUrl
-) {
+    private void openMatchPage(
+            Match match
+    ) {
+
+        if (
+                match == null ||
+                match.eventUrl == null ||
+                match.eventUrl.isEmpty()
+        ) {
+
+            showError(
+                    "Match page is unavailable."
+            );
+
+            return;
+        }
+
         LinearLayout root =
                 new LinearLayout(this);
 
@@ -1218,7 +1121,7 @@ private void playMatch(
         );
 
         top.setPadding(
-                28,
+                20,
                 8,
                 20,
                 8
@@ -1226,8 +1129,10 @@ private void playMatch(
 
         TextView title =
                 label(
-                        matchName,
-                        20,
+                        match.home
+                                + " — "
+                                + match.away,
+                        19,
                         TEXT
                 );
 
@@ -1258,13 +1163,13 @@ private void playMatch(
 
         root.addView(top);
 
-        playerView =
-                new PlayerView(this);
+        webView =
+                new WebView(this);
 
-        playerView.setUseController(true);
+        configureWebView();
 
         root.addView(
-                playerView,
+                webView,
                 new LinearLayout.LayoutParams(
                         -1,
                         0,
@@ -1275,7 +1180,7 @@ private void playMatch(
         back.setOnClickListener(
                 v -> {
 
-                    releasePlayer();
+                    releaseWebView();
 
                     showMatches();
                 }
@@ -1283,26 +1188,87 @@ private void playMatch(
 
         setContentView(root);
 
-        player =
-                new ExoPlayer.Builder(this)
-                        .build();
+        webView.loadUrl(
+                match.eventUrl
+        );
+    }
 
-        playerView.setPlayer(
-                player
+    private void configureWebView() {
+
+        WebSettings settings =
+                webView.getSettings();
+
+        settings.setJavaScriptEnabled(true);
+        settings.setDomStorageEnabled(true);
+        settings.setDatabaseEnabled(true);
+
+        settings.setMediaPlaybackRequiresUserGesture(
+                false
         );
 
-        MediaItem mediaItem =
-                MediaItem.fromUri(
-                        TEST_HLS
-                );
+        settings.setBuiltInZoomControls(false);
+        settings.setDisplayZoomControls(false);
 
-        player.setMediaItem(
-                mediaItem
+        settings.setLoadWithOverviewMode(true);
+        settings.setUseWideViewPort(true);
+
+        settings.setUserAgentString(
+                "Mozilla/5.0 (Linux; Android 10) "
+                        + "AppleWebKit/537.36 "
+                        + "(KHTML, like Gecko) "
+                        + "Chrome/120.0 Mobile Safari/537.36"
         );
 
-        player.prepare();
+        webView.setBackgroundColor(
+                Color.BLACK
+        );
 
-        player.play();
+        webView.setWebChromeClient(
+                new WebChromeClient()
+        );
+
+        webView.setWebViewClient(
+                new WebViewClient() {
+
+                    @Override
+                    public boolean shouldOverrideUrlLoading(
+                            WebView view,
+                            WebResourceRequest request
+                    ) {
+
+                        return false;
+                    }
+
+                    @Override
+                    public boolean shouldOverrideUrlLoading(
+                            WebView view,
+                            String url
+                    ) {
+
+                        return false;
+                    }
+                }
+        );
+    }
+
+    private void releaseWebView() {
+
+        if (webView != null) {
+
+            webView.stopLoading();
+
+            webView.loadUrl(
+                    "about:blank"
+            );
+
+            webView.clearHistory();
+
+            webView.removeAllViews();
+
+            webView.destroy();
+
+            webView = null;
+        }
     }
 
     private void showError(
@@ -1379,23 +1345,13 @@ private void playMatch(
         setContentView(root);
     }
 
-    private void releasePlayer() {
-
-        if (player != null) {
-
-            player.release();
-
-            player = null;
-        }
-    }
-
     @Override
     protected void onStop() {
 
         super.onStop();
 
         if (isFinishing()) {
-            releasePlayer();
+            releaseWebView();
         }
     }
 
@@ -1406,7 +1362,7 @@ private void playMatch(
                 null
         );
 
-        releasePlayer();
+        releaseWebView();
 
         super.onDestroy();
     }
@@ -1414,9 +1370,9 @@ private void playMatch(
     @Override
     public void onBackPressed() {
 
-        if (player != null) {
+        if (webView != null) {
 
-            releasePlayer();
+            releaseWebView();
 
             showMatches();
 
@@ -1425,12 +1381,6 @@ private void playMatch(
             super.onBackPressed();
         }
     }
-
-    /*
-     * =========================================================
-     * MATCH
-     * =========================================================
-     */
 
     private static class Match {
 
