@@ -1437,7 +1437,7 @@ public class MainActivity extends Activity {
                 null
         );
 
-        releaseWebView();
+        releasePlayer();
 
         super.onDestroy();
     }
