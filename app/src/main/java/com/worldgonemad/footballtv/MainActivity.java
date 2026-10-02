@@ -1487,7 +1487,7 @@ public class MainActivity extends Activity {
             }
 
             @Override
-            public WebResourceRequest shouldInterceptRequest(WebView view, WebResourceRequest request) {
+            public android.webkit.WebResourceResponse shouldInterceptRequest(WebView view, WebResourceRequest request) {
                 String url = request.getUrl().toString();
                 if (isHls(url)) found(url);
                 return super.shouldInterceptRequest(view, request);
