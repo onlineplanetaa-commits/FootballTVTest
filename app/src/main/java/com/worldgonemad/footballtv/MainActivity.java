@@ -49,7 +49,7 @@ public class MainActivity extends Activity {
      * Он нужен только для проверки встроенного плеера.
      */
     private static final String TEST_HLS =
-            "https://test-streams.mux.dev/x36xhzz/x36xhzz.m3u8";
+            "https://a119.azplay48.me/hls/streama268709/index.m3u8?cst=54415b64ee3036903cbfca5a81d2522b";
 
     private final ArrayList<Match> matches =
             new ArrayList<>();
