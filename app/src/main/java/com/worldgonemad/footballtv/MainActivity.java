@@ -9,11 +9,7 @@ import android.os.Handler;
 import android.os.Looper;
 import android.view.Gravity;
 import android.view.View;
-import android.webkit.WebChromeClient;
-import android.webkit.WebResourceRequest;
-import android.webkit.WebSettings;
-import android.webkit.WebView;
-import android.webkit.WebViewClient;
+import android.net.Uri;
 import android.widget.Button;
 import android.widget.LinearLayout;
 import android.widget.ScrollView;
@@ -24,13 +20,21 @@ import java.io.InputStream;
 import java.io.InputStreamReader;
 import java.net.HttpURLConnection;
 import java.net.URL;
+import java.net.URLEncoder;
 import java.util.ArrayList;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
+import java.util.HashSet;
+import java.util.Set;
+
+import androidx.media3.common.MediaItem;
+import androidx.media3.exoplayer.ExoPlayer;
+import androidx.media3.ui.PlayerView;
 
 public class MainActivity extends Activity {
 
-    private WebView webView;
+    private ExoPlayer player;
+    private PlayerView playerView;
 
     private final Handler handler =
             new Handler(Looper.getMainLooper());
@@ -503,7 +507,7 @@ public class MainActivity extends Activity {
 
         watch.setOnClickListener(
                 v ->
-                        openMatchPage(
+                        resolveAndPlay(
                                 match
                         )
         );
@@ -1081,193 +1085,264 @@ public class MainActivity extends Activity {
      * =========================================================
      */
 
-    private void openMatchPage(
-            Match match
-    ) {
+    private void resolveAndPlay(Match match) {
 
-        if (
-                match == null ||
-                match.eventUrl == null ||
-                match.eventUrl.isEmpty()
-        ) {
-
-            showError(
-                    "Match page is unavailable."
-            );
-
+        if (match == null || match.eventUrl == null || match.eventUrl.isEmpty()) {
+            showError("Match page is unavailable.");
             return;
         }
 
-        LinearLayout root =
-                new LinearLayout(this);
+        showPlayer(match, "Finding video stream...");
 
-        root.setOrientation(
-                LinearLayout.VERTICAL
+        new Thread(() -> {
+            String hls = resolvePublicHls(match.eventUrl);
+
+            runOnUiThread(() -> {
+                if (hls != null && !hls.isEmpty()) {
+                    playHls(hls);
+                } else {
+                    showPlayer(match, "No public video stream was found for this match.");
+                }
+            });
+        }).start();
+    }
+
+    private String resolvePublicHls(String eventUrl) {
+        String html = downloadPage(eventUrl);
+        if (html == null || html.isEmpty()) return "";
+
+        String hls = findHls(html);
+        if (!hls.isEmpty()) return hls;
+
+        ArrayList<String> candidates = findCandidatePages(html, eventUrl);
+        Set<String> visited = new HashSet<>();
+
+        for (String page : candidates) {
+            if (!visited.add(page)) continue;
+
+            String pageHtml = downloadPage(page);
+            if (pageHtml.isEmpty()) continue;
+
+            hls = findHls(pageHtml);
+            if (!hls.isEmpty()) return hls;
+
+            ArrayList<String> nested = findCandidatePages(pageHtml, page);
+            for (String child : nested) {
+                if (!visited.add(child)) continue;
+
+                String childHtml = downloadPage(child);
+                if (childHtml.isEmpty()) continue;
+
+                hls = findHls(childHtml);
+                if (!hls.isEmpty()) return hls;
+            }
+        }
+
+        return "";
+    }
+
+    private String findHls(String html) {
+        if (html == null || html.isEmpty()) return "";
+
+        Pattern p = Pattern.compile(
+                "(?i)(https?://[^\\\"'\\s<>]+\\.m3u8(?:\\?[^\\\"'\\s<>]*)?)"
         );
 
-        root.setBackgroundColor(
-                Color.BLACK
+        Matcher m = p.matcher(html);
+        while (m.find()) {
+            String url = decodeUrl(m.group(1));
+            if (url.startsWith("https://") || url.startsWith("http://")) {
+                return url;
+            }
+        }
+
+        return "";
+    }
+
+    private ArrayList<String> findCandidatePages(String html, String baseUrl) {
+        ArrayList<String> result = new ArrayList<>();
+        if (html == null || html.isEmpty()) return result;
+
+        Pattern p = Pattern.compile(
+                "(?is)(?:href|src)\\s*=\\s*[\\\"']([^\\\"']+)[\\\"']"
         );
 
-        LinearLayout top =
-                new LinearLayout(this);
+        Matcher m = p.matcher(html);
 
-        top.setOrientation(
-                LinearLayout.HORIZONTAL
+        while (m.find()) {
+            String href = decodeUrl(m.group(1));
+
+            String lower = href.toLowerCase();
+
+            if (!lower.contains("webplayer")
+                    && !lower.contains("/player/")
+                    && !lower.contains("/export/")
+                    && !lower.contains("iframe")
+                    && !lower.contains("apl614")
+                    && !lower.contains("azplay")) {
+                continue;
+            }
+
+            String absolute = absoluteUrl(href, baseUrl);
+
+            if (!absolute.isEmpty()
+                    && (absolute.startsWith("https://")
+                    || absolute.startsWith("http://"))) {
+                if (!result.contains(absolute)) result.add(absolute);
+            }
+        }
+
+        return result;
+    }
+
+    private String decodeUrl(String value) {
+        if (value == null) return "";
+
+        String result = value.trim();
+
+        result = result.replace("&amp;", "&");
+        result = result.replace("\\/", "/");
+        result = result.replace("\\\"", """);
+        result = result.replace("&#x3D;", "=");
+        result = result.replace("&#61;", "=");
+
+        return result;
+    }
+
+    private String absoluteUrl(String href, String baseUrl) {
+        try {
+            URL base = new URL(baseUrl);
+            URL resolved = new URL(base, href);
+            return resolved.toString();
+        } catch (Exception e) {
+            return "";
+        }
+    }
+
+    private void showPlayer(Match match, String message) {
+        releasePlayer();
+
+        LinearLayout root = new LinearLayout(this);
+        root.setOrientation(LinearLayout.VERTICAL);
+        root.setBackgroundColor(Color.BLACK);
+
+        LinearLayout top = new LinearLayout(this);
+        top.setOrientation(LinearLayout.HORIZONTAL);
+        top.setGravity(Gravity.CENTER_VERTICAL);
+        top.setPadding(20, 8, 20, 8);
+
+        TextView title = label(
+                match.home + " — " + match.away,
+                19,
+                TEXT
         );
 
-        top.setGravity(
-                Gravity.CENTER_VERTICAL
-        );
-
-        top.setPadding(
-                20,
-                8,
-                20,
-                8
-        );
-
-        TextView title =
-                label(
-                        match.home
-                                + " — "
-                                + match.away,
-                        19,
-                        TEXT
-                );
-
-        title.setTypeface(
-                Typeface.DEFAULT,
-                Typeface.BOLD
-        );
+        title.setTypeface(Typeface.DEFAULT, Typeface.BOLD);
 
         top.addView(
                 title,
-                new LinearLayout.LayoutParams(
-                        0,
-                        56,
-                        1
-                )
+                new LinearLayout.LayoutParams(0, 56, 1)
         );
 
-        Button back =
-                action("BACK");
+        Button back = action("BACK");
 
         top.addView(
                 back,
-                new LinearLayout.LayoutParams(
-                        120,
-                        52
-                )
+                new LinearLayout.LayoutParams(120, 52)
         );
 
         root.addView(top);
 
-        webView =
-                new WebView(this);
+        TextView status = label(
+                message,
+                16,
+                MUTED
+        );
 
-        configureWebView();
+        status.setGravity(Gravity.CENTER);
 
         root.addView(
-                webView,
-                new LinearLayout.LayoutParams(
-                        -1,
-                        0,
-                        1
-                )
+                status,
+                new LinearLayout.LayoutParams(-1, 55)
         );
 
-        back.setOnClickListener(
-                v -> {
+        playerView = new PlayerView(this);
+        playerView.setBackgroundColor(Color.BLACK);
 
-                    releaseWebView();
-
-                    showMatches();
-                }
+        root.addView(
+                playerView,
+                new LinearLayout.LayoutParams(-1, 0, 1)
         );
+
+        back.setOnClickListener(v -> {
+            releasePlayer();
+            showMatches();
+        });
+
+        setContentView(root);
+    }
+
+    private void playHls(String hls) {
+        if (hls == null || hls.isEmpty() || playerView == null) return;
+
+        releasePlayer();
+
+        playerView = new PlayerView(this);
+        playerView.setBackgroundColor(Color.BLACK);
+
+        LinearLayout root = new LinearLayout(this);
+        root.setOrientation(LinearLayout.VERTICAL);
+        root.setBackgroundColor(Color.BLACK);
+
+        LinearLayout top = new LinearLayout(this);
+        top.setOrientation(LinearLayout.HORIZONTAL);
+        top.setGravity(Gravity.CENTER_VERTICAL);
+        top.setPadding(20, 8, 20, 8);
+
+        TextView title = label("MAX FOOTBALL ONLINE", 19, TEXT);
+        title.setTypeface(Typeface.DEFAULT, Typeface.BOLD);
+
+        top.addView(title, new LinearLayout.LayoutParams(0, 56, 1));
+
+        Button back = action("BACK");
+        top.addView(back, new LinearLayout.LayoutParams(120, 52));
+
+        root.addView(top);
+
+        root.addView(
+                playerView,
+                new LinearLayout.LayoutParams(-1, 0, 1)
+        );
+
+        back.setOnClickListener(v -> {
+            releasePlayer();
+            showMatches();
+        });
 
         setContentView(root);
 
-        webView.loadUrl(
-                match.eventUrl
-        );
+        player = new ExoPlayer.Builder(this).build();
+        playerView.setPlayer(player);
+
+        MediaItem item = new MediaItem.Builder()
+                .setUri(Uri.parse(hls))
+                .build();
+
+        player.setMediaItem(item);
+        player.prepare();
+        player.play();
     }
 
-    private void configureWebView() {
+    private void releasePlayer() {
+        if (player != null) {
+            player.stop();
+            player.release();
+            player = null;
+        }
 
-        WebSettings settings =
-                webView.getSettings();
-
-        settings.setJavaScriptEnabled(true);
-        settings.setDomStorageEnabled(true);
-        settings.setDatabaseEnabled(true);
-
-        settings.setMediaPlaybackRequiresUserGesture(
-                false
-        );
-
-        settings.setBuiltInZoomControls(false);
-        settings.setDisplayZoomControls(false);
-
-        settings.setLoadWithOverviewMode(true);
-        settings.setUseWideViewPort(true);
-
-        settings.setUserAgentString(
-                "Mozilla/5.0 (Linux; Android 10) "
-                        + "AppleWebKit/537.36 "
-                        + "(KHTML, like Gecko) "
-                        + "Chrome/120.0 Mobile Safari/537.36"
-        );
-
-        webView.setBackgroundColor(
-                Color.BLACK
-        );
-
-        webView.setWebChromeClient(
-                new WebChromeClient()
-        );
-
-        webView.setWebViewClient(
-                new WebViewClient() {
-
-                    @Override
-                    public boolean shouldOverrideUrlLoading(
-                            WebView view,
-                            WebResourceRequest request
-                    ) {
-
-                        return false;
-                    }
-
-                    @Override
-                    public boolean shouldOverrideUrlLoading(
-                            WebView view,
-                            String url
-                    ) {
-
-                        return false;
-                    }
-                }
-        );
-    }
-
-    private void releaseWebView() {
-
-        if (webView != null) {
-
-            webView.stopLoading();
-
-            webView.loadUrl(
-                    "about:blank"
-            );
-
-            webView.clearHistory();
-
-            webView.removeAllViews();
-
-            webView.destroy();
-
-            webView = null;
+        if (playerView != null) {
+            playerView.setPlayer(null);
+            playerView = null;
         }
     }
 
@@ -1351,7 +1426,7 @@ public class MainActivity extends Activity {
         super.onStop();
 
         if (isFinishing()) {
-            releaseWebView();
+            releasePlayer();
         }
     }
 
@@ -1370,9 +1445,9 @@ public class MainActivity extends Activity {
     @Override
     public void onBackPressed() {
 
-        if (webView != null) {
+        if (player != null || playerView != null) {
 
-            releaseWebView();
+            releasePlayer();
 
             showMatches();
 
