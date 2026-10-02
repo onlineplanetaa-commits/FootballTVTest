@@ -1202,7 +1202,7 @@ public class MainActivity extends Activity {
 
         result = result.replace("&amp;", "&");
         result = result.replace("\\/", "/");
-        result = result.replace("\\\"", """);
+        result = result.replace("\\\"", "\"");
         result = result.replace("&#x3D;", "=");
         result = result.replace("&#61;", "=");
 
