@@ -1470,8 +1470,9 @@ public class MainActivity extends Activity {
         WebView web = new WebView(this);
         resolverWebView = web;
 
-        // Keep it effectively invisible, but attach it to the player screen
-        // so WebView actually performs JavaScript/network activity.
+        // Use a real WebView session because LiveTV904 builds some source
+        // links with JavaScript. We only observe public browser requests;
+        // we do not bypass login, DRM, or access controls.
         web.setVisibility(View.VISIBLE);
         web.setAlpha(0.01f);
 
@@ -1489,17 +1490,53 @@ public class MainActivity extends Activity {
         CookieManager.getInstance().setAcceptThirdPartyCookies(web, true);
 
         final String eventUrl = match.eventUrl;
-        final String eid = extractFirst(eventUrl, "(?i)eventinfo/([0-9]+)");
+        final String eid = extractFirst(
+                eventUrl,
+                "(?i)eventinfo/([0-9]+)"
+        );
 
         final ArrayList<String> pages = new ArrayList<>();
         pages.add(eventUrl);
 
         if (!eid.isEmpty()) {
-            pages.add("https://livetv904.me/player/links/ru/" + eid + "?mob=1");
-            pages.add("https://livetv904.me/player/links/en/" + eid + "?mob=1");
+            pages.add(
+                    "https://livetv904.me/player/links/ru/"
+                            + eid + "?mob=1"
+            );
+            pages.add(
+                    "https://livetv904.me/player/links/en/"
+                            + eid + "?mob=1"
+            );
         }
 
-        web.setWebChromeClient(new WebChromeClient());
+        web.setWebChromeClient(new WebChromeClient() {
+            @Override
+            public boolean onCreateWindow(
+                    WebView view,
+                    boolean isDialog,
+                    boolean isUserGesture,
+                    android.os.Message resultMsg
+            ) {
+                // Many source buttons use target=_blank/window.open().
+                // Reuse the same resolver WebView instead of creating a
+                // separate window that we could not observe.
+                WebView.HitTestResult hit = view.getHitTestResult();
+                if (hit != null && hit.getExtra() != null) {
+                    String u = hit.getExtra();
+                    if (u.startsWith("http://")
+                            || u.startsWith("https://")) {
+                        view.loadUrl(u);
+                        return true;
+                    }
+                }
+
+                view.evaluateJavascript(
+                        "(function(){window.open=function(u){if(u)location.href=u;};return true;})()",
+                        null
+                );
+                return false;
+            }
+        });
 
         web.setWebViewClient(new WebViewClient() {
             private int pageIndex = 0;
@@ -1507,8 +1544,8 @@ public class MainActivity extends Activity {
             private final Set<String> loadedPages = new HashSet<>();
 
             private boolean isHls(String url) {
-                if (url == null) return false;
-                return url.toLowerCase().contains(".m3u8");
+                return url != null
+                        && url.toLowerCase().contains(".m3u8");
             }
 
             private void found(String url) {
@@ -1525,42 +1562,77 @@ public class MainActivity extends Activity {
                     } catch (Exception ignored) {}
 
                     resolverWebView = null;
+
                     playHls(url);
                 });
             }
 
-            private void inspectPage(WebView view) {
+            private void inspectPage(WebView view, String currentUrl) {
                 if (finished) return;
 
-                // Check actual browser resource entries and page DOM.
-                // This catches JavaScript-created player URLs.
+                // Important: do not only look at href/src. LiveTV904 source
+                // buttons can use onclick, data-url, JavaScript navigation,
+                // target=_blank, or a generated player link.
                 String js =
                         "(function(){" +
                         "try{" +
+
+                        // Catch a direct manifest already requested by the page.
                         "var e=performance.getEntriesByType('resource');" +
                         "for(var i=0;i<e.length;i++){" +
-                        "var u=e[i].name||'';" +
-                        "if(/\\.m3u8(?:\\?|$)/i.test(u)){" +
-                        "window.location.href=u;return;" +
+                        "var p=e[i].name||'';" +
+                        "if(/\\.m3u8(?:\\?|$)/i.test(p)){" +
+                        "location.href=p;return;" +
                         "}" +
                         "}" +
-                        "var a=document.querySelectorAll('a[href],iframe[src],source[src],video[src]');" +
+
+                        // Make window.open stay inside this WebView.
+                        "window.open=function(u){if(u)location.href=u;};" +
+
+                        "var a=document.querySelectorAll('a,iframe,source,video');" +
                         "for(var j=0;j<a.length;j++){" +
-                        "var u2=a[j].href||a[j].src||'';" +
-                        "if(/\\.m3u8(?:\\?|$)/i.test(u2)){" +
-                        "window.location.href=u2;return;" +
+                        "var u='';" +
+                        "u=a[j].href||a[j].src||'';" +
+                        "var d=a[j].getAttribute('data-url')||a[j].getAttribute('data-href')||'';" +
+                        "var oc=a[j].getAttribute('onclick')||'';" +
+                        "var all=(u+' '+d+' '+oc);" +
+
+                        // Direct HLS.
+                        "if(/\\.m3u8(?:\\?|$)/i.test(all)){" +
+                        "var mh=all.match(/https?:[^\\\"'\\s]+\\.m3u8(?:\\?[^\\\"'\\s]*)?/i);" +
+                        "if(mh){location.href=mh[0];return;}" +
                         "}" +
-                        "if(/webplayer|\\/player\\/|\\/export\\/|apl614|azplay/i.test(u2)){" +
-                        "window.location.href=u2;return;" +
+
+                        // Navigate to the actual player/source endpoint.
+                        "if(/webplayer|\\/player\\/|\\/export\\/|apl614|azplay/i.test(all)){" +
+                        "var mu=all.match(/https?:[^\\\"'\\s)]+/i);" +
+                        "if(mu){location.href=mu[0];return;}" +
                         "}" +
                         "}" +
+
+                        // On the Browser Links page, activate a public source
+                        // button instead of merely reading its label. This is
+                        // needed when the site hides the real URL in JavaScript.
+                        "if(/\\/player\\/links\\//i.test(location.href)){" +
+                        "var links=document.querySelectorAll('a,button');" +
+                        "for(var k=0;k<links.length;k++){" +
+                        "var txt=(links[k].innerText||links[k].textContent||'').trim();" +
+                        "if(/Aliez|Web/i.test(txt)){" +
+                        "try{links[k].click();return;}catch(x){}" +
+                        "}" +
+                        "}" +
+                        "}" +
+
                         "}catch(x){}" +
                         "})()";
 
                 view.evaluateJavascript(js, null);
 
                 if (!finished) {
-                    handler.postDelayed(() -> inspectPage(view), 700);
+                    handler.postDelayed(
+                            () -> inspectPage(view, currentUrl),
+                            600
+                    );
                 }
             }
 
@@ -1576,16 +1648,23 @@ public class MainActivity extends Activity {
                     }
                 }
 
+                // Give the last page a little time for delayed JS/player
+                // initialization before declaring failure.
                 handler.postDelayed(() -> {
                     if (!finished && resolverWebView == web) {
                         try {
                             web.stopLoading();
                             web.destroy();
                         } catch (Exception ignored) {}
+
                         resolverWebView = null;
-                        showPlayer(match, "No public video stream was found for this match.");
+
+                        showPlayer(
+                                match,
+                                "No public video stream was found for this match."
+                        );
                     }
-                }, 5000);
+                }, 8000);
             }
 
             @Override
@@ -1595,6 +1674,8 @@ public class MainActivity extends Activity {
             ) {
                 String url = request.getUrl().toString();
 
+                // WebView exposes resource requests here, including XHR/fetch
+                // resources used by browser video players.
                 if (isHls(url)) {
                     found(url);
                 }
@@ -1618,30 +1699,40 @@ public class MainActivity extends Activity {
             }
 
             @Override
-            public void onPageFinished(WebView view, String url) {
+            public void onPageFinished(
+                    WebView view,
+                    String url
+            ) {
                 super.onPageFinished(view, url);
 
                 if (finished) return;
 
-                inspectPage(view);
+                inspectPage(view, url);
 
-                // Let delayed JavaScript/player initialization run first.
+                // Allow source-list JavaScript to finish, then move to the
+                // next known LiveTV904 page if no player was opened.
                 handler.postDelayed(() -> {
                     if (!finished && resolverWebView == web) {
                         loadNextPage();
                     }
-                }, 4500);
+                }, 5500);
             }
         });
 
-        if (playerView != null && playerView.getParent() instanceof LinearLayout) {
-            LinearLayout parent = (LinearLayout) playerView.getParent();
-            parent.addView(web, new LinearLayout.LayoutParams(2, 2));
+        if (playerView != null
+                && playerView.getParent() instanceof LinearLayout) {
+            LinearLayout parent =
+                    (LinearLayout) playerView.getParent();
+
+            parent.addView(
+                    web,
+                    new LinearLayout.LayoutParams(2, 2)
+            );
         }
 
         web.loadUrl(pages.get(0));
 
-        // Absolute safety timeout.
+        // Safety timeout. The resolver should normally finish much earlier.
         handler.postDelayed(() -> {
             if (resolverWebView == web) {
                 try {
@@ -1650,9 +1741,13 @@ public class MainActivity extends Activity {
                 } catch (Exception ignored) {}
 
                 resolverWebView = null;
-                showPlayer(match, "No public video stream was found for this match.");
+
+                showPlayer(
+                        match,
+                        "No public video stream was found for this match."
+                );
             }
-        }, 45000);
+        }, 50000);
     }
 
     private void showPlayer(Match match, String message) {
