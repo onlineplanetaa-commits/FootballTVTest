@@ -698,91 +698,130 @@ public class MainActivity extends Activity {
         ArrayList<Match> result =
                 new ArrayList<>();
 
-        if (
-                html == null ||
-                html.isEmpty()
-        ) {
+        if (html == null || html.isEmpty()) {
             return result;
         }
 
-        Pattern footballImagePattern =
+        // LiveTV904 changes the exact HTML structure from time to time.
+        // Do not depend on a fixed distance between the sport image and
+        // the event link. Instead scan all eventinfo links and determine
+        // the sport from the nearest preceding Football image.
+        Pattern linkPattern =
                 Pattern.compile(
-                        "(?is)"
-                                + "<img[^>]+alt\\s*=\\s*[\"']"
-                                + "Football\\.([^\"']+)"
-                                + "[\"'][^>]*>"
+                        "(?is)<a\\s+[^>]*href\\s*=\\s*[\\\"']"
+                                + "([^\\\"']*?/eventinfo/[^\\\"']+)"
+                                + "[\\\"'][^>]*>"
+                                + "(.*?)"
+                                + "</a>"
                 );
 
-        Matcher imageMatcher =
-                footballImagePattern.matcher(
-                        html
-                );
+        Matcher linkMatcher =
+                linkPattern.matcher(html);
 
-        while (
-                imageMatcher.find()
-        ) {
+        while (linkMatcher.find()) {
 
-            String league =
-                    cleanText(
-                            imageMatcher.group(1)
-                    );
+            String href = linkMatcher.group(1);
+            String anchorText = cleanText(linkMatcher.group(2));
 
-            int start =
-                    imageMatcher.end();
-
-            int end =
-                    Math.min(
-                            html.length(),
-                            start + 5000
-                    );
-
-            String area =
-                    html.substring(
-                            start,
-                            end
-                    );
-
-            Match match =
-                    parseMatchFromArea(
-                            area,
-                            league
-                    );
-
-            if (match == null) {
+            if (href == null || href.isEmpty() || anchorText.isEmpty()) {
                 continue;
             }
+
+            if (!anchorText.contains("–")
+                    && !anchorText.contains("—")
+                    && !anchorText.contains(" - ")) {
+                continue;
+            }
+
+            String prefix =
+                    html.substring(
+                            Math.max(0, linkMatcher.start() - 15000),
+                            linkMatcher.start()
+                    );
+
+            Matcher footballMatcher =
+                    Pattern.compile(
+                            "(?is)<img[^>]+alt\\s*=\\s*[\\\"']Football\\.([^\\\"']+)[\\\"'][^>]*>"
+                    ).matcher(prefix);
+
+            String league = "";
+
+            while (footballMatcher.find()) {
+                league = cleanText(footballMatcher.group(1));
+            }
+
+            if (league.isEmpty()) {
+                continue;
+            }
+
+            int afterStart = linkMatcher.end();
+            int afterEnd =
+                    Math.min(
+                            html.length(),
+                            afterStart + 1500
+                    );
+
+            String after =
+                    html.substring(afterStart, afterEnd);
+
+            Matcher timeMatcher =
+                    Pattern.compile(
+                            "\\b(\\d{1,2}:\\d{2})\\b"
+                    ).matcher(after);
+
+            String time = "";
+
+            if (timeMatcher.find()) {
+                time = timeMatcher.group(1);
+            }
+
+            boolean live =
+                    Pattern.compile(
+                            "(?is).*?\\b\\d+\\s*:\\s*\\d+\\b.*"
+                    ).matcher(after).matches();
+
+            if (time.isEmpty()) {
+                time = live ? "LIVE" : "UPCOMING";
+            }
+
+            String[] teams = splitTeams(anchorText);
+
+            if (teams == null || teams.length != 2) {
+                continue;
+            }
+
+            String home = cleanTeamName(teams[0]);
+            String away = cleanTeamName(teams[1]);
+
+            if (home.isEmpty() || away.isEmpty()) {
+                continue;
+            }
+
+            String eventUrl = normalizeUrl(href);
 
             boolean duplicate = false;
 
             for (Match existing : result) {
-
-                if (
-                        existing.eventUrl.equals(
-                                match.eventUrl
-                        )
-                        ||
-                        (
-                                existing.home.equals(
-                                        match.home
-                                )
-                                &&
-                                existing.away.equals(
-                                        match.away
-                                )
-                                &&
-                                existing.time.equals(
-                                        match.time
-                                )
-                        )
-                ) {
-
+                if (existing.eventUrl.equals(eventUrl)
+                        || (existing.home.equals(home)
+                        && existing.away.equals(away)
+                        && existing.time.equals(time))) {
                     duplicate = true;
                     break;
                 }
             }
 
             if (!duplicate) {
-                result.add(match);
+                result.add(
+                        new Match(
+                                league,
+                                home,
+                                away,
+                                time,
+                                live,
+                                eventUrl
+                        )
+                );
             }
         }
 
