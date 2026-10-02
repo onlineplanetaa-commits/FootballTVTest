@@ -8,7 +8,6 @@ import android.os.Bundle;
 import android.os.Handler;
 import android.os.Looper;
 import android.view.Gravity;
-import android.view.View;
 import android.widget.Button;
 import android.widget.LinearLayout;
 import android.widget.ScrollView;
@@ -46,10 +45,8 @@ public class MainActivity extends Activity {
             "https://livetv904.me/enx/allupcoming/";
 
     /*
-     * Тестовый поток.
-     *
-     * Он нужен только пока мы проверяем встроенный ExoPlayer.
-     * Позже здесь будут разрешённые HLS-источники матчей.
+     * Пока оставляем тестовый HLS.
+     * Он нужен только для проверки встроенного плеера.
      */
     private static final String TEST_HLS =
             "https://test-streams.mux.dev/x36xhzz/x36xhzz.m3u8";
@@ -76,7 +73,6 @@ public class MainActivity extends Activity {
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
-
         super.onCreate(savedInstanceState);
 
         showLoading();
@@ -94,7 +90,6 @@ public class MainActivity extends Activity {
             float size,
             int color
     ) {
-
         TextView t = new TextView(this);
 
         t.setText(text);
@@ -109,7 +104,6 @@ public class MainActivity extends Activity {
             int color,
             float radius
     ) {
-
         GradientDrawable d =
                 new GradientDrawable();
 
@@ -127,6 +121,7 @@ public class MainActivity extends Activity {
         b.setTextColor(TEXT);
         b.setTextSize(14);
         b.setAllCaps(false);
+
         b.setTypeface(
                 Typeface.DEFAULT,
                 Typeface.BOLD
@@ -150,9 +145,7 @@ public class MainActivity extends Activity {
         b.setOnFocusChangeListener(
                 (v, hasFocus) ->
                         v.setAlpha(
-                                hasFocus
-                                        ? 1f
-                                        : 0.82f
+                                hasFocus ? 1f : 0.82f
                         )
         );
 
@@ -168,10 +161,7 @@ public class MainActivity extends Activity {
                 LinearLayout.VERTICAL
         );
 
-        root.setGravity(
-                Gravity.CENTER
-        );
-
+        root.setGravity(Gravity.CENTER);
         root.setBackgroundColor(BG);
 
         TextView title =
@@ -186,9 +176,7 @@ public class MainActivity extends Activity {
                 Typeface.BOLD
         );
 
-        title.setGravity(
-                Gravity.CENTER
-        );
+        title.setGravity(Gravity.CENTER);
 
         root.addView(
                 title,
@@ -205,9 +193,7 @@ public class MainActivity extends Activity {
                         MUTED
                 );
 
-        loading.setGravity(
-                Gravity.CENTER
-        );
+        loading.setGravity(Gravity.CENTER);
 
         root.addView(
                 loading,
@@ -276,7 +262,8 @@ public class MainActivity extends Activity {
 
         statusText =
                 label(
-                        "UPDATING...",
+                        matches.size()
+                                + " MATCHES",
                         14,
                         MUTED
                 );
@@ -328,7 +315,7 @@ public class MainActivity extends Activity {
         );
 
         /*
-         * MATCH LIST
+         * LIST
          */
 
         ScrollView scroll =
@@ -351,9 +338,7 @@ public class MainActivity extends Activity {
                 LinearLayout.VERTICAL
         );
 
-        scroll.addView(
-                listContainer
-        );
+        scroll.addView(listContainer);
 
         root.addView(
                 scroll,
@@ -386,9 +371,7 @@ public class MainActivity extends Activity {
                             MUTED
                     );
 
-            empty.setGravity(
-                    Gravity.CENTER
-            );
+            empty.setGravity(Gravity.CENTER);
 
             listContainer.addView(
                     empty,
@@ -402,7 +385,6 @@ public class MainActivity extends Activity {
         }
 
         for (Match match : matches) {
-
             addMatch(
                     listContainer,
                     match
@@ -464,7 +446,7 @@ public class MainActivity extends Activity {
         );
 
         /*
-         * INFORMATION
+         * INFO
          */
 
         LinearLayout info =
@@ -548,6 +530,12 @@ public class MainActivity extends Activity {
         Button watch =
                 action("WATCH");
 
+        /*
+         * Пока тестовый поток.
+         * Ссылка конкретного события уже хранится
+         * в match.eventUrl.
+         */
+
         watch.setOnClickListener(
                 v ->
                         playMatch(
@@ -568,7 +556,7 @@ public class MainActivity extends Activity {
 
     /*
      * =========================================================
-     * LOAD MATCHES
+     * DOWNLOAD
      * =========================================================
      */
 
@@ -606,7 +594,9 @@ public class MainActivity extends Activity {
                                                 "Could not load football matches."
                                         );
 
-                                    } else {
+                                    } else if (
+                                            statusText != null
+                                    ) {
 
                                         statusText.setText(
                                                 "UPDATE FAILED"
@@ -661,8 +651,10 @@ public class MainActivity extends Activity {
             int code =
                     connection.getResponseCode();
 
-            if (code < 200 || code >= 400) {
-
+            if (
+                    code < 200 ||
+                    code >= 400
+            ) {
                 return "";
             }
 
@@ -704,7 +696,6 @@ public class MainActivity extends Activity {
         } finally {
 
             if (connection != null) {
-
                 connection.disconnect();
             }
         }
@@ -712,8 +703,20 @@ public class MainActivity extends Activity {
 
     /*
      * =========================================================
-     * PARSE FOOTBALL MATCHES
+     * PARSER
      * =========================================================
+     *
+     * Реальная страница LiveTV904 устроена примерно так:
+     *
+     * img alt="Football. UEFA Nations League"
+     * ...
+     * a href="EVENT_URL">Cyprus CYP – Armenia ARM</a>
+     * ...
+     * 17:00 (UEFA Nations League)
+     *
+     * Поэтому больше НЕ ищем матч как обычный текст.
+     * Сначала находим Football + название турнира,
+     * затем ближайшую ссылку на матч.
      */
 
     private ArrayList<Match> parseMatches(
@@ -727,336 +730,401 @@ public class MainActivity extends Activity {
                 html == null ||
                 html.isEmpty()
         ) {
-
             return result;
         }
 
         /*
-         * Удаляем HTML-теги,
-         * чтобы анализировать текст страницы.
+         * Ищем изображения, у которых ALT начинается
+         * именно с "Football."
          */
 
-        String text =
-                html.replaceAll(
-                        "(?is)<script.*?</script>",
-                        " "
-                );
-
-        text =
-                text.replaceAll(
-                        "(?is)<style.*?</style>",
-                        " "
-                );
-
-        /*
-         * Ищем футбольные блоки.
-         *
-         * LiveTV904 использует записи,
-         * содержащие слово Football.
-         */
-
-        Pattern footballPattern =
+        Pattern footballImagePattern =
                 Pattern.compile(
-                        "(?is)Football\\.?\\s*(.*?)"
-                                + "(?=Football\\.?|Ice Hockey|"
-                                + "Tennis|Basketball|Volleyball|"
-                                + "Handball|Darts|Aussie Rules|"
-                                + "Show All)"
+                        "(?is)"
+                                + "<img[^>]+alt\\s*=\\s*[\"']"
+                                + "Football\\.([^\"']+)"
+                                + "[\"'][^>]*>"
                 );
 
-        Matcher matcher =
-                footballPattern.matcher(
-                        text
+        Matcher imageMatcher =
+                footballImagePattern.matcher(
+                        html
                 );
 
         while (
-                matcher.find()
+                imageMatcher.find()
         ) {
 
-            String block =
+            String league =
                     cleanText(
-                            matcher.group(1)
+                            imageMatcher.group(1)
                     );
 
+            /*
+             * Ограничиваем область поиска после иконки.
+             *
+             * Следующий матч обычно находится
+             * в ближайших нескольких тысячах символов.
+             */
+
+            int start =
+                    imageMatcher.end();
+
+            int end =
+                    Math.min(
+                            html.length(),
+                            start + 5000
+                    );
+
+            String area =
+                    html.substring(
+                            start,
+                            end
+                    );
+
+            Match match =
+                    parseMatchFromArea(
+                            area,
+                            league
+                    );
+
+            if (match == null) {
+                continue;
+            }
+
+            boolean duplicate = false;
+
+            for (Match existing : result) {
+
+                if (
+                        existing.eventUrl.equals(
+                                match.eventUrl
+                        )
+                        ||
+                        (
+                                existing.home.equals(
+                                        match.home
+                                )
+                                &&
+                                existing.away.equals(
+                                        match.away
+                                )
+                                &&
+                                existing.time.equals(
+                                        match.time
+                                )
+                        )
+                ) {
+
+                    duplicate = true;
+                    break;
+                }
+            }
+
+            if (!duplicate) {
+                result.add(match);
+            }
+        }
+
+        return result;
+    }
+
+    private Match parseMatchFromArea(
+            String area,
+            String league
+    ) {
+
+        /*
+         * Находим ссылки с названиями команд.
+         *
+         * Не берём картинки, CSS и прочее.
+         */
+
+        Pattern linkPattern =
+                Pattern.compile(
+                        "(?is)"
+                                + "<a\\s+[^>]*href\\s*=\\s*[\"']"
+                                + "([^\"']+)"
+                                + "[\"'][^>]*>"
+                                + "(.*?)"
+                                + "</a>"
+                );
+
+        Matcher linkMatcher =
+                linkPattern.matcher(area);
+
+        while (
+                linkMatcher.find()
+        ) {
+
+            String href =
+                    linkMatcher.group(1);
+
+            String anchorText =
+                    cleanText(
+                            linkMatcher.group(2)
+                    );
+
+            /*
+             * Пропускаем мусорные ссылки.
+             */
+
             if (
-                    block.length() < 5
+                    href == null ||
+                    href.isEmpty()
             ) {
                 continue;
             }
 
-            Match match =
-                    parseFootballBlock(
-                            block
+            if (
+                    anchorText.isEmpty()
+            ) {
+                continue;
+            }
+
+            /*
+             * Нужна именно пара команд.
+             */
+
+            if (
+                    !anchorText.contains("–")
+                    &&
+                    !anchorText.contains("—")
+                    &&
+                    !anchorText.contains(" - ")
+            ) {
+                continue;
+            }
+
+            /*
+             * Не допускаем другие виды спорта.
+             */
+
+            String lower =
+                    anchorText.toLowerCase();
+
+            if (
+                    lower.contains("basketball")
+                    ||
+                    lower.contains("hockey")
+                    ||
+                    lower.contains("tennis")
+                    ||
+                    lower.contains("volleyball")
+                    ||
+                    lower.contains("handball")
+                    ||
+                    lower.contains("darts")
+            ) {
+                continue;
+            }
+
+            /*
+             * Ищем время после этой ссылки.
+             */
+
+            int timeStart =
+                    linkMatcher.end();
+
+            int timeEnd =
+                    Math.min(
+                            area.length(),
+                            timeStart + 1200
+                    );
+
+            String after =
+                    area.substring(
+                            timeStart,
+                            timeEnd
+                    );
+
+            Pattern timePattern =
+                    Pattern.compile(
+                            "\\b(\\d{1,2}:\\d{2})\\b"
+                    );
+
+            Matcher timeMatcher =
+                    timePattern.matcher(after);
+
+            String time = "";
+
+            if (timeMatcher.find()) {
+
+                time =
+                        timeMatcher.group(1);
+            }
+
+            /*
+             * Если времени нет, возможно матч LIVE.
+             */
+
+            boolean live =
+                    after.matches(
+                            "(?is).*?\\b\\d+\\s*:\\s*\\d+\\b.*"
+                    );
+
+            if (time.isEmpty()) {
+
+                time =
+                        live
+                                ? "LIVE"
+                                : "UPCOMING";
+            }
+
+            /*
+             * Разбираем команды.
+             */
+
+            String[] teams =
+                    splitTeams(
+                            anchorText
                     );
 
             if (
-                    match != null
+                    teams == null ||
+                    teams.length != 2
             ) {
-
-                boolean duplicate =
-                        false;
-
-                for (
-                        Match existing
-                        : result
-                ) {
-
-                    if (
-                            existing.home.equals(
-                                    match.home
-                            )
-                            &&
-                            existing.away.equals(
-                                    match.away
-                            )
-                    ) {
-
-                        duplicate =
-                                true;
-
-                        break;
-                    }
-                }
-
-                if (!duplicate) {
-
-                    result.add(match);
-                }
+                continue;
             }
-        }
-
-        /*
-         * Если структура страницы изменилась,
-         * попробуем второй более простой вариант.
-         */
-
-        if (result.isEmpty()) {
-
-            result =
-                    parseSimpleFootballText(
-                            html
-                    );
-        }
-
-        return result;
-    }
-
-    private Match parseFootballBlock(
-            String block
-    ) {
-
-        block =
-                cleanText(block);
-
-        /*
-         * Ищем:
-         *
-         * League
-         * Team A – Team B
-         * 19:00
-         */
-
-        Pattern teamsPattern =
-                Pattern.compile(
-                        "(.+?)\\s+[–—-]\\s+(.+?)"
-                                + "(?=\\s+\\d{1,2}:\\d{2}|$)"
-                );
-
-        Matcher teamsMatcher =
-                teamsPattern.matcher(
-                        block
-                );
-
-        if (!teamsMatcher.find()) {
-
-            return null;
-        }
-
-        String home =
-                cleanText(
-                        teamsMatcher.group(1)
-                );
-
-        String away =
-                cleanText(
-                        teamsMatcher.group(2)
-                );
-
-        if (
-                home.length() < 2 ||
-                away.length() < 2
-        ) {
-
-            return null;
-        }
-
-        String time =
-                "";
-
-        Pattern timePattern =
-                Pattern.compile(
-                        "\\b\\d{1,2}:\\d{2}\\b"
-                );
-
-        Matcher timeMatcher =
-                timePattern.matcher(
-                        block
-                );
-
-        if (timeMatcher.find()) {
-
-            time =
-                    timeMatcher.group();
-        }
-
-        /*
-         * Определяем лигу.
-         */
-
-        String league =
-                extractLeague(
-                        block
-                );
-
-        boolean live =
-                block.contains("0:0")
-                        || block.contains("1:0")
-                        || block.contains("0:1")
-                        || block.contains("1:1")
-                        || block.contains("2:0")
-                        || block.contains("0:2")
-                        || block.contains("2:1")
-                        || block.contains("1:2");
-
-        if (time.isEmpty()) {
-
-            time =
-                    live
-                            ? "LIVE"
-                            : "UPCOMING";
-        }
-
-        return new Match(
-                league,
-                home,
-                away,
-                time,
-                live
-        );
-    }
-
-    private String extractLeague(
-            String block
-    ) {
-
-        /*
-         * Берём текст до названий команд.
-         * Это не всегда идеально,
-         * поэтому дополнительно ограничиваем длину.
-         */
-
-        String league =
-                "";
-
-        String[] parts =
-                block.split(
-                        "\\s+[–—-]\\s+"
-                );
-
-        if (
-                parts.length > 0
-        ) {
-
-            String first =
-                    parts[0].trim();
-
-            String[] words =
-                    first.split(
-                            "\\s+"
-                    );
-
-            if (
-                    words.length > 2
-            ) {
-
-                league =
-                        first.substring(
-                                0,
-                                Math.min(
-                                        first.length(),
-                                        70
-                                )
-                        );
-            }
-        }
-
-        if (
-                league.isEmpty()
-        ) {
-
-            league =
-                    "Football";
-        }
-
-        return league;
-    }
-
-    private ArrayList<Match>
-    parseSimpleFootballText(
-            String html
-    ) {
-
-        ArrayList<Match> result =
-                new ArrayList<>();
-
-        String text =
-                cleanText(
-                        html
-                );
-
-        Pattern pattern =
-                Pattern.compile(
-                        "Football\\.?\\s+(.{3,100}?)"
-                                + "\\s+[–—-]\\s+"
-                                + "(.{2,80}?)"
-                                + "(?=\\s+\\d{1,2}:\\d{2})"
-                );
-
-        Matcher matcher =
-                pattern.matcher(text);
-
-        while (
-                matcher.find()
-        ) {
 
             String home =
-                    cleanText(
-                            matcher.group(1)
+                    cleanTeamName(
+                            teams[0]
                     );
 
             String away =
-                    cleanText(
-                            matcher.group(2)
+                    cleanTeamName(
+                            teams[1]
                     );
 
             if (
-                    home.length() > 1 &&
-                    away.length() > 1
+                    home.isEmpty() ||
+                    away.isEmpty()
             ) {
-
-                result.add(
-                        new Match(
-                                "Football",
-                                home,
-                                away,
-                                "UPCOMING",
-                                false
-                        )
-                );
+                continue;
             }
+
+            /*
+             * Нормализуем URL события.
+             */
+
+            String eventUrl =
+                    normalizeUrl(href);
+
+            return new Match(
+                    league,
+                    home,
+                    away,
+                    time,
+                    live,
+                    eventUrl
+            );
         }
 
-        return result;
+        return null;
+    }
+
+    private String[] splitTeams(
+            String text
+    ) {
+
+        String separator = null;
+
+        if (text.contains("–")) {
+            separator = "–";
+        } else if (text.contains("—")) {
+            separator = "—";
+        } else if (text.contains(" - ")) {
+            separator = " - ";
+        }
+
+        if (separator == null) {
+            return null;
+        }
+
+        String[] parts =
+                text.split(
+                        Pattern.quote(separator),
+                        2
+                );
+
+        if (parts.length != 2) {
+            return null;
+        }
+
+        return parts;
+    }
+
+    /*
+     * Убираем коды стран:
+     *
+     * Cyprus CYP -> Cyprus
+     * Armenia ARM -> Armenia
+     * France FRA -> France
+     *
+     * Но оставляем U-21, (W), U18 и т.п.
+     */
+
+    private String cleanTeamName(
+            String value
+    ) {
+
+        value =
+                cleanText(value);
+
+        /*
+         * Удаляем трёхбуквенный код страны
+         * в самом конце.
+         */
+
+        value =
+                value.replaceFirst(
+                        "\\s+[A-Z]{3}$",
+                        ""
+                );
+
+        return value.trim();
+    }
+
+    private String normalizeUrl(
+            String href
+    ) {
+
+        if (href == null) {
+            return "";
+        }
+
+        href = href.trim();
+
+        if (
+                href.startsWith(
+                        "https://"
+                )
+        ) {
+            return href;
+        }
+
+        if (
+                href.startsWith(
+                        "http://"
+                )
+        ) {
+            return href;
+        }
+
+        if (
+                href.startsWith("//")
+        ) {
+            return "https:" + href;
+        }
+
+        if (
+                href.startsWith("/")
+        ) {
+            return "https://livetv904.me" + href;
+        }
+
+        return "https://livetv904.me/" + href;
     }
 
     private String cleanText(
@@ -1064,7 +1132,6 @@ public class MainActivity extends Activity {
     ) {
 
         if (value == null) {
-
             return "";
         }
 
@@ -1095,6 +1162,18 @@ public class MainActivity extends Activity {
         value =
                 value.replace(
                         "&mdash;",
+                        "—"
+                );
+
+        value =
+                value.replace(
+                        "&#8211;",
+                        "–"
+                );
+
+        value =
+                value.replace(
+                        "&#8212;",
                         "—"
                 );
 
@@ -1183,9 +1262,7 @@ public class MainActivity extends Activity {
         playerView =
                 new PlayerView(this);
 
-        playerView.setUseController(
-                true
-        );
+        playerView.setUseController(true);
 
         root.addView(
                 playerView,
@@ -1258,9 +1335,7 @@ public class MainActivity extends Activity {
                 Typeface.BOLD
         );
 
-        title.setGravity(
-                Gravity.CENTER
-        );
+        title.setGravity(Gravity.CENTER);
 
         root.addView(
                 title,
@@ -1277,9 +1352,7 @@ public class MainActivity extends Activity {
                         MUTED
                 );
 
-        error.setGravity(
-                Gravity.CENTER
-        );
+        error.setGravity(Gravity.CENTER);
 
         root.addView(
                 error,
@@ -1323,7 +1396,6 @@ public class MainActivity extends Activity {
         super.onStop();
 
         if (isFinishing()) {
-
             releasePlayer();
         }
     }
@@ -1357,7 +1429,7 @@ public class MainActivity extends Activity {
 
     /*
      * =========================================================
-     * MATCH DATA CLASS
+     * MATCH
      * =========================================================
      */
 
@@ -1368,13 +1440,15 @@ public class MainActivity extends Activity {
         String away;
         String time;
         boolean live;
+        String eventUrl;
 
         Match(
                 String league,
                 String home,
                 String away,
                 String time,
-                boolean live
+                boolean live,
+                String eventUrl
         ) {
 
             this.league = league;
@@ -1382,6 +1456,7 @@ public class MainActivity extends Activity {
             this.away = away;
             this.time = time;
             this.live = live;
+            this.eventUrl = eventUrl;
         }
     }
 }
