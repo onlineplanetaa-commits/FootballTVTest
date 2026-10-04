@@ -758,6 +758,9 @@ public class MainActivity extends Activity {
         // Read the sport/league marker only from the local event area.
         // This prevents the previous event's league from leaking into
         // the next football match.
+        // Take only the nearest preceding image marker. Scanning every
+        // image in a large prefix can let another event overwrite the
+        // current sport/league.
         Matcher sportMatcher =
                 Pattern.compile(
                         "(?is)<img[^>]+alt\\s*=\\s*[\"']([^\"']+)[\"'][^>]*>"
@@ -765,31 +768,33 @@ public class MainActivity extends Activity {
 
         String sport = "";
         String league = "";
+        String nearestAlt = "";
 
         while (sportMatcher.find()) {
-            String alt = cleanText(sportMatcher.group(1));
-            String lowerAlt = alt.toLowerCase();
+            nearestAlt = cleanText(sportMatcher.group(1));
+        }
 
-            if (lowerAlt.startsWith("football.")
-                    || lowerAlt.equals("football")) {
-                sport = "football";
-                league = alt.length() > 9
-                        ? cleanText(alt.substring(9))
-                        : "Football";
-            } else if (lowerAlt.startsWith("hockey")
-                    || lowerAlt.startsWith("basketball")
-                    || lowerAlt.startsWith("baseball")
-                    || lowerAlt.startsWith("tennis")
-                    || lowerAlt.startsWith("volleyball")
-                    || lowerAlt.startsWith("handball")
-                    || lowerAlt.startsWith("darts")
-                    || lowerAlt.startsWith("rugby")
-                    || lowerAlt.startsWith("formula")
-                    || lowerAlt.startsWith("motorsport")
-                    || lowerAlt.startsWith("american football")) {
-                sport = "other";
-                league = "";
-            }
+        String lowerAlt = nearestAlt.toLowerCase();
+
+        if (lowerAlt.startsWith("football.")
+                || lowerAlt.equals("football")) {
+            sport = "football";
+            league = nearestAlt.length() > 9
+                    ? cleanText(nearestAlt.substring(9))
+                    : "Football";
+        } else if (lowerAlt.startsWith("hockey")
+                || lowerAlt.startsWith("basketball")
+                || lowerAlt.startsWith("baseball")
+                || lowerAlt.startsWith("tennis")
+                || lowerAlt.startsWith("volleyball")
+                || lowerAlt.startsWith("handball")
+                || lowerAlt.startsWith("darts")
+                || lowerAlt.startsWith("rugby")
+                || lowerAlt.startsWith("formula")
+                || lowerAlt.startsWith("motorsport")
+                || lowerAlt.startsWith("american football")) {
+            sport = "other";
+            league = "";
         }
 
         if (!"football".equals(sport) || league.isEmpty()) {
