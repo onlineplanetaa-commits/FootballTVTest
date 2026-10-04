@@ -1707,27 +1707,27 @@ public class MainActivity extends Activity {
 
             private void showEmbeddedLiveTvPlayer() {
                 String js =
-                        "(function(){" +
-                        "try{" +
-                        "var f=document.querySelector('iframe[src*=\\\"/cache/ltvplayer/\\\"],iframe[src*=\\\"ltvplayer\\\"]');" +
-                        "if(!f)return 'NO';" +
-                        "document.documentElement.style.background='#000';" +
-                        "document.body.style.background='#000';" +
-                        "document.body.style.margin='0';" +
-                        "f.style.position='fixed';" +
-                        "f.style.left='0';" +
-                        "f.style.top='0';" +
-                        "f.style.width='100vw';" +
-                        "f.style.height='100vh';" +
-                        "f.style.minWidth='100%';" +
-                        "f.style.minHeight='100%';" +
-                        "f.style.display='block';" +
-                        "f.style.visibility='visible';" +
-                        "f.style.opacity='1';" +
-                        "f.style.zIndex='2147483647';" +
-                        "f.style.border='0';" +
-                        "return 'FOUND:'+f.src;" +
-                        "}catch(x){return 'ERR';}" +
+                        "(function(){"+
+                        "try{"+
+                        "var f=document.querySelector('iframe[src*=\\\"/cache/ltvplayer/\\\"],iframe[src*=\\\"ltvplayer\\\"]');"+
+                        "if(!f)return 'NO';"+
+                        "document.documentElement.style.background='#000';"+
+                        "document.body.style.background='#000';"+
+                        "document.body.style.margin='0';"+
+                        "f.style.position='fixed';"+
+                        "f.style.left='0';"+
+                        "f.style.top='0';"+
+                        "f.style.width='100vw';"+
+                        "f.style.height='100vh';"+
+                        "f.style.minWidth='100%';"+
+                        "f.style.minHeight='100%';"+
+                        "f.style.display='block';"+
+                        "f.style.visibility='visible';"+
+                        "f.style.opacity='1';"+
+                        "f.style.zIndex='2147483647';"+
+                        "f.style.border='0';"+
+                        "return 'FOUND:'+f.src;"+
+                        "}catch(x){return 'ERR';}"+
                         "})()";
                 web.evaluateJavascript(js, value -> {
                     if (resolverWebView != web || value == null) return;
@@ -1738,9 +1738,8 @@ public class MainActivity extends Activity {
                     } catch (Exception ignored) {}
 
                     if (decoded.startsWith("FOUND:")) {
-                        browserPlaybackDetected = true;
                         web.setVisibility(View.VISIBLE);
-                        status("LiveTV904 embedded player found.");
+                        status("LiveTV904 player found — waiting for stream...");
                     } else {
                         handler.postDelayed(() -> {
                             if (resolverWebView == web && !browserPlaybackDetected) {
@@ -1749,6 +1748,23 @@ public class MainActivity extends Activity {
                         }, 500);
                     }
                 });
+            }
+
+            private void markMediaRequest(String url) {
+                if (resolverWebView != web || playingDetected || url == null) return;
+                String u = url.toLowerCase();
+                if (u.contains(".m3u8")
+                        || u.contains(".mp4")
+                        || u.contains(".m4s")
+                        || u.contains(".ts")
+                        || u.contains("/manifest")
+                        || u.contains("/playlist")
+                        || u.contains("/stream/")) {
+                    playingDetected = true;
+                    browserPlaybackDetected = true;
+                    web.setVisibility(View.VISIBLE);
+                    status("LiveTV904 stream connected.");
+                }
             }
 
             private void inspectForPlayback() {
@@ -1956,6 +1972,24 @@ public class MainActivity extends Activity {
             ) {
                 return url != null
                         && !(url.startsWith("http://") || url.startsWith("https://"));
+            }
+
+            @Override
+            public android.webkit.WebResourceResponse shouldInterceptRequest(
+                    WebView view, WebResourceRequest request
+            ) {
+                if (request != null && request.getUrl() != null) {
+                    markMediaRequest(request.getUrl().toString());
+                }
+                return super.shouldInterceptRequest(view, request);
+            }
+
+            @Override
+            public android.webkit.WebResourceResponse shouldInterceptRequest(
+                    WebView view, String url
+            ) {
+                markMediaRequest(url);
+                return super.shouldInterceptRequest(view, url);
             }
 
             @Override
