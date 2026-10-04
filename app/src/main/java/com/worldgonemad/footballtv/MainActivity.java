@@ -1634,6 +1634,8 @@ public class MainActivity extends Activity {
                         "if(v&&v.readyState>=2&&(v.currentTime||0)>0)return 'PLAYING';" +
                         "var e=document.querySelector('iframe');" +
                         "if(e&&e.src)return 'IFRAME';" +
+                        "var o=document.querySelector('object,embed');" +
+                        "if(o&&(o.data||o.src))return 'EMBED';" +
                         "return '';" +
                         "}catch(x){return '';}" +
                         "})()";
@@ -1641,7 +1643,7 @@ public class MainActivity extends Activity {
                 web.evaluateJavascript(js, value -> {
                     if (resolverWebView != web || value == null) return;
 
-                    if (value.contains("PLAYING") || value.contains("IFRAME")) {
+                    if (value.contains("PLAYING") || value.contains("IFRAME") || value.contains("EMBED")) {
                         playingDetected = true;
                         browserPlaybackDetected = true;
                         showOnlyPlayerContent();
@@ -1816,7 +1818,14 @@ public class MainActivity extends Activity {
 
                 if (playingDetected) return;
 
-                if (url.contains("/eventinfo/")) {
+                if (url.contains("/export/webplayer.iframe.php")
+                        || url.contains("/player/")) {
+                    playingDetected = true;
+                    browserPlaybackDetected = true;
+                    web.setVisibility(View.VISIBLE);
+                    status("LiveTV904 player loaded...");
+                    handler.postDelayed(this::inspectForPlayback, 3000);
+                } else if (url.contains("/eventinfo/")) {
                     if (!sourceListCollected) {
                         status("Finding browser sources...");
                         handler.postDelayed(
@@ -1868,7 +1877,7 @@ public class MainActivity extends Activity {
                 resolverWebView = null;
                 showPlayer(match, "No working browser stream found.");
             }
-        }, 30000);
+        }, 45000);
     }
 
     private void statusForBrowserPlayer(WebView web, String text) {
