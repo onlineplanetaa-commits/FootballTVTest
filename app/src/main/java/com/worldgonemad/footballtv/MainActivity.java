@@ -1187,23 +1187,9 @@ public class MainActivity extends Activity {
         // is much faster and more reliable than waiting for WebView timers.
         showPlayer(match, "Finding video stream...");
 
-        new Thread(() -> {
-            String hls = resolvePublicHls(match.eventUrl);
-
-            if (hls != null && !hls.isEmpty()) {
-                runOnUiThread(() -> {
-                    if (playerScreen) {
-                        playHls(hls);
-                    }
-                });
-            } else {
-                runOnUiThread(() -> {
-                    if (playerScreen) {
-                        resolveWithWebView(match);
-                    }
-                });
-            }
-        }).start();
+        // Keep the known-good startup path. Stream resolving must not block
+        // or change Activity initialization on Android TV.
+        runOnUiThread(() -> resolveWithWebView(match));
     }
 
     private String resolvePublicHls(String eventUrl) {
@@ -1733,15 +1719,6 @@ public class MainActivity extends Activity {
                 }
 
                 return super.shouldInterceptRequest(view, request);
-            }
-
-            @Override
-            public void onLoadResource(WebView view, String url) {
-                if (isHls(url)) {
-                    found(url);
-                    return;
-                }
-                super.onLoadResource(view, url);
             }
 
             @Override
