@@ -1714,22 +1714,30 @@ public class MainActivity extends Activity {
             }
 
             private void collectAndStartSources() {
-                if (resolverWebView != web) return;
+                if (resolverWebView != web || sourceListCollected) return;
 
                 String js =
                         "(function(){" +
                         "var out=[];" +
-                        "var n=document.querySelectorAll('a,button,[role=button]');" +
-                        "for(var i=0;i<n.length;i++){" +
-                        "var x=n[i];" +
+                        "var all=document.querySelectorAll('*');" +
+                        "for(var i=0;i<all.length;i++){" +
+                        "var x=all[i];" +
                         "var t=((x.innerText||x.textContent||'')+' '+(x.title||'')).trim();" +
-                        "var h=x.getAttribute('href')||'';" +
-                        "var oc=x.getAttribute('onclick')||'';" +
-                        "var z=(t+' '+h+' '+oc).toLowerCase();" +
-                        "if(z.indexOf('aliez')>=0||z.indexOf('webplayer')>=0||" +
-                        "t.toLowerCase()==='web'||t.toLowerCase().indexOf('web ')===0||" +
-                        "t.toLowerCase().indexOf('aliez ')===0){" +
-                        "out.push(i);" +
+                        "if(!t || t.length>80)continue;" +
+                        "var z=t.toLowerCase();" +
+                        "if(z==='web'||z.indexOf('web ')===0||z.indexOf('aliez')===0){" +
+                        "var y=x;" +
+                        "for(var j=0;j<5 && y;j++){" +
+                        "var tag=(y.tagName||'').toLowerCase();" +
+                        "if(tag==='a'||tag==='button'||y.onclick||y.getAttribute('role')==='button')break;" +
+                        "y=y.parentElement;" +
+                        "}" +
+                        "if(y){" +
+                        "var key=y.outerHTML;" +
+                        "var exists=false;" +
+                        "for(var k=0;k<out.length;k++)if(out[k]===key)exists=true;" +
+                        "if(!exists)out.push(key);" +
+                        "}" +
                         "}" +
                         "}" +
                         "return JSON.stringify(out);" +
@@ -1743,42 +1751,48 @@ public class MainActivity extends Activity {
                         sourceScripts.clear();
 
                         for (int i = 0; i < arr.length(); i++) {
-                            int index = arr.optInt(i, -1);
-                            if (index < 0) continue;
+                            String html = arr.optString(i, "");
+                            if (html.isEmpty()) continue;
 
+                            // Re-find the same visible Web/Aliez control by its
+                            // text rather than relying on a fragile DOM index.
+                            String safe = JSONObject.quote(html);
                             String script =
                                     "(function(){" +
-                                    "var n=document.querySelectorAll('a,button,[role=button]');" +
-                                    "var x=n[" + index + "];" +
-                                    "if(!x)return 'NO';" +
+                                    "var target=" + safe + ";" +
+                                    "var all=document.querySelectorAll('*');" +
+                                    "for(var i=0;i<all.length;i++){" +
+                                    "var x=all[i];" +
+                                    "if(x.outerHTML===target){" +
                                     "try{x.scrollIntoView({block:'center'});}catch(e){}" +
                                     "try{x.click();}catch(e){" +
-                                    " " +
                                     "var h=x.getAttribute('href');" +
                                     "if(h)location.href=new URL(h,location.href).href;" +
                                     "}" +
                                     "return 'OK';" +
+                                    "}" +
+                                    "}" +
+                                    "return 'NO';" +
                                     "})()";
-
                             sourceScripts.add(script);
                         }
                     } catch (Exception ignored) {}
 
-                    if (sourceScripts.isEmpty()) {
-                        status("No browser links found.");
+                    if (!sourceScripts.isEmpty()) {
+                        sourceListCollected = true;
+                        fallbackMatch = match;
+                        fallbackSourceUrls.clear();
+                        failedSourceUrls.clear();
+                        sourceIndex = 0;
+                        tryNextBrowserSource();
                         return;
                     }
 
-                    sourceListCollected = true;
-                    fallbackMatch = match;
-                    fallbackSourceUrls.clear();
-                    failedSourceUrls.clear();
-                    sourceIndex = 0;
-
-                    tryNextBrowserSource();
+                    // LiveTV904 fills the Browser Links block dynamically.
+                    // Keep polling instead of declaring failure after 1.2 seconds.
+                    handler.postDelayed(this::collectAndStartSources, 700);
                 });
             }
-
             @Override
             public boolean shouldOverrideUrlLoading(
                     WebView view,
@@ -1807,9 +1821,10 @@ public class MainActivity extends Activity {
                 // If we are on the original event page, collect its actual
                 // Browser Links and click them one by one.
                 if (url.contains("/eventinfo/")) {
+                    sourceListCollected = false;
                     handler.postDelayed(
                             this::collectAndStartSources,
-                            1200
+                            700
                     );
                 } else {
                     inspectForPlayback();
