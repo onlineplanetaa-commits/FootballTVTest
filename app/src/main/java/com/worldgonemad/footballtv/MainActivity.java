@@ -1756,8 +1756,8 @@ public class MainActivity extends Activity {
                                     "if((href&&rh===href)||(oc&&o===oc)||(!href&&!oc&&t===txt)||(!href&&oc&&t===txt)){" +
                                     "try{x.setAttribute('target','_self');}catch(e){}" +
                                     "try{x.scrollIntoView({block:'center'});}catch(e){}" +
+                                    "if(href&&rh===href){try{location.href=href;return 'NAV';}catch(e){}}" +
                                     "try{x.click();}catch(e){}" +
-                                    "if(href&&!oc&&rh===href){try{location.href=href;}catch(e){}}" +
                                     "return 'OK';" +
                                     "}" +
                                     "}" +
