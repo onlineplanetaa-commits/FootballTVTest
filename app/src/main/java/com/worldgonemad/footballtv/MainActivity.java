@@ -68,6 +68,7 @@ public class MainActivity extends Activity {
     private final Set<String> failedSourceUrls = new HashSet<>();
     private Match fallbackMatch;
     private String activeSourceUrl = "";
+    private boolean browserPlaybackDetected = false;
 
     private LinearLayout listContainer;
     private TextView statusText;
@@ -1521,6 +1522,7 @@ public class MainActivity extends Activity {
         web.setVisibility(View.VISIBLE);
         web.setAlpha(1f);
         web.setBackgroundColor(Color.BLACK);
+        browserPlaybackDetected = false;
 
         web.getSettings().setJavaScriptEnabled(true);
         web.getSettings().setDomStorageEnabled(true);
@@ -1616,6 +1618,7 @@ public class MainActivity extends Activity {
 
                     if (value.contains("PLAYING")) {
                         playingDetected = true;
+                        browserPlaybackDetected = true;
                         status("Playing");
                         return;
                     }
@@ -1777,7 +1780,7 @@ public class MainActivity extends Activity {
 
         // Never leave the user stuck forever on a dead source/page.
         handler.postDelayed(() -> {
-            if (resolverWebView == web && !playingDetected(web)) {
+            if (resolverWebView == web && !browserPlaybackDetected) {
                 try {
                     web.stopLoading();
                     web.destroy();
@@ -1802,14 +1805,6 @@ public class MainActivity extends Activity {
                 return;
             }
         }
-    }
-
-    private boolean playingDetected(WebView web) {
-        return false;
-    }
-
-    private boolean finishedResolver(WebView web) {
-        return resolverWebView != web;
     }
 
     private void showPlayer(Match match, String message) {
