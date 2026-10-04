@@ -1709,25 +1709,22 @@ public class MainActivity extends Activity {
                 String js =
                         "(function(){" +
                         "try{" +
-                        "var f=document.querySelector('iframe[src*=\"/cache/ltvplayer/\"],iframe[src*=\"ltvplayer\"]');" +
+                        "var f=document.querySelector('iframe[src*="/cache/ltvplayer/"],iframe[src*="ltvplayer"]');" +
                         "if(!f)return 'NO';" +
                         "document.documentElement.style.background='#000';" +
                         "document.body.style.background='#000';" +
                         "document.body.style.margin='0';" +
-                        "var e=f;" +
-                        "while(e&&e!==document.body&&e.parentElement){" +
-                        "for(var j=0;j<e.parentElement.children.length;j++){" +
-                        "var s=e.parentElement.children[j];" +
-                        "if(s!==e)s.style.display='none';" +
-                        "}" +
-                        "e.style.display='block';" +
-                        "e.style.visibility='visible';" +
-                        "e=e.parentElement;" +
-                        "}" +
+                        "f.style.position='fixed';" +
+                        "f.style.left='0';" +
+                        "f.style.top='0';" +
+                        "f.style.width='100vw';" +
+                        "f.style.height='100vh';" +
+                        "f.style.minWidth='100%';" +
+                        "f.style.minHeight='100%';" +
                         "f.style.display='block';" +
                         "f.style.visibility='visible';" +
-                        "f.style.width='100%';" +
-                        "f.style.height='100%';" +
+                        "f.style.opacity='1';" +
+                        "f.style.zIndex='2147483647';" +
                         "f.style.border='0';" +
                         "return 'FOUND:'+f.src;" +
                         "}catch(x){return 'ERR';}" +
@@ -1741,10 +1738,15 @@ public class MainActivity extends Activity {
                     } catch (Exception ignored) {}
 
                     if (decoded.startsWith("FOUND:")) {
-                        playingDetected = true;
                         browserPlaybackDetected = true;
                         web.setVisibility(View.VISIBLE);
-                        status("LiveTV904 embedded player loaded.");
+                        status("LiveTV904 embedded player found.");
+                    } else {
+                        handler.postDelayed(() -> {
+                            if (resolverWebView == web && !browserPlaybackDetected) {
+                                showEmbeddedLiveTvPlayer();
+                            }
+                        }, 500);
                     }
                 });
             }
