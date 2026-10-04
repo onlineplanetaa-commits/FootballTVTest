@@ -1617,6 +1617,25 @@ public class MainActivity extends Activity {
                     public void onPageFinished(WebView v, String url) {
                         if (url != null && (url.startsWith("http://") || url.startsWith("https://"))) {
                             web.loadUrl(url);
+                            handler.postDelayed(() -> {
+                                if (resolverWebView == web && web.getUrl() != null) {
+                                    web.evaluateJavascript(
+                                            "(function(){var e=document.querySelector('iframe');return e&&e.src?e.src:'';})()",
+                                            value -> {
+                                                if (value == null) return;
+                                                try {
+                                                    Object decoded = new JSONTokener(value).nextValue();
+                                                    if (decoded instanceof String) {
+                                                        String target=(String)decoded;
+                                                        if (target.startsWith("http://") || target.startsWith("https://")) {
+                                                            web.loadUrl(target);
+                                                        }
+                                                    }
+                                                } catch (Exception ignored) {}
+                                            }
+                                    );
+                                }
+                            }, 1200);
                         }
                     }
                 });
@@ -1696,9 +1715,9 @@ public class MainActivity extends Activity {
                         "if(v&&(!v.paused&&v.readyState>=2))return 'PLAYING';" +
                         "if(v&&v.readyState>=2&&(v.currentTime||0)>0)return 'PLAYING';" +
                         "var e=document.querySelector('iframe');" +
-                        "if(e&&e.src)return 'IFRAME';" +
+                        "if(e&&e.src)return 'FRAME:'+e.src;" +
                         "var o=document.querySelector('object,embed');" +
-                        "if(o&&(o.data||o.src))return 'EMBED';" +
+                        "if(o&&(o.data||o.src))return 'EMBED:'+((o.data||o.src));" +
                         "return '';" +
                         "}catch(x){return '';}" +
                         "})()";
@@ -1706,11 +1725,30 @@ public class MainActivity extends Activity {
                 web.evaluateJavascript(js, value -> {
                     if (resolverWebView != web || value == null) return;
 
-                    if (value.contains("PLAYING") || value.contains("IFRAME") || value.contains("EMBED")) {
+                    String decoded = value;
+                    try {
+                        Object v = new JSONTokener(value).nextValue();
+                        if (v instanceof String) decoded = (String)v;
+                    } catch (Exception ignored) {}
+
+                    if (decoded.startsWith("PLAYING")) {
                         playingDetected = true;
                         browserPlaybackDetected = true;
                         showOnlyPlayerContent();
                         status("Playing");
+                        return;
+                    }
+
+                    if (decoded.startsWith("FRAME:") || decoded.startsWith("EMBED:")) {
+                        String target = decoded.substring(decoded.indexOf(':') + 1).trim();
+                        if (target.startsWith("http://") || target.startsWith("https://")) {
+                            String current = web.getUrl();
+                            if (current == null || !current.equals(target)) {
+                                status("Opening actual stream player...");
+                                web.loadUrl(target);
+                                return;
+                            }
+                        }
                     }
                 });
             }
@@ -1883,11 +1921,11 @@ public class MainActivity extends Activity {
 
                 if (url.contains("/export/webplayer.iframe.php")
                         || url.contains("/player/")) {
-                    // Reaching the browser-player URL is NOT proof that the
-                    // stream is playing. Older builds set playingDetected here,
-                    // which stopped all fallback logic on a blank player page.
+                    // Reaching the browser-player URL is not proof of playback.
+                    // First expose the actual nested player/stream URL.
                     web.setVisibility(View.VISIBLE);
-                    status("LiveTV904 player loaded — checking stream...");
+                    status("LiveTV904 player loaded — opening stream...");
+                    handler.postDelayed(this::inspectForPlayback, 800);
                     handler.postDelayed(this::inspectForPlayback, 2000);
                     handler.postDelayed(this::inspectForPlayback, 5000);
                 } else if (url.contains("/eventinfo/")) {
