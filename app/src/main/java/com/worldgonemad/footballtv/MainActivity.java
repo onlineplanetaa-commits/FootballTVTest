@@ -1861,7 +1861,7 @@ public class MainActivity extends Activity {
                                     "var els=document.querySelectorAll('a,button,iframe,[role=button],[onclick],[data-href],[data-url]');" +
                                     "for(var i=0;i<els.length;i++){" +
                                     "var x=els[i];" +
-                                    "var h=x.getAttribute('href')||x.getAttribute('data-href')||x.getAttribute('data-url')||'';" +
+                                    "var h=x.getAttribute('href')||x.getAttribute('src')||x.getAttribute('data-href')||x.getAttribute('data-url')||'';" +
                                     "var t=((x.innerText||x.textContent||'')+' '+(x.title||x.getAttribute('aria-label')||'')).trim();" +
                                     "var o=x.getAttribute('onclick')||'';" +
                                     "var rh='';try{if(h)rh=new URL(h,location.href).href;}catch(e){}" +
