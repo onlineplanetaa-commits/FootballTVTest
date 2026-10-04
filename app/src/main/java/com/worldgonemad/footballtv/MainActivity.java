@@ -1212,8 +1212,9 @@ public class MainActivity extends Activity {
                 return;
             }
 
-            // LiveTV904 is the primary source. If it fails, also look for the
-            // same football match on the separate LiveTV soccer listing.
+            // Try a dedicated football source before the old LiveTV mirror.
+            // SoccerStreams100 provides match pages with external WATCH players.
+            fallbackSourceUrls.addAll(findSoccerStreamsMatchUrls(match));
             fallbackSourceUrls.addAll(findAlternateSourceUrls(match));
 
             runOnUiThread(() -> {
@@ -1222,6 +1223,43 @@ public class MainActivity extends Activity {
                 }
             });
         }).start();
+    }
+
+    private ArrayList<String> findSoccerStreamsMatchUrls(Match match) {
+        ArrayList<String> result = new ArrayList<>();
+        if (match == null) return result;
+
+        String html = downloadPage("https://soccerstreams100.st/matches");
+        if (html == null || html.isEmpty()) return result;
+
+        String home = normalizeTeamForMatch(match.home);
+        String away = normalizeTeamForMatch(match.away);
+        if (home.isEmpty() || away.isEmpty()) return result;
+
+        Pattern p = Pattern.compile(
+                "(?is)<a\\s+[^>]*href\\s*=\\s*[\\\"']([^\\\"']*/match/[^\\\"']+)[\\\"'][^>]*>(.*?)</a>"
+        );
+        Matcher m = p.matcher(html);
+
+        while (m.find()) {
+            String text = cleanText(m.group(2));
+            if (text.isEmpty()) continue;
+
+            String norm = normalizeTeamForMatch(text);
+            if (!norm.contains(home) || !norm.contains(away)) continue;
+
+            String href = decodeUrl(m.group(1));
+            String absolute = absoluteUrl(
+                    href,
+                    "https://soccerstreams100.st/matches"
+            );
+
+            if (!absolute.isEmpty()) {
+                addCandidate(result, absolute);
+            }
+        }
+
+        return result;
     }
 
     private ArrayList<String> findAlternateSourceUrls(Match match) {
