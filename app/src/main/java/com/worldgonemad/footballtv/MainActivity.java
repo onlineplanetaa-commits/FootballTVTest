@@ -1519,7 +1519,7 @@ public class MainActivity extends Activity {
         final WebView web = new WebView(this);
         resolverWebView = web;
 
-        web.setVisibility(View.VISIBLE);
+        web.setVisibility(View.INVISIBLE);
         web.setAlpha(1f);
         web.setBackgroundColor(Color.BLACK);
         browserPlaybackDetected = false;
@@ -1596,6 +1596,34 @@ public class MainActivity extends Activity {
                 });
             }
 
+            private void showOnlyPlayerContent() {
+                String js =
+                        "(function(){" +
+                        "try{" +
+                        "var p=document.querySelector('video,iframe');" +
+                        "if(!p)return false;" +
+                        "var e=p;" +
+                        "while(e && e!==document.body){" +
+                        "for(var i=0;i<e.parentElement.children.length;i++ ){" +
+                        "var s=e.parentElement.children[i];" +
+                        "if(s!==e)s.style.display='none';" +
+                        "}" +
+                        "e.style.display='block';" +
+                        "e.style.visibility='visible';" +
+                        "e=e.parentElement;" +
+                        "}" +
+                        "document.documentElement.style.background='#000';" +
+                        "document.body.style.background='#000';" +
+                        "document.body.style.margin='0';" +
+                        "p.style.width='100%';p.style.height='100%';" +
+                        "return true;" +
+                        "}catch(x){return false;}" +
+                        "})()";
+                web.evaluateJavascript(js, value -> {
+                    if (resolverWebView == web) web.setVisibility(View.VISIBLE);
+                });
+            }
+
             private void inspectForPlayback() {
                 if (resolverWebView != web || playingDetected) return;
 
@@ -1619,14 +1647,18 @@ public class MainActivity extends Activity {
                     if (value.contains("PLAYING")) {
                         playingDetected = true;
                         browserPlaybackDetected = true;
+                        showOnlyPlayerContent();
                         status("Playing");
                         return;
                     }
 
                     if (value.contains("IFRAME")) {
-                        // The embedded player may need more time to create its
-                        // video element. Do not immediately abandon this source.
-                        handler.postDelayed(this::inspectForPlayback, 2000);
+                        // LiveTV904 commonly places the browser stream in an iframe.
+                        // Show only that player instead of the surrounding website.
+                        playingDetected = true;
+                        browserPlaybackDetected = true;
+                        showOnlyPlayerContent();
+                        status("Playing");
                     }
                 });
             }
@@ -1752,9 +1784,19 @@ public class MainActivity extends Activity {
                     WebView view,
                     WebResourceRequest request
             ) {
-                // Keep all HTTP(S) navigation inside the embedded browser.
+                // Never launch the external browser. Keep HTTP(S) inside this WebView.
                 String u = request.getUrl().toString();
                 return !(u.startsWith("http://") || u.startsWith("https://"));
+            }
+
+            @Override
+            public boolean shouldOverrideUrlLoading(
+                    WebView view,
+                    String url
+            ) {
+                // Older Android WebView versions use this overload.
+                return url != null
+                        && !(url.startsWith("http://") || url.startsWith("https://"));
             }
 
             @Override
