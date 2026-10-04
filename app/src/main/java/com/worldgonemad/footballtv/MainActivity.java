@@ -1182,11 +1182,28 @@ public class MainActivity extends Activity {
             return;
         }
 
-        // Use the JavaScript-capable browser path first. The old blocking
-        // HTTP crawler could spend almost a minute on static pages.
+        // Resolve the public stream in the background first. LiveTV904 often
+        // exposes the final HLS URL in the event/player HTML, and this path
+        // is much faster and more reliable than waiting for WebView timers.
         showPlayer(match, "Finding video stream...");
 
-        runOnUiThread(() -> resolveWithWebView(match));
+        new Thread(() -> {
+            String hls = resolvePublicHls(match.eventUrl);
+
+            if (hls != null && !hls.isEmpty()) {
+                runOnUiThread(() -> {
+                    if (playerScreen) {
+                        playHls(hls);
+                    }
+                });
+            } else {
+                runOnUiThread(() -> {
+                    if (playerScreen) {
+                        resolveWithWebView(match);
+                    }
+                });
+            }
+        }).start();
     }
 
     private String resolvePublicHls(String eventUrl) {
@@ -1716,6 +1733,15 @@ public class MainActivity extends Activity {
                 }
 
                 return super.shouldInterceptRequest(view, request);
+            }
+
+            @Override
+            public void onLoadResource(WebView view, String url) {
+                if (isHls(url)) {
+                    found(url);
+                    return;
+                }
+                super.onLoadResource(view, url);
             }
 
             @Override
