@@ -1410,6 +1410,16 @@ public class MainActivity extends Activity {
     private String findHls(String html) {
         if (html == null || html.isEmpty()) return "";
 
+        // Catch protocol-relative and escaped HLS URLs too.
+        Pattern proto = Pattern.compile(
+                "(?i)(//[^\\\\\"'\\\\s<>]+\\\\.m3u8(?:\\\\?[^\\\\\"'\\\\s<>]*)?)"
+        );
+        Matcher pm = proto.matcher(html);
+        while (pm.find()) {
+            String url = decodeUrl(pm.group(1));
+            if (url.startsWith("//")) return "https:" + url;
+        }
+
         // Normal absolute URL.
         Pattern p = Pattern.compile(
                 "(?i)(https?://[^\\\"'\\s<>]+\\.m3u8(?:\\?[^\\\"'\\s<>]*)?)"
@@ -1544,7 +1554,7 @@ public class MainActivity extends Activity {
         web.getSettings().setDatabaseEnabled(true);
         web.getSettings().setMediaPlaybackRequiresUserGesture(false);
         web.getSettings().setJavaScriptCanOpenWindowsAutomatically(true);
-        web.getSettings().setSupportMultipleWindows(false);
+        web.getSettings().setSupportMultipleWindows(true);
         if (android.os.Build.VERSION.SDK_INT >= 21) {
             web.getSettings().setMixedContentMode(android.webkit.WebSettings.MIXED_CONTENT_ALWAYS_ALLOW);
         }
@@ -1579,7 +1589,38 @@ public class MainActivity extends Activity {
                     boolean isUserGesture,
                     android.os.Message resultMsg
             ) {
-                return false;
+                // LiveTV904 sources can request a new window. Do not reject
+                // that request: give the popup a WebView backed by the same
+                // Activity and load its URL back into our player WebView.
+                final WebView popup = new WebView(MainActivity.this);
+                popup.getSettings().setJavaScriptEnabled(true);
+                popup.getSettings().setDomStorageEnabled(true);
+                popup.getSettings().setMediaPlaybackRequiresUserGesture(false);
+                popup.getSettings().setJavaScriptCanOpenWindowsAutomatically(true);
+                popup.getSettings().setUserAgentString(web.getSettings().getUserAgentString());
+                CookieManager.getInstance().setAcceptThirdPartyCookies(popup, true);
+                popup.setWebViewClient(new WebViewClient() {
+                    @Override
+                    public boolean shouldOverrideUrlLoading(WebView v, String url) {
+                        if (url != null && (url.startsWith("http://") || url.startsWith("https://"))) {
+                            web.loadUrl(url);
+                        }
+                        return true;
+                    }
+
+                    @Override
+                    public void onPageFinished(WebView v, String url) {
+                        if (url != null && (url.startsWith("http://") || url.startsWith("https://"))) {
+                            web.loadUrl(url);
+                        }
+                    }
+                });
+
+                android.webkit.WebView.WebViewTransport transport =
+                        (android.webkit.WebView.WebViewTransport) resultMsg.obj;
+                transport.setWebView(popup);
+                resultMsg.sendToTarget();
+                return true;
             }
         });
 
