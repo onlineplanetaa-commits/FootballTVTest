@@ -42,6 +42,10 @@ public class MainActivity extends Activity {
     private PlayerView playerView;
     private WebView resolverWebView;
 
+    // True while the Activity is showing the player/resolver screen.
+    // Match refreshes must never replace that screen.
+    private boolean playerScreen = false;
+
     private final Handler handler =
             new Handler(Looper.getMainLooper());
 
@@ -156,6 +160,8 @@ public class MainActivity extends Activity {
 
     private void showLoading() {
 
+        playerScreen = false;
+
         LinearLayout root =
                 new LinearLayout(this);
 
@@ -209,6 +215,8 @@ public class MainActivity extends Activity {
     }
 
     private void showMatches() {
+
+        playerScreen = false;
 
         LinearLayout root =
                 new LinearLayout(this);
@@ -556,7 +564,11 @@ public class MainActivity extends Activity {
                                             result
                                     );
 
-                                    showMatches();
+                                    // Refresh data in the background, but never
+                                    // replace the player/resolver Activity view.
+                                    if (!playerScreen) {
+                                        showMatches();
+                                    }
 
                                 } else {
 
@@ -733,28 +745,53 @@ public class MainActivity extends Activity {
                 continue;
             }
 
-            String prefix =
-                    html.substring(
-                            Math.max(0, linkMatcher.start() - 15000),
-                            linkMatcher.start()
-                    );
+            // Use the nearest preceding sport marker. The previous code
+        // searched 15,000 characters for any Football image, so a Hockey,
+        // Baseball or Tennis event could inherit a distant Football league.
+        String prefix =
+                html.substring(
+                        Math.max(0, linkMatcher.start() - 20000),
+                        linkMatcher.start()
+                );
 
-            Matcher footballMatcher =
-                    Pattern.compile(
-                            "(?is)<img[^>]+alt\\s*=\\s*[\\\"']Football\\.([^\\\"']+)[\\\"'][^>]*>"
-                    ).matcher(prefix);
+        Matcher sportMatcher =
+                Pattern.compile(
+                        "(?is)<img[^>]+alt\\s*=\\s*[\\\"']([^\\\"']+)[\\\"'][^>]*>"
+                ).matcher(prefix);
 
-            String league = "";
+        String sport = "";
+        String league = "";
 
-            while (footballMatcher.find()) {
-                league = cleanText(footballMatcher.group(1));
+        while (sportMatcher.find()) {
+            String alt = cleanText(sportMatcher.group(1));
+            String lowerAlt = alt.toLowerCase();
+
+            if (lowerAlt.startsWith("football.")
+                    || lowerAlt.equals("football")) {
+                sport = "football";
+                league = alt.length() > 9
+                        ? cleanText(alt.substring(9))
+                        : "Football";
+            } else if (lowerAlt.startsWith("hockey")
+                    || lowerAlt.startsWith("basketball")
+                    || lowerAlt.startsWith("baseball")
+                    || lowerAlt.startsWith("tennis")
+                    || lowerAlt.startsWith("volleyball")
+                    || lowerAlt.startsWith("handball")
+                    || lowerAlt.startsWith("darts")
+                    || lowerAlt.startsWith("rugby")
+                    || lowerAlt.startsWith("formula")
+                    || lowerAlt.startsWith("motorsport")) {
+                sport = "other";
+                league = "";
             }
+        }
 
-            if (league.isEmpty()) {
-                continue;
-            }
+        if (!"football".equals(sport) || league.isEmpty()) {
+            continue;
+        }
 
-            int afterStart = linkMatcher.end();
+        int afterStart = linkMatcher.end();
             int afterEnd =
                     Math.min(
                             html.length(),
@@ -1752,6 +1789,7 @@ public class MainActivity extends Activity {
 
     private void showPlayer(Match match, String message) {
         releasePlayer();
+        playerScreen = true;
 
         LinearLayout root = new LinearLayout(this);
         root.setOrientation(LinearLayout.VERTICAL);
@@ -1799,6 +1837,7 @@ public class MainActivity extends Activity {
 
         playerView = new PlayerView(this);
         playerView.setBackgroundColor(Color.BLACK);
+        playerView.setKeepScreenOn(true);
 
         root.addView(
                 playerView,
@@ -1813,9 +1852,11 @@ public class MainActivity extends Activity {
         setContentView(root);
     }
 
-    private void playHls(String hls) {        if (hls == null || hls.isEmpty() || playerView == null) return;
+    private void playHls(String hls) {
+        if (hls == null || hls.isEmpty()) return;
 
         releasePlayer();
+        playerScreen = true;
 
         playerView = new PlayerView(this);
         playerView.setBackgroundColor(Color.BLACK);
@@ -1865,20 +1906,34 @@ public class MainActivity extends Activity {
 
     private void releasePlayer() {
         if (resolverWebView != null) {
-            try { resolverWebView.stopLoading(); resolverWebView.destroy(); } catch (Exception ignored) {}
+            try {
+                resolverWebView.stopLoading();
+                resolverWebView.destroy();
+            } catch (Exception ignored) {}
             resolverWebView = null;
         }
 
+        if (playerView != null) {
+            // Detach first, then release the player. This prevents a stale
+            // video surface from remaining attached while audio continues.
+            try {
+                playerView.setPlayer(null);
+            } catch (Exception ignored) {}
+        }
+
         if (player != null) {
-            player.stop();
-            player.release();
+            try {
+                player.stop();
+            } catch (Exception ignored) {}
+
+            try {
+                player.release();
+            } catch (Exception ignored) {}
+
             player = null;
         }
 
-        if (playerView != null) {
-            playerView.setPlayer(null);
-            playerView = null;
-        }
+        playerView = null;
     }
 
     private void showError(
@@ -1960,8 +2015,23 @@ public class MainActivity extends Activity {
 
         super.onStop();
 
-        if (isFinishing()) {
+        // Android recommends releasing an Activity-owned ExoPlayer from
+        // onStop(). Do it only when the player screen is actually active.
+        if (playerScreen) {
             releasePlayer();
+            playerScreen = false;
+        }
+    }
+
+    @Override
+    protected void onStart() {
+
+        super.onStart();
+
+        // If the Activity was stopped while playing, return to the match list
+        // instead of leaving a PlayerView without a live ExoPlayer.
+        if (!playerScreen && player == null && !matches.isEmpty()) {
+            showMatches();
         }
     }
 
@@ -1980,9 +2050,10 @@ public class MainActivity extends Activity {
     @Override
     public void onBackPressed() {
 
-        if (player != null || playerView != null) {
+        if (player != null || playerView != null || playerScreen) {
 
             releasePlayer();
+            playerScreen = false;
 
             showMatches();
 
