@@ -760,7 +760,7 @@ public class MainActivity extends Activity {
         // the next football match.
         Matcher sportMatcher =
                 Pattern.compile(
-                        "(?is)<img[^>]+alt\\s*=\\s*[\\"']([^\\"']+)[\\"'][^>]*>"
+                        "(?is)<img[^>]+alt\\s*=\\s*[\"']([^\"']+)[\"'][^>]*>"
                 ).matcher(prefix);
 
         String sport = "";
