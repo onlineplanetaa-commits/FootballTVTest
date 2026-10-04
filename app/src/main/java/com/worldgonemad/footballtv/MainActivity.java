@@ -22,6 +22,7 @@ import android.webkit.WebViewClient;
 import android.webkit.ValueCallback;
 import org.json.JSONArray;
 import org.json.JSONObject;
+import org.json.JSONTokener;
 
 import java.io.BufferedReader;
 import java.io.InputStream;
@@ -1727,7 +1728,15 @@ public class MainActivity extends Activity {
                     if (resolverWebView != web || value == null) return;
 
                     try {
-                        JSONArray arr = new JSONArray(value);
+                        // evaluateJavascript() returns the result of JSON.stringify()
+                        // as a quoted JSON string. Decode that string before parsing
+                        // it as the JSONArray. Without this step Android WebView can
+                        // silently fail here and leave sourceScripts empty forever.
+                        Object decoded = new JSONTokener(value).nextValue();
+                        String json = decoded instanceof String
+                                ? (String) decoded
+                                : value;
+                        JSONArray arr = new JSONArray(json);
                         sourceScripts.clear();
 
                         for (int i = 0; i < arr.length(); i++) {
