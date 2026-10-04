@@ -71,6 +71,7 @@ public class MainActivity extends Activity {
     private Match fallbackMatch;
     private String activeSourceUrl = "";
     private boolean browserPlaybackDetected = false;
+    private int alternateSourceIndex = 0;
 
     private LinearLayout listContainer;
     private TextView statusText;
@@ -1192,9 +1193,10 @@ public class MainActivity extends Activity {
             return;
         }
 
-        // First try the real stream URL, not just the browser page.
-        // The previous builds contained this resolver but never called it,
-        // so every WATCH click went straight into the WebView source loop.
+        alternateSourceIndex = 0;
+        fallbackSourceUrls.clear();
+        failedSourceUrls.clear();
+        fallbackMatch = match;
         showPlayer(match, "Finding direct stream...");
 
         new Thread(() -> {
@@ -1203,13 +1205,16 @@ public class MainActivity extends Activity {
             if (!hls.isEmpty()) {
                 runOnUiThread(() -> {
                     if (playerScreen) {
-                        fallbackMatch = match;
                         activeSourceUrl = hls;
                         playHls(hls);
                     }
                 });
                 return;
             }
+
+            // LiveTV904 is the primary source. If it fails, also look for the
+            // same football match on the separate LiveTV soccer listing.
+            fallbackSourceUrls.addAll(findAlternateSourceUrls(match));
 
             runOnUiThread(() -> {
                 if (playerScreen) {
@@ -1218,6 +1223,52 @@ public class MainActivity extends Activity {
             });
         }).start();
     }
+
+    private ArrayList<String> findAlternateSourceUrls(Match match) {
+        ArrayList<String> result = new ArrayList<>();
+        if (match == null) return result;
+
+        String html = downloadPage("https://livetv.li/soccer");
+        if (html == null || html.isEmpty()) return result;
+
+        String home = normalizeTeamForMatch(match.home);
+        String away = normalizeTeamForMatch(match.away);
+
+        Pattern p = Pattern.compile(
+                "(?is)<a\\s+[^>]*href\\s*=\\s*[\\\"']([^\\\"']+)[\\\"'][^>]*>(.*?)</a>"
+        );
+        Matcher m = p.matcher(html);
+
+        while (m.find()) {
+            String text = cleanText(m.group(2));
+            if (text.isEmpty()) continue;
+
+            String norm = normalizeTeamForMatch(text);
+            if (!norm.contains(home) || !norm.contains(away)) continue;
+
+            String href = decodeUrl(m.group(1));
+            if (href.isEmpty()) continue;
+
+            String absolute = absoluteUrl(href, "https://livetv.li/soccer");
+            if (absolute.isEmpty()) continue;
+            if (absolute.contains("livetv.li")) continue;
+
+            addCandidate(result, absolute);
+        }
+
+        return result;
+    }
+
+    private String normalizeTeamForMatch(String value) {
+        if (value == null) return "";
+        String s = cleanText(value).toLowerCase();
+        s = s.replaceAll("\\([^)]*\\)", " ");
+        s = s.replaceAll("[^a-z0-9а-яёііїєґ]+", " ");
+        s = s.replaceAll("\\b(fc|cf|sc|ac|club|calcio|sporting|deportivo)\\b", " ");
+        s = s.replaceAll("\\s+", " ").trim();
+        return s;
+    }
+
 
     private String resolvePublicHls(String eventUrl) {
         String html = downloadPage(eventUrl);
@@ -1846,7 +1897,16 @@ public class MainActivity extends Activity {
                 if (resolverWebView != web || playingDetected) return;
 
                 if (sourceIndex >= sourceScripts.size()) {
-                    status("No working browser stream found.");
+                    if (alternateSourceIndex < fallbackSourceUrls.size()) {
+                        alternateSourceIndex++;
+                        try {
+                            web.stopLoading();
+                            web.loadUrl(fallbackSourceUrls.get(alternateSourceIndex - 1));
+                        } catch (Exception ignored) {}
+                        status("Trying alternate football source " + alternateSourceIndex + "...");
+                        return;
+                    }
+                    status("No working stream found on available sources.");
                     return;
                 }
 
@@ -2048,8 +2108,16 @@ public class MainActivity extends Activity {
             }
         });
 
-        statusForBrowserPlayer(web, "Finding LiveTV904 player...");
-        web.loadUrl(match.eventUrl);
+        String startUrl = match.eventUrl;
+        String startLabel = "Finding LiveTV904 player...";
+        if (alternateSourceIndex > 0
+                && alternateSourceIndex <= fallbackSourceUrls.size()) {
+            startUrl = fallbackSourceUrls.get(alternateSourceIndex - 1);
+            startLabel = "Trying alternate source " + alternateSourceIndex + "...";
+        }
+
+        statusForBrowserPlayer(web, startLabel);
+        web.loadUrl(startUrl);
 
         // Do not leave the user stuck for a minute. Source discovery should
         // either start playback or fail in about 30 seconds.
@@ -2063,9 +2131,15 @@ public class MainActivity extends Activity {
                     web.destroy();
                 } catch (Exception ignored) {}
                 resolverWebView = null;
-                showPlayer(match, "No working browser stream found.");
+                if (alternateSourceIndex < fallbackSourceUrls.size()) {
+                    alternateSourceIndex++;
+                    showPlayer(match, "Trying alternate football source...");
+                    handler.postDelayed(() -> resolveWithWebView(match), 300);
+                } else {
+                    showPlayer(match, "No working stream found on available sources.");
+                }
             }
-        }, 45000);
+        }, 30000);
     }
 
     private void statusForBrowserPlayer(WebView web, String text) {
