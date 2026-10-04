@@ -1192,14 +1192,31 @@ public class MainActivity extends Activity {
             return;
         }
 
-        // Resolve the public stream in the background first. LiveTV904 often
-        // exposes the final HLS URL in the event/player HTML, and this path
-        // is much faster and more reliable than waiting for WebView timers.
-        showPlayer(match, "Finding video stream...");
+        // First try the real stream URL, not just the browser page.
+        // The previous builds contained this resolver but never called it,
+        // so every WATCH click went straight into the WebView source loop.
+        showPlayer(match, "Finding direct stream...");
 
-        // Keep the known-good startup path. Stream resolving must not block
-        // or change Activity initialization on Android TV.
-        runOnUiThread(() -> resolveWithWebView(match));
+        new Thread(() -> {
+            String hls = resolvePublicHls(match.eventUrl);
+
+            if (!hls.isEmpty()) {
+                runOnUiThread(() -> {
+                    if (playerScreen) {
+                        fallbackMatch = match;
+                        activeSourceUrl = hls;
+                        playHls(hls);
+                    }
+                });
+                return;
+            }
+
+            runOnUiThread(() -> {
+                if (playerScreen) {
+                    resolveWithWebView(match);
+                }
+            });
+        }).start();
     }
 
     private String resolvePublicHls(String eventUrl) {
@@ -1820,11 +1837,13 @@ public class MainActivity extends Activity {
 
                 if (url.contains("/export/webplayer.iframe.php")
                         || url.contains("/player/")) {
-                    playingDetected = true;
-                    browserPlaybackDetected = true;
+                    // Reaching the browser-player URL is NOT proof that the
+                    // stream is playing. Older builds set playingDetected here,
+                    // which stopped all fallback logic on a blank player page.
                     web.setVisibility(View.VISIBLE);
-                    status("LiveTV904 player loaded...");
-                    handler.postDelayed(this::inspectForPlayback, 3000);
+                    status("LiveTV904 player loaded — checking stream...");
+                    handler.postDelayed(this::inspectForPlayback, 2000);
+                    handler.postDelayed(this::inspectForPlayback, 5000);
                 } else if (url.contains("/eventinfo/")) {
                     if (!sourceListCollected) {
                         status("Finding browser sources...");
@@ -1855,6 +1874,7 @@ public class MainActivity extends Activity {
                 super.onReceivedError(view, request, error);
                 if (resolverWebView != web || playingDetected) return;
                 if (request.isForMainFrame()) {
+                    status("Browser source failed — trying next...");
                     handler.postDelayed(this::tryNextBrowserSource, 500);
                 }
             }
