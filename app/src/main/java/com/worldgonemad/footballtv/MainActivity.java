@@ -1295,7 +1295,7 @@ public class MainActivity extends Activity {
             );        }
 
         String t = extractFirst(html,
-                "(?i)(?:[?&]t=|\\\\\"t\\\\\"\\\\s*[:=]\\\\s*\\\\\"?)(\\\\d+)"
+                "(?i)(?:[?&]t=|\\\\\"t\\\\\"\\\\s*[:=]\\\\s*\\\\\"?)(\\[^&\\"'\s]+)"
         );
 
         if (!eid.isEmpty()) {
@@ -1597,6 +1597,11 @@ public class MainActivity extends Activity {
                 popup.getSettings().setDomStorageEnabled(true);
                 popup.getSettings().setMediaPlaybackRequiresUserGesture(false);
                 popup.getSettings().setJavaScriptCanOpenWindowsAutomatically(true);
+                popup.getSettings().setSupportMultipleWindows(true);
+                if (android.os.Build.VERSION.SDK_INT >= 21) {
+                    popup.getSettings().setMixedContentMode(android.webkit.WebSettings.MIXED_CONTENT_ALWAYS_ALLOW);
+                }
+                popup.setWebChromeClient(this);
                 popup.getSettings().setUserAgentString(web.getSettings().getUserAgentString());
                 CookieManager.getInstance().setAcceptThirdPartyCookies(popup, true);
                 popup.setWebViewClient(new WebViewClient() {
