@@ -1709,7 +1709,7 @@ public class MainActivity extends Activity {
                 String js =
                         "(function(){" +
                         "try{" +
-                        "var f=document.querySelector('iframe[src*="/cache/ltvplayer/"],iframe[src*="ltvplayer"]');" +
+                        "var f=document.querySelector('iframe[src*=\\\"/cache/ltvplayer/\\\"],iframe[src*=\\\"ltvplayer\\\"]');" +
                         "if(!f)return 'NO';" +
                         "document.documentElement.style.background='#000';" +
                         "document.body.style.background='#000';" +
