@@ -1808,14 +1808,14 @@ public class MainActivity extends Activity {
                         "(function(){" +
                         "try{" +
                         "var out=[];var seen={};" +
-                        "var els=document.querySelectorAll('a,button,[role=button],[onclick],[data-href],[data-url],a[href*=\"/export/webplayer.iframe.php\"],a[href*=\"/player/\"]');" +
+                        "var els=document.querySelectorAll('a,button,iframe[src*=\"/cache/ltvplayer/\"],iframe[src*=\"ltvplayer\"],[role=button],[onclick],[data-href],[data-url],a[href*=\"/export/webplayer.iframe.php\"],a[href*=\"/player/\"]');" +
                         "for(var i=0;i<els.length;i++){" +
                         "var x=els[i];" +
                         "var t=((x.innerText||x.textContent||'')+' '+(x.title||x.getAttribute('aria-label')||'')).trim();" +
-                        "var h=x.getAttribute('href')||x.getAttribute('data-href')||x.getAttribute('data-url')||'';" +
+                        "var h=x.getAttribute('href')||x.getAttribute('src')||x.getAttribute('data-href')||x.getAttribute('data-url')||'';" +
                         "var o=x.getAttribute('onclick')||'';" +
                         "var z=(t+' '+h+' '+o).toLowerCase();" +
-                        "var ok=/webplayer|\\/player\\/|\\/export\\/|apl614|azplay|aliez/.test(z)||/^(web|web\\s*\\d*|aliez)\\b/i.test(t);" +
+                        "var ok=/webplayer|\\/player\\/|\\/export\\/|ltvplayer|apl614|azplay|aliez/.test(z)||/^(web|web\\s*\\d*|aliez)\\b/i.test(t);" +
                         "if(!ok)continue;" +
                         "var key=(h+'|'+o+'|'+t).trim();" +
                         "if(!key||seen[key])continue;seen[key]=1;" +
@@ -1858,7 +1858,7 @@ public class MainActivity extends Activity {
                                     "(function(){" +
                                     "var href=" + safeHref + ",txt=" + safeText +
                                     ",oc=" + safeOnclick + ";" +
-                                    "var els=document.querySelectorAll('a,button,[role=button],[onclick],[data-href],[data-url]');" +
+                                    "var els=document.querySelectorAll('a,button,iframe,[role=button],[onclick],[data-href],[data-url]');" +
                                     "for(var i=0;i<els.length;i++){" +
                                     "var x=els[i];" +
                                     "var h=x.getAttribute('href')||x.getAttribute('data-href')||x.getAttribute('data-url')||'';" +
@@ -1919,7 +1919,14 @@ public class MainActivity extends Activity {
 
                 if (playingDetected) return;
 
-                if (url.contains("/export/webplayer.iframe.php")
+                if (url.contains("/cache/ltvplayer/")) {
+                    // LiveTV904 embeds the actual browser player through this cache iframe.
+                    // Treat this page as the player and stop rotating through dead source links.
+                    playingDetected = true;
+                    browserPlaybackDetected = true;
+                    web.setVisibility(View.VISIBLE);
+                    status("LiveTV904 player loaded.");
+                } else if (url.contains("/export/webplayer.iframe.php")
                         || url.contains("/player/")) {
                     // Reaching the browser-player URL is not proof of playback.
                     // First expose the actual nested player/stream URL.
@@ -1964,7 +1971,7 @@ public class MainActivity extends Activity {
             }
         });
 
-        statusForBrowserPlayer(web, "Finding browser sources...");
+        statusForBrowserPlayer(web, "Finding LiveTV904 player...");
         web.loadUrl(match.eventUrl);
 
         // Do not leave the user stuck for a minute. Source discovery should
