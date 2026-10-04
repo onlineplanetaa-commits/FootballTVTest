@@ -759,32 +759,27 @@ public class MainActivity extends Activity {
                         "(?is)<img[^>]+alt\\s*=\\s*[\\\"']([^\\\"']+)[\\\"'][^>]*>"
                 ).matcher(prefix);
 
+        // Only the LAST marker belongs to the current event.
+        // Looking at every marker in the 20,000-character prefix made a
+        // football match disappear when a later hockey/volleyball marker
+        // happened to be closer to the link.
+        String lastAlt = "";
+
+        while (sportMatcher.find()) {
+            lastAlt = cleanText(sportMatcher.group(1));
+        }
+
         String sport = "";
         String league = "";
 
-        while (sportMatcher.find()) {
-            String alt = cleanText(sportMatcher.group(1));
-            String lowerAlt = alt.toLowerCase();
+        String lowerLastAlt = lastAlt.toLowerCase();
 
-            if (lowerAlt.startsWith("football.")
-                    || lowerAlt.equals("football")) {
-                sport = "football";
-                league = alt.length() > 9
-                        ? cleanText(alt.substring(9))
-                        : "Football";
-            } else if (lowerAlt.startsWith("hockey")
-                    || lowerAlt.startsWith("basketball")
-                    || lowerAlt.startsWith("baseball")
-                    || lowerAlt.startsWith("tennis")
-                    || lowerAlt.startsWith("volleyball")
-                    || lowerAlt.startsWith("handball")
-                    || lowerAlt.startsWith("darts")
-                    || lowerAlt.startsWith("rugby")
-                    || lowerAlt.startsWith("formula")
-                    || lowerAlt.startsWith("motorsport")) {
-                sport = "other";
-                league = "";
-            }
+        if (lowerLastAlt.startsWith("football.")
+                || lowerLastAlt.equals("football")) {
+            sport = "football";
+            league = lastAlt.length() > 9
+                    ? cleanText(lastAlt.substring(9))
+                    : "Football";
         }
 
         if (!"football".equals(sport) || league.isEmpty()) {
@@ -814,6 +809,9 @@ public class MainActivity extends Activity {
 
             boolean live =
                     Pattern.compile(
+                            "(?is).*?\\b\\d+\\s*:\\s*\\d+\\b.*"
+                    ).matcher(anchorText).matches()
+                    || Pattern.compile(
                             "(?is).*?\\b\\d+\\s*:\\s*\\d+\\b.*"
                     ).matcher(after).matches();
 
