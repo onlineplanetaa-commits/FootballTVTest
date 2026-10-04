@@ -1295,7 +1295,7 @@ public class MainActivity extends Activity {
             );        }
 
         String t = extractFirst(html,
-                "(?i)(?:[?&]t=|\\\\\"t\\\\\"\\\\s*[:=]\\\\s*\\\\\"?)(\\[^&\\"'\s]+)"
+                "(?i)(?:[?&]t=)([^&\"'\\s]+)"
         );
 
         if (!eid.isEmpty()) {
