@@ -64,6 +64,11 @@ public class MainActivity extends Activity {
     private final ArrayList<Match> matches =
             new ArrayList<>();
 
+    private ArrayList<String> fallbackSourceUrls = new ArrayList<>();
+    private final Set<String> failedSourceUrls = new HashSet<>();
+    private Match fallbackMatch;
+    private String activeSourceUrl = "";
+
     private LinearLayout listContainer;
     private TextView statusText;
 
@@ -1560,6 +1565,8 @@ public class MainActivity extends Activity {
             private void found(String url) {
                 if (!isHls(url) || finished) return;
                 finished = true;
+                fallbackSourceUrls = new ArrayList<>(sourceUrls);
+                fallbackMatch = match;
                 runOnUiThread(() -> {
                     if (resolverWebView != web) return;
                     try { web.stopLoading(); web.destroy(); } catch (Exception ignored) {}
@@ -1577,7 +1584,7 @@ public class MainActivity extends Activity {
                     u = absoluteUrl(u, web.getUrl() == null ? eventUrl : web.getUrl());
                 }
                 if (u.isEmpty()) return;
-                if (!sourceUrls.contains(u)) sourceUrls.add(u);
+                if (!failedSourceUrls.contains(u) && !sourceUrls.contains(u)) sourceUrls.add(u);
             }
 
             private void collectSources(WebView view) {
@@ -1613,7 +1620,9 @@ public class MainActivity extends Activity {
 
                         if (!sourceUrls.isEmpty()) {
                             sourceCollectionAttempts = 0;
-                            tryNextSource();
+                            fallbackSourceUrls = new ArrayList<>(sourceUrls);
+                            fallbackMatch = match;
+                            if (!sourceMode) tryNextSource();
                         } else if (++sourceCollectionAttempts < 4) {
                             handler.postDelayed(() -> collectSources(web), 700);
                         }
@@ -1632,6 +1641,7 @@ public class MainActivity extends Activity {
 
                 sourceMode = true;
                 String next = sourceUrls.get(sourceIndex++);
+                activeSourceUrl = next;
                 web.loadUrl(next);
 
                 handler.postDelayed(() -> {
@@ -1854,6 +1864,13 @@ public class MainActivity extends Activity {
         player = new ExoPlayer.Builder(this).build();
         playerView.setPlayer(player);
 
+        player.addListener(new androidx.media3.common.Player.Listener() {
+            @Override
+            public void onPlayerError(androidx.media3.common.PlaybackException error) {
+                switchToNextSourceAfterFailure();
+            }
+        });
+
         MediaItem item = new MediaItem.Builder()
                 .setUri(Uri.parse(hls))
                 .build();
@@ -1861,6 +1878,22 @@ public class MainActivity extends Activity {
         player.setMediaItem(item);
         player.prepare();
         player.play();
+    }
+
+    private void switchToNextSourceAfterFailure() {
+        if (!playerScreen || fallbackMatch == null) return;
+
+        if (activeSourceUrl != null && !activeSourceUrl.isEmpty()) {
+            failedSourceUrls.add(activeSourceUrl);
+        }
+
+        releasePlayer();
+
+        handler.postDelayed(() -> {
+            if (playerScreen || fallbackMatch != null) {
+                resolveWithWebView(fallbackMatch);
+            }
+        }, 300);
     }
 
     private void releasePlayer() {
