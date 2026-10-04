@@ -1705,6 +1705,50 @@ public class MainActivity extends Activity {
                 });
             }
 
+            private void showEmbeddedLiveTvPlayer() {
+                String js =
+                        "(function(){" +
+                        "try{" +
+                        "var f=document.querySelector('iframe[src*=\"/cache/ltvplayer/\"],iframe[src*=\"ltvplayer\"]');" +
+                        "if(!f)return 'NO';" +
+                        "document.documentElement.style.background='#000';" +
+                        "document.body.style.background='#000';" +
+                        "document.body.style.margin='0';" +
+                        "var e=f;" +
+                        "while(e&&e!==document.body&&e.parentElement){" +
+                        "for(var j=0;j<e.parentElement.children.length;j++){" +
+                        "var s=e.parentElement.children[j];" +
+                        "if(s!==e)s.style.display='none';" +
+                        "}" +
+                        "e.style.display='block';" +
+                        "e.style.visibility='visible';" +
+                        "e=e.parentElement;" +
+                        "}" +
+                        "f.style.display='block';" +
+                        "f.style.visibility='visible';" +
+                        "f.style.width='100%';" +
+                        "f.style.height='100%';" +
+                        "f.style.border='0';" +
+                        "return 'FOUND:'+f.src;" +
+                        "}catch(x){return 'ERR';}" +
+                        "})()";
+                web.evaluateJavascript(js, value -> {
+                    if (resolverWebView != web || value == null) return;
+                    String decoded = value;
+                    try {
+                        Object v = new JSONTokener(value).nextValue();
+                        if (v instanceof String) decoded = (String)v;
+                    } catch (Exception ignored) {}
+
+                    if (decoded.startsWith("FOUND:")) {
+                        playingDetected = true;
+                        browserPlaybackDetected = true;
+                        web.setVisibility(View.VISIBLE);
+                        status("LiveTV904 embedded player loaded.");
+                    }
+                });
+            }
+
             private void inspectForPlayback() {
                 if (resolverWebView != web || playingDetected) return;
 
@@ -1808,7 +1852,7 @@ public class MainActivity extends Activity {
                         "(function(){" +
                         "try{" +
                         "var out=[];var seen={};" +
-                        "var els=document.querySelectorAll('a,button,iframe[src*=\"/cache/ltvplayer/\"],iframe[src*=\"ltvplayer\"],[role=button],[onclick],[data-href],[data-url],a[href*=\"/export/webplayer.iframe.php\"],a[href*=\"/player/\"]');" +
+                        "var els=document.querySelectorAll('a,button,[role=button],[onclick],[data-href],[data-url],a[href*=\"/export/webplayer.iframe.php\"],a[href*=\"/player/\"]');" +
                         "for(var i=0;i<els.length;i++){" +
                         "var x=els[i];" +
                         "var t=((x.innerText||x.textContent||'')+' '+(x.title||x.getAttribute('aria-label')||'')).trim();" +
@@ -1936,18 +1980,15 @@ public class MainActivity extends Activity {
                     handler.postDelayed(this::inspectForPlayback, 2000);
                     handler.postDelayed(this::inspectForPlayback, 5000);
                 } else if (url.contains("/eventinfo/")) {
-                    if (!sourceListCollected) {
-                        status("Finding browser sources...");
-                        handler.postDelayed(
-                                this::collectAndStartSources,
-                                600
-                        );
-                    } else if (sourceIndex > 0) {
-                        handler.postDelayed(
-                                this::clickCurrentSource,
-                                500
-                        );
-                    }
+                    // Keep LiveTV904's /cache/ltvplayer iframe inside the event page.
+                    // Navigating the WebView to that iframe directly loses the parent
+                    // page context, referrer and cookies and causes the black player.
+                    status("Loading embedded LiveTV904 player...");
+                    handler.postDelayed(() -> {
+                        if (resolverWebView == web && !playingDetected) {
+                            showEmbeddedLiveTvPlayer();
+                        }
+                    }, 500);
                 } else {
                     handler.postDelayed(
                             this::inspectForPlayback,
