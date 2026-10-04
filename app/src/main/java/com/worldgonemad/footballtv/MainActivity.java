@@ -27,7 +27,6 @@ import java.net.HttpURLConnection;
 import java.net.URL;
 import java.net.URLEncoder;
 import java.util.ArrayList;
-import java.util.Collections;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 import java.util.HashSet;
@@ -751,50 +750,41 @@ public class MainActivity extends Activity {
         // Baseball or Tennis event could inherit a distant Football league.
         String prefix =
                 html.substring(
-                        Math.max(0, linkMatcher.start() - 1800),
+                        Math.max(0, linkMatcher.start() - 20000),
                         linkMatcher.start()
                 );
 
-        // Read the sport/league marker only from the local event area.
-        // This prevents the previous event's league from leaking into
-        // the next football match.
-        // Take only the nearest preceding image marker. Scanning every
-        // image in a large prefix can let another event overwrite the
-        // current sport/league.
         Matcher sportMatcher =
                 Pattern.compile(
-                        "(?is)<img[^>]+alt\\s*=\\s*[\"']([^\"']+)[\"'][^>]*>"
+                        "(?is)<img[^>]+alt\\s*=\\s*[\\\"']([^\\\"']+)[\\\"'][^>]*>"
                 ).matcher(prefix);
 
         String sport = "";
         String league = "";
-        String nearestAlt = "";
 
         while (sportMatcher.find()) {
-            nearestAlt = cleanText(sportMatcher.group(1));
-        }
+            String alt = cleanText(sportMatcher.group(1));
+            String lowerAlt = alt.toLowerCase();
 
-        String lowerAlt = nearestAlt.toLowerCase();
-
-        if (lowerAlt.startsWith("football.")
-                || lowerAlt.equals("football")) {
-            sport = "football";
-            league = nearestAlt.length() > 9
-                    ? cleanText(nearestAlt.substring(9))
-                    : "Football";
-        } else if (lowerAlt.startsWith("hockey")
-                || lowerAlt.startsWith("basketball")
-                || lowerAlt.startsWith("baseball")
-                || lowerAlt.startsWith("tennis")
-                || lowerAlt.startsWith("volleyball")
-                || lowerAlt.startsWith("handball")
-                || lowerAlt.startsWith("darts")
-                || lowerAlt.startsWith("rugby")
-                || lowerAlt.startsWith("formula")
-                || lowerAlt.startsWith("motorsport")
-                || lowerAlt.startsWith("american football")) {
-            sport = "other";
-            league = "";
+            if (lowerAlt.startsWith("football.")
+                    || lowerAlt.equals("football")) {
+                sport = "football";
+                league = alt.length() > 9
+                        ? cleanText(alt.substring(9))
+                        : "Football";
+            } else if (lowerAlt.startsWith("hockey")
+                    || lowerAlt.startsWith("basketball")
+                    || lowerAlt.startsWith("baseball")
+                    || lowerAlt.startsWith("tennis")
+                    || lowerAlt.startsWith("volleyball")
+                    || lowerAlt.startsWith("handball")
+                    || lowerAlt.startsWith("darts")
+                    || lowerAlt.startsWith("rugby")
+                    || lowerAlt.startsWith("formula")
+                    || lowerAlt.startsWith("motorsport")) {
+                sport = "other";
+                league = "";
+            }
         }
 
         if (!"football".equals(sport) || league.isEmpty()) {
@@ -805,63 +795,31 @@ public class MainActivity extends Activity {
             int afterEnd =
                     Math.min(
                             html.length(),
-                            afterStart + 500
+                            afterStart + 1500
                     );
 
             String after =
                     html.substring(afterStart, afterEnd);
 
-            // The first HH:mm-looking value can be the score (for example
-            // 1:0 or 2:1). The scheduled start time is the next HH:mm value.
             Matcher timeMatcher =
                     Pattern.compile(
                             "\\b(\\d{1,2}:\\d{2})\\b"
                     ).matcher(after);
 
-            String firstTime = "";
-            String scheduledTime = "";
-            int timeCount = 0;
+            String time = "";
 
-            while (timeMatcher.find() && timeCount < 2) {
-                if (timeCount == 0) {
-                    firstTime = timeMatcher.group(1);
-                } else {
-                    scheduledTime = timeMatcher.group(1);
-                }
-                timeCount++;
+            if (timeMatcher.find()) {
+                time = timeMatcher.group(1);
             }
 
-            if (scheduledTime.isEmpty()) {
-                scheduledTime = firstTime;
+            boolean live =
+                    Pattern.compile(
+                            "(?is).*?\\b\\d+\\s*:\\s*\\d+\\b.*"
+                    ).matcher(after).matches();
+
+            if (time.isEmpty()) {
+                time = live ? "LIVE" : "UPCOMING";
             }
-
-            // LiveTV904 has a dedicated "Top Events LIVE" block. Treat
-            // matches in that block as live. Everything else must be either
-            // scheduled for now/future or it is removed from our list.
-            int topLivePos = prefix.lastIndexOf("Top Events LIVE");
-            int todayPos = prefix.lastIndexOf("Today (");
-            boolean inTopLive = topLivePos > todayPos;
-
-            String pageTime = extractPageCurrentTime(html);
-            String pageDate = extractPageCurrentDate(html);
-            String eventDate = extractLastEventDate(prefix);
-
-            if (!inTopLive
-                    && !isCurrentOrUpcomingEvent(
-                            eventDate,
-                            scheduledTime,
-                            pageDate,
-                            pageTime
-                    )) {
-                continue;
-            }
-
-            boolean live = inTopLive;
-
-            String time =
-                    scheduledTime.isEmpty()
-                            ? (live ? "LIVE" : "UPCOMING")
-                            : scheduledTime;
 
             String[] teams = splitTeams(anchorText);
 
@@ -904,139 +862,7 @@ public class MainActivity extends Activity {
             }
         }
 
-        Collections.sort(
-                result,
-                (a, b) -> {
-                    if (a.live != b.live) {
-                        return a.live ? -1 : 1;
-                    }
-
-                    int ta = parseClockMinutes(a.time);
-                    int tb = parseClockMinutes(b.time);
-
-                    if (ta < 0 && tb < 0) return 0;
-                    if (ta < 0) return 1;
-                    if (tb < 0) return -1;
-
-                    return Integer.compare(ta, tb);
-                }
-        );
-
         return result;
-    }
-
-    private String extractPageCurrentTime(String html) {
-        Matcher m =
-                Pattern.compile(
-                        "(?is)Your current time zone:\\s*(\\d{1,2}:\\d{2})"
-                ).matcher(html);
-        return m.find() ? m.group(1) : "";
-    }
-
-    private String extractPageCurrentDate(String html) {
-        Matcher m =
-                Pattern.compile(
-                        "(?is)Today\\s*\\(\\s*(\\d{1,2})\\s+([A-Za-z]+)"
-                ).matcher(html);
-        return m.find() ? m.group(1) + " " + m.group(2) : "";
-    }
-
-    private String extractLastEventDate(String prefix) {
-        Matcher m =
-                Pattern.compile(
-                        "(?i)\\b(\\d{1,2})\\s+"
-                                + "(January|February|March|April|May|June|July|August|"
-                                + "September|October|November|December)\\b"
-                ).matcher(prefix);
-        String result = "";
-        while (m.find()) {
-            result = m.group(1) + " " + m.group(2);
-        }
-        return result;
-    }
-
-    private boolean isCurrentOrUpcomingEvent(
-            String eventDate,
-            String scheduledTime,
-            String pageDate,
-            String pageTime
-    ) {
-        if (scheduledTime == null || scheduledTime.isEmpty()) {
-            return true;
-        }
-
-        int currentDay = extractDay(pageDate);
-        int currentMonth = extractMonth(pageDate);
-        int eventDay = extractDay(eventDate.isEmpty() ? pageDate : eventDate);
-        int eventMonth = extractMonth(eventDate.isEmpty() ? pageDate : eventDate);
-
-        if (currentDay <= 0 || currentMonth <= 0
-                || eventDay <= 0 || eventMonth <= 0) {
-            return true;
-        }
-
-        if (eventMonth != currentMonth) {
-            return eventMonth > currentMonth;
-        }
-
-        if (eventDay != currentDay) {
-            return eventDay > currentDay;
-        }
-
-        int eventMinutes = parseClockMinutes(scheduledTime);
-        int currentMinutes = parseClockMinutes(pageTime);
-
-        if (eventMinutes < 0 || currentMinutes < 0) {
-            return true;
-        }
-
-        return eventMinutes >= currentMinutes;
-    }
-
-    private int extractDay(String value) {
-        if (value == null || value.isEmpty()) return -1;
-        Matcher m = Pattern.compile("\\b(\\d{1,2})\\b").matcher(value);
-        return m.find() ? Integer.parseInt(m.group(1)) : -1;
-    }
-
-    private int extractMonth(String value) {
-        if (value == null || value.isEmpty()) return -1;
-
-        Matcher m =
-                Pattern.compile(
-                        "(?i)\\b(January|February|March|April|May|June|July|"
-                                + "August|September|October|November|December)\\b"
-                ).matcher(value);
-
-        if (!m.find()) return -1;
-
-        String month = m.group(1).toLowerCase();
-        String[] months = {
-                "january", "february", "march", "april", "may", "june",
-                "july", "august", "september", "october", "november", "december"
-        };
-
-        for (int i = 0; i < months.length; i++) {
-            if (months[i].equals(month)) return i + 1;
-        }
-        return -1;
-    }
-
-    private int parseClockMinutes(String value) {
-        if (value == null || value.isEmpty()) return -1;
-
-        Matcher m =
-                Pattern.compile("\\b(\\d{1,2}):(\\d{2})\\b")
-                        .matcher(value);
-
-        if (!m.find()) return -1;
-
-        int hour = Integer.parseInt(m.group(1));
-        int minute = Integer.parseInt(m.group(2));
-
-        if (hour > 23 || minute > 59) return -1;
-
-        return hour * 60 + minute;
     }
 
     private Match parseMatchFromArea(
