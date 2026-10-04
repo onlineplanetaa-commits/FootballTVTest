@@ -27,6 +27,7 @@ import java.net.HttpURLConnection;
 import java.net.URL;
 import java.net.URLEncoder;
 import java.util.ArrayList;
+import java.util.Collections;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 import java.util.HashSet;
@@ -750,13 +751,16 @@ public class MainActivity extends Activity {
         // Baseball or Tennis event could inherit a distant Football league.
         String prefix =
                 html.substring(
-                        Math.max(0, linkMatcher.start() - 20000),
+                        Math.max(0, linkMatcher.start() - 1800),
                         linkMatcher.start()
                 );
 
+        // Read the sport/league marker only from the local event area.
+        // This prevents the previous event's league from leaking into
+        // the next football match.
         Matcher sportMatcher =
                 Pattern.compile(
-                        "(?is)<img[^>]+alt\\s*=\\s*[\\\"']([^\\\"']+)[\\\"'][^>]*>"
+                        "(?is)<img[^>]+alt\\s*=\\s*[\\"']([^\\"']+)[\\"'][^>]*>"
                 ).matcher(prefix);
 
         String sport = "";
@@ -781,7 +785,8 @@ public class MainActivity extends Activity {
                     || lowerAlt.startsWith("darts")
                     || lowerAlt.startsWith("rugby")
                     || lowerAlt.startsWith("formula")
-                    || lowerAlt.startsWith("motorsport")) {
+                    || lowerAlt.startsWith("motorsport")
+                    || lowerAlt.startsWith("american football")) {
                 sport = "other";
                 league = "";
             }
@@ -893,6 +898,24 @@ public class MainActivity extends Activity {
                 );
             }
         }
+
+        Collections.sort(
+                result,
+                (a, b) -> {
+                    if (a.live != b.live) {
+                        return a.live ? -1 : 1;
+                    }
+
+                    int ta = parseClockMinutes(a.time);
+                    int tb = parseClockMinutes(b.time);
+
+                    if (ta < 0 && tb < 0) return 0;
+                    if (ta < 0) return 1;
+                    if (tb < 0) return -1;
+
+                    return Integer.compare(ta, tb);
+                }
+        );
 
         return result;
     }
