@@ -1526,7 +1526,10 @@ public class MainActivity extends Activity {
         web.getSettings().setDatabaseEnabled(true);
         web.getSettings().setMediaPlaybackRequiresUserGesture(false);
         web.getSettings().setJavaScriptCanOpenWindowsAutomatically(true);
-        web.getSettings().setSupportMultipleWindows(true);
+        web.getSettings().setSupportMultipleWindows(false);
+        if (android.os.Build.VERSION.SDK_INT >= 21) {
+            web.getSettings().setMixedContentMode(android.webkit.WebSettings.MIXED_CONTENT_ALWAYS_ALLOW);
+        }
         web.getSettings().setLoadsImagesAutomatically(true);
         web.getSettings().setAllowContentAccess(true);
         web.getSettings().setAllowFileAccess(false);
@@ -1558,14 +1561,7 @@ public class MainActivity extends Activity {
                     boolean isUserGesture,
                     android.os.Message resultMsg
             ) {
-                // LiveTV904 Browser Links may use target="_blank"/window.open().
-                // Reuse the current player WebView instead of silently dropping
-                // the new-window request.
-                android.webkit.WebView.WebViewTransport transport =
-                        (android.webkit.WebView.WebViewTransport) resultMsg.obj;
-                transport.setWebView(web);
-                resultMsg.sendToTarget();
-                return true;
+                return false;
             }
         });
 
@@ -1708,7 +1704,7 @@ public class MainActivity extends Activity {
                         "(function(){" +
                         "try{" +
                         "var out=[];var seen={};" +
-                        "var els=document.querySelectorAll('a,button,[role=button],[onclick],[data-href],[data-url]');" +
+                        "var els=document.querySelectorAll('a,button,[role=button],[onclick],[data-href],[data-url],a[href*=\"/export/webplayer.iframe.php\"],a[href*=\"/player/\"]');" +
                         "for(var i=0;i<els.length;i++){" +
                         "var x=els[i];" +
                         "var t=((x.innerText||x.textContent||'')+' '+(x.title||x.getAttribute('aria-label')||'')).trim();" +
