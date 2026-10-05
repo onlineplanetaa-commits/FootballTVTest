@@ -1,0 +1,62 @@
+name: Analyze AK47 Sports V1.6 (no JADX)
+
+on:
+  workflow_dispatch:
+
+jobs:
+  analyze:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Download official APK
+        run: |
+          set -e
+          curl -L --fail --retry 3 -A "Mozilla/5.0" "https://ak47sports.app/app/AK47Sports_V1.6.apk" -o AK47Sports_V1.6.apk
+          ls -lh AK47Sports_V1.6.apk
+
+      - name: Inspect APK
+        run: |
+          set +e
+          rm -rf apk_extract
+          mkdir apk_extract
+          unzip -q AK47Sports_V1.6.apk -d apk_extract
+
+          echo "=== APK FILE LIST ===" > analysis.txt
+          find apk_extract -type f | sort >> analysis.txt
+
+          echo >> analysis.txt
+          echo "=== URLS FROM DEX ===" >> analysis.txt
+          find apk_extract -name 'classes*.dex' -print0 |
+            xargs -0 strings -a 2>/dev/null |
+            grep -Eo 'https?://[^[:space:]'"'"'">)]+' |
+            sort -u >> analysis.txt || true
+
+          echo >> analysis.txt
+          echo "=== NETWORK / PLAYLIST STRINGS ===" >> analysis.txt
+          find apk_extract -name 'classes*.dex' -print0 |
+            xargs -0 strings -a 2>/dev/null |
+            grep -Ei 'api_host|api_url|iptv_playlist|foot_live_url|cric_live_url|playlist|m3u8?|xtream|live_events|foot_score|cric_score' |
+            sort -u >> analysis.txt || true
+
+          echo >> analysis.txt
+          echo "=== FIREBASE / API IDENTIFIERS ===" >> analysis.txt
+          grep -RniE -C 5 'google_app_id|gcm_defaultSenderId|project_id|google_api_key|google_storage_bucket|firebase' apk_extract/res apk_extract/assets 2>/dev/null |
+            head -n 10000 >> analysis.txt || true
+
+          echo >> analysis.txt
+          echo "=== RESOURCE URL STRINGS ===" >> analysis.txt
+          find apk_extract/res apk_extract/assets -type f -print0 2>/dev/null |
+            xargs -0 strings -a 2>/dev/null |
+            grep -Eoi 'https?://[^[:space:]'"'"'">)]+' |
+            sort -u >> analysis.txt || true
+
+          echo >> analysis.txt
+          echo "=== ANALYSIS COMPLETE ===" >> analysis.txt
+
+      - name: Upload analysis
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: ak47-v16-analysis-no-jadx
+          path: analysis.txt
+          if-no-files-found: warn
+          retention-days: 3
