@@ -1,0 +1,177 @@
+name: Analyze AK47 Sports V1.6
+
+on:
+  push:
+    paths:
+      - ".github/workflows/analyze-ak47-v16.yml"
+  workflow_dispatch:
+
+jobs:
+  analyze:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Download official APK
+        run: |
+          set -e
+          curl -L --fail --retry 3 -A "Mozilla/5.0"             "https://ak47sports.app/app/AK47Sports_V1.6.apk"             -o AK47Sports_V1.6.apk
+          ls -lh AK47Sports_V1.6.apk
+      - name: Extract and inspect
+        run: |
+          set -e
+          rm -rf apk_extract source
+          mkdir apk_extract
+          unzip -q AK47Sports_V1.6.apk -d apk_extract
+
+          echo "=== APK FILE LIST ===" > analysis.txt
+          find apk_extract -type f | sort >> analysis.txt
+
+          echo >> analysis.txt
+          echo "=== URLS FROM DEX ===" >> analysis.txt
+          find apk_extract -name 'classes*.dex' -print0 |
+            xargs -0 strings -a 2>/dev/null |
+            grep -Eo 'https?://[^[:space:]'"'"'">)]+' |
+            sort -u >> analysis.txt || true
+
+          echo >> analysis.txt
+          echo "=== NETWORK / PLAYLIST STRINGS ===" >> analysis.txt
+          find apk_extract -name 'classes*.dex' -print0 |
+            xargs -0 strings -a 2>/dev/null |
+            grep -Ei 'api_host|api_url|iptv_playlist|foot_live_url|cric_live_url|playlist|m3u8?|xtream|live_events|foot_score|cric_score' |
+            sort -u >> analysis.txt || true
+
+          echo >> analysis.txt
+          echo "=== NATIVE LIBRARY URL STRINGS ===" >> analysis.txt
+          find apk_extract/lib -type f -print0 2>/dev/null |
+            xargs -0 strings -a 2>/dev/null |
+            grep -Eoi 'https?://[^[:space:]'"'"'">)]+' |
+            sort -u >> analysis.txt || true
+
+          echo >> analysis.txt
+          echo "=== DECOMPILED AKSPORTS SOURCE ===" >> analysis.txt
+          curl -L --fail --retry 3 \
+            "https://github.com/skylot/jadx/releases/download/v1.5.6/jadx-1.5.6.zip" \
+            -o /tmp/jadx.zip
+          rm -rf /tmp/jadx
+          mkdir /tmp/jadx
+          unzip -q /tmp/jadx.zip -d /tmp/jadx
+          JADX_BIN=$(find /tmp/jadx -type f -name jadx | head -n 1)
+          test -n "$JADX_BIN"
+          chmod +x "$JADX_BIN"
+          "$JADX_BIN" -q -d source AK47Sports_V1.6.apk || true
+          grep -RniE -C 8 'api_host|api_url|foot_live_url|cric_live_url|iptv_playlist|app\\.txt|playlist|m3u8?|xtream|live_events|foot_score|cric_score|http://|https://|Retrofit|OkHttp|WebView' source/sources/app/aksports/live 2>/dev/null |
+            head -n 4000 >> analysis.txt || true
+
+          echo >> analysis.txt
+          echo "=== RELEVANT AKSPORTS SOURCE FILES ===" >> analysis.txt
+          find source -type f 2>/dev/null |
+            grep -Ei 'aksports|playlist|player|api|channel|score|web' |
+            sort |
+            head -n 1000 >> analysis.txt || true
+
+
+          echo >> analysis.txt
+          echo "=== API HOST SOURCE CONTEXT ===" >> analysis.txt
+          grep -Rni -C 30 'api_host' source/sources/app/aksports/live 2>/dev/null | head -n 12000 >> analysis.txt || true
+          echo >> analysis.txt
+          echo "=== APP.TXT CONTEXT ===" >> analysis.txt
+          grep -Rni -C 50 'app\\.txt' source/sources/app/aksports/live 2>/dev/null | head -n 12000 >> analysis.txt || true
+          echo >> analysis.txt
+          echo "=== FOOT LIVE CONTEXT ===" >> analysis.txt
+          grep -Rni -C 30 'foot_live_url' source/sources/app/aksports/live 2>/dev/null | head -n 10000 >> analysis.txt || true
+          echo >> analysis.txt
+          echo "=== P5/M6/L5 NETWORK CLASSES ===" >> analysis.txt
+          grep -Rni -E 'class .*p5|class .*l5|class .*c6|api_host|app\\.txt' source/sources/app/aksports/live 2>/dev/null | head -n 5000 >> analysis.txt || true
+
+          echo >> analysis.txt
+          echo "=== REMOTE CONFIG XML ===" >> analysis.txt
+          find apk_extract/res -type f 2>/dev/null |
+            grep -Ei 'remote.*config|config.*default' |
+            while read f; do echo "--- $f ---" >> analysis.txt; cat "$f" >> analysis.txt; done || true
+
+          echo >> analysis.txt
+          echo "=== ALL XML CONTAINING API_HOST / FOOT_LIVE / LIVE_EVENTS ===" >> analysis.txt
+          grep -RniE -C 10 'api_host|foot_live_url|foot_score|live_events|iptv_playlist|cric_live_url|cric_score' apk_extract/res apk_extract/assets source 2>/dev/null |
+            head -n 12000 >> analysis.txt || true
+
+          echo >> analysis.txt
+          echo "=== FIREBASE PROJECT / REMOTE CONFIG IDENTIFIERS ===" >> analysis.txt
+          grep -RniE -C 5 'google_app_id|gcm_defaultSenderId|project_id|google_api_key|google_storage_bucket|firebase' apk_extract/res apk_extract/assets source 2>/dev/null |
+            head -n 6000 >> analysis.txt || true
+
+          echo >> analysis.txt
+          echo "=== ANDROID RESOURCE TABLE ===" >> analysis.txt
+          AAPT2=$(find "$ANDROID_HOME/build-tools" -type f -name aapt2 2>/dev/null | sort | tail -n 1)
+          if [ -n "$AAPT2" ]; then
+            "$AAPT2" dump resources AK47Sports_V1.6.apk 2>/dev/null |
+              grep -Ei -C 8 'api_url|google_app_id|google_api_key|project_id|gcm_defaultSenderId|firebase' |
+              head -n 12000 >> analysis.txt || true
+          fi
+
+          echo >> analysis.txt
+          echo "=== APK STRING RESOURCE NAMES ===" >> analysis.txt
+          find apk_extract -type f \( -name '*.arsc' -o -name '*.xml' \) -print0 2>/dev/null |
+            xargs -0 strings -a 2>/dev/null |
+            grep -Ei 'api_url|google_app_id|google_api_key|project_id|gcm_defaultSenderId' |
+            sort -u >> analysis.txt || true
+
+          echo >> analysis.txt
+          echo "=== LIVE FIREBASE REMOTE CONFIG FETCH ===" >> analysis.txt
+          API_KEY="AIzaSyCOhPo6X5o8517oC_tFtH_L8ka3ElacTu0"
+          APP_ID="1:987682933046:android:b0d2f52255416b34cb0b97"
+
+          APKSIGNER=$(find "$ANDROID_HOME/build-tools" -type f -name apksigner 2>/dev/null | sort | tail -n 1)
+          test -n "$APKSIGNER"
+
+          echo "--- APK SIGNER OUTPUT ---" >> analysis.txt
+          "$APKSIGNER" verify --print-certs AK47Sports_V1.6.apk >> analysis.txt 2>&1 || true
+
+          CERT_SHA1=$("$APKSIGNER" verify --print-certs AK47Sports_V1.6.apk 2>/dev/null |
+            awk -F': ' '/SHA-1 digest:/ {print $2; exit}')
+          test -n "$CERT_SHA1"
+
+          echo "Android package: app.aksports.live" >> analysis.txt
+          echo "Android cert SHA-1: $CERT_SHA1" >> analysis.txt
+
+          INSTALL_JSON=$(curl -sS --fail \
+            -X POST \
+            -H "Content-Type: application/json" \
+            -H "X-Goog-Api-Key: $API_KEY" \
+            -H "X-Android-Package: app.aksports.live" \
+            -H "X-Android-Cert: $CERT_SHA1" \
+            -d "{\"appId\":\"$APP_ID\",\"sdkVersion\":\"21.0.0\"}" \
+            "https://firebaseinstallations.googleapis.com/v1/projects/-/installations")
+
+          echo "--- FIREBASE INSTALLATION RESPONSE ---" >> analysis.txt
+          printf '%s\n' "$INSTALL_JSON" >> analysis.txt
+
+          FID=$(printf '%s\n' "$INSTALL_JSON" | python3 -c 'import json,sys; x=json.load(sys.stdin); print(x.get("fid",""))')
+          AUTH=$(printf '%s\n' "$INSTALL_JSON" | python3 -c 'import json,sys; x=json.load(sys.stdin); print(x.get("authToken",{}).get("token",""))')
+          test -n "$FID"
+          test -n "$AUTH"
+
+          echo "Firebase FID obtained: yes" >> analysis.txt
+          echo "Firebase auth token obtained: yes" >> analysis.txt
+
+          RC_JSON=$(curl -sS --fail \
+            -X POST \
+            -H "Content-Type: application/json" \
+            -H "X-Goog-Api-Key: $API_KEY" \
+            -H "X-Goog-Firebase-Installations-Auth: $AUTH" \
+            -d "{\"sdk_version\":\"21.0.0\",\"app_instance_id\":\"$FID\",\"app_instance_id_token\":\"$AUTH\",\"app_id\":\"$APP_ID\",\"language_code\":\"en-US\"}" \
+            "https://firebaseremoteconfig.googleapis.com/v1/projects/ak47-sports/namespaces/firebase:fetch?key=$API_KEY")
+
+          echo "Remote Config response:" >> analysis.txt
+          printf '%s\n' "$RC_JSON" | python3 -c 'import json,sys; x=json.load(sys.stdin); print(json.dumps({"state":x.get("state"),"entries":x.get("entries",{})},indent=2,ensure_ascii=False))' >> analysis.txt || printf '%s\n' "$RC_JSON" >> analysis.txt
+          echo "=== API_URL ONLY ===" >> analysis.txt
+          printf '%s\n' "$RC_JSON" | python3 -c 'import json,sys; print(json.load(sys.stdin).get("entries",{}).get("api_url","<not found>"))' >> analysis.txt || true
+          echo >> analysis.txt
+
+          echo "=== MANIFEST STRINGS ===" >> analysis.txt
+          unzip -p AK47Sports_V1.6.apk AndroidManifest.xml 2>/dev/null | strings -a >> analysis.txt || true
+
+      - name: Upload analysis
+        uses: actions/upload-artifact@v4
+        with:
+          name: ak47-v16-analysis
+          path: analysis.txt
+          retention-days: 3
