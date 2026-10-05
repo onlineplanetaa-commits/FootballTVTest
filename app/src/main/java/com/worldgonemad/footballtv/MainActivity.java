@@ -9,6 +9,7 @@ import android.os.Handler;
 import android.os.Looper;
 import android.view.Gravity;
 import android.view.View;
+import android.view.ViewGroup;
 import android.webkit.CookieManager;
 import android.webkit.WebChromeClient;
 import android.webkit.WebResourceRequest;
@@ -202,29 +203,164 @@ public class MainActivity extends Activity {
             String html = downloadPage(LIVE_TV_URL);
             ArrayList<Match> liveMatches = parseMatches(html);
 
-            String sportsrcJson = httpGet(SPORTSRC_API);
-            ArrayList<Match> sportsrcMatches = parseSportsrcMatches(sportsrcJson);
-
-            for (Match liveMatch : liveMatches) {
-                for (Match s : sportsrcMatches) {
-                    if (teamsMatch(liveMatch.home, s.home) && teamsMatch(liveMatch.away, s.away)
-                            || teamsMatch(liveMatch.home, s.away) && teamsMatch(liveMatch.away, s.home)) {
-                        liveMatch.sportSrcId = s.id;
-                        break;
-                    }
-                }
+            // LiveTV904 can return a different/empty HTML document to a
+            // direct Android HTTP client than it renders in a browser.
+            // If the direct parser finds nothing, use the same browser
+            // engine that was proven reliable in builds 45/46.
+            if (liveMatches.isEmpty()) {
+                runOnUiThread(() -> loadMatchesWithBrowser());
+                return;
             }
 
-            runOnUiThread(() -> {
-                matches.clear();
-                matches.addAll(liveMatches);
-                if (!liveMatches.isEmpty()) showMatches();
-                else showError("No live football matches found.");
-            });
+            attachSportSrcIds(liveMatches);
+            publishLiveMatches(liveMatches);
         }).start();
     }
 
-    private String downloadPage(String address) {
+    private void attachSportSrcIds(ArrayList<Match> liveMatches) {
+        String sportsrcJson = httpGet(SPORTSRC_API);
+        ArrayList<Match> sportsrcMatches = parseSportsrcMatches(sportsrcJson);
+
+        for (Match liveMatch : liveMatches) {
+            for (Match s : sportsrcMatches) {
+                if ((teamsMatch(liveMatch.home, s.home) && teamsMatch(liveMatch.away, s.away))
+                        || (teamsMatch(liveMatch.home, s.away) && teamsMatch(liveMatch.away, s.home))) {
+                    liveMatch.sportSrcId = s.id;
+                    break;
+                }
+            }
+        }
+    }
+
+    private void publishLiveMatches(ArrayList<Match> liveMatches) {
+        matches.clear();
+        matches.addAll(liveMatches);
+        if (!liveMatches.isEmpty()) {
+            showMatches();
+        } else {
+            showError("No live football matches found.");
+        }
+    }
+
+    private void loadMatchesWithBrowser() {
+        final WebView browser = new WebView(this);
+        resolverWebView = browser;
+
+        browser.setVisibility(View.INVISIBLE);
+        browser.getSettings().setJavaScriptEnabled(true);
+        browser.getSettings().setDomStorageEnabled(true);
+        browser.getSettings().setUserAgentString(
+                "Mozilla/5.0 (Linux; Android 11; Android TV) AppleWebKit/537.36 Chrome/124.0.0.0 Safari/537.36"
+        );
+        browser.setWebViewClient(new WebViewClient() {
+            @Override
+            public void onPageFinished(WebView view, String url) {
+                view.evaluateJavascript(
+                        "(function(){"
+                        + "var out=[];"
+                        + "document.querySelectorAll('a[href*="/eventinfo/"]').forEach(function(a){"
+                        + "var e=a,ctx='',alt='';"
+                        + "for(var i=0;i<7&&e;i++,e=e.parentElement){"
+                        + "var t=(e.innerText||'').replace(/\\s+/g,' ').trim();"
+                        + "var aa=Array.from(e.querySelectorAll('img')).map(function(x){return x.alt||'';}).join(' ');"
+                        + "if(/\\d{1,2}\\s*:\\s*\\d{1,2}/.test(t)){ctx=t;alt=aa;break;}"
+                        + "}"
+                        + "if(ctx) out.push(a.href+'\\t'+(a.innerText||'').replace(/\\s+/g,' ').trim()+'\\t'+ctx+'\\t'+alt);"
+                        + "});"
+                        + "return out.join('\\n');"
+                        + "})()",
+                        value -> {
+                            ArrayList<Match> result = parseBrowserMatches(value);
+                            if (!result.isEmpty()) {
+                                attachSportSrcIds(result);
+                                publishLiveMatches(result);
+                            } else {
+                                showError("No live football matches found.");
+                            }
+                            if (resolverWebView == browser) {
+                                resolverWebView = null;
+                            }
+                            ((ViewGroup) browser.getParent()).removeView(browser);
+                            browser.destroy();
+                        }
+                );
+            }
+        });
+
+        addContentView(
+                browser,
+                new ViewGroup.LayoutParams(1, 1)
+        );
+        browser.loadUrl(LIVE_TV_URL);
+    }
+
+    private ArrayList<Match> parseBrowserMatches(String value) {
+        ArrayList<Match> result = new ArrayList<>();
+        if (value == null || value.length() < 2) return result;
+
+        try {
+            Object parsed = new JSONTokener(value).nextValue();
+            if (!(parsed instanceof String)) return result;
+
+            String data = (String) parsed;
+            String[] rows = data.split("\\n");
+
+            for (String row : rows) {
+                String[] p = row.split("\\t", -1);
+                if (p.length < 4) continue;
+
+                String href = p[0].trim();
+                String anchor = cleanText(p[1]);
+                String context = cleanText(p[2]);
+                String alt = cleanText(p[3]);
+
+                String sportText = (context + " " + alt).toLowerCase();
+                if (!sportText.contains("football")) continue;
+
+                Matcher scoreMatcher = Pattern.compile(
+                        "(?<!\\d)\\d{1,2}\\s*:\\s*\\d{1,2}(?!\\d)"
+                ).matcher(context);
+                if (!scoreMatcher.find()) continue;
+
+                String[] teams = splitTeams(anchor);
+                if (teams.length != 2) continue;
+
+                String home = cleanTeamName(teams[0]);
+                String away = cleanTeamName(teams[1]);
+                if (home.isEmpty() || away.isEmpty()) continue;
+
+                String eventUrl = href.startsWith("http")
+                        ? href
+                        : "https://livetv904.me" + href;
+
+                boolean duplicate = false;
+                for (Match existing : result) {
+                    if (existing.eventUrl.equals(eventUrl)) {
+                        duplicate = true;
+                        break;
+                    }
+                }
+
+                if (!duplicate) {
+                    result.add(new Match(
+                            "Football",
+                            home,
+                            away,
+                            scoreMatcher.group() + "  LIVE",
+                            true,
+                            "",
+                            "",
+                            eventUrl
+                    ));
+                }
+            }
+        } catch (Exception ignored) {
+        }
+
+        return result;
+    }
+
+private String downloadPage(String address) {
         HttpURLConnection c = null;
         try {
             c = (HttpURLConnection) new URL(address).openConnection();
