@@ -1598,3 +1598,102 @@ public class MainActivity extends Activity {
                         .setUri(Uri.parse(url))
                         .build()
         );
+        player.prepare();
+        player.play();
+    }
+
+    private void showPlayer(Match match, String message) {
+        releasePlayer();
+        playerScreen = true;
+
+        LinearLayout root = new LinearLayout(this);
+        root.setOrientation(LinearLayout.VERTICAL);
+        root.setBackgroundColor(Color.BLACK);
+
+        LinearLayout top = new LinearLayout(this);
+        top.setOrientation(LinearLayout.HORIZONTAL);
+        top.setGravity(Gravity.CENTER_VERTICAL);
+        top.setPadding(20, 8, 20, 8);
+
+        TextView title = label(
+                match.home + " — " + match.away,
+                19,
+                TEXT
+        );
+
+        title.setTypeface(Typeface.DEFAULT, Typeface.BOLD);
+
+        top.addView(
+                title,
+                new LinearLayout.LayoutParams(0, 56, 1)
+        );
+
+        Button back = action("BACK");
+
+        top.addView(
+                back,
+                new LinearLayout.LayoutParams(120, 52)
+        );
+
+        root.addView(top);
+
+        TextView status = label(
+                message,
+                16,
+                MUTED
+        );
+
+        status.setGravity(Gravity.CENTER);
+
+        root.addView(
+                status,
+                new LinearLayout.LayoutParams(-1, 55)
+        );
+
+        playerView = new PlayerView(this);
+        playerView.setBackgroundColor(Color.BLACK);
+        playerView.setKeepScreenOn(true);
+
+        root.addView(
+                playerView,
+                new LinearLayout.LayoutParams(-1, 0, 1)
+        );
+
+        back.setOnClickListener(v -> {
+            releasePlayer();
+            showMatches();
+        });
+
+        setContentView(root);
+    }
+
+    private void playHls(String hls) {
+        if (hls == null || hls.isEmpty()) return;
+
+        releasePlayer();
+        playerScreen = true;
+
+        playerView = new PlayerView(this);
+        playerView.setBackgroundColor(Color.BLACK);
+
+        LinearLayout root = new LinearLayout(this);
+        root.setOrientation(LinearLayout.VERTICAL);
+        root.setBackgroundColor(Color.BLACK);
+
+        LinearLayout top = new LinearLayout(this);
+        top.setOrientation(LinearLayout.HORIZONTAL);
+        top.setGravity(Gravity.CENTER_VERTICAL);
+        top.setPadding(20, 8, 20, 8);
+
+        TextView title = label("MAX FOOTBALL ONLINE", 19, TEXT);
+        title.setTypeface(Typeface.DEFAULT, Typeface.BOLD);
+
+        top.addView(title, new LinearLayout.LayoutParams(0, 56, 1));
+
+        Button back = action("BACK");
+        top.addView(back, new LinearLayout.LayoutParams(120, 52));
+
+        root.addView(top);
+
+        root.addView(
+                playerView,
