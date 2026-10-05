@@ -214,10 +214,17 @@ public class MainActivity extends Activity {
                 return;
             }
 
-            // SportSRC V1 currently returns the full football schedule but no
-            // live_ IDs. Use the live-event source to discover active games,
-            // then attach the corresponding SportSRC match ID for detail/stream.
-            runOnUiThread(() -> loadMatchesWithBrowser());
+            // Do not construct a WebView during startup. Some Android TV
+            // firmware crashes the process when WebView is initialized.
+            // Use the plain HTTP LiveTV page parser as the safe fallback.
+            String html = downloadPage(LIVE_TV_URL);
+            ArrayList<Match> fallback = parseMatches(html);
+            if (!fallback.isEmpty()) {
+                attachSportSrcIds(fallback);
+                publishLiveMatches(fallback);
+            } else {
+                runOnUiThread(() -> showError("No live football matches found.")); 
+            }
         }).start();
     }
 
