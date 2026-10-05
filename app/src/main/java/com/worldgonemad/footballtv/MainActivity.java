@@ -1182,70 +1182,183 @@ public class MainActivity extends Activity {
      */
 
     private void resolveAndPlay(Match match) {
-
         if (match == null || match.eventUrl == null || match.eventUrl.isEmpty()) {
             showError("Stream link is unavailable.");
             return;
         }
 
-        showPlayer(match, "Finding AK47 streams...");
+        showPlayer(match, "Finding LiveTV904 streams...");
 
         new Thread(() -> {
-            final String apiHost = "https://zerohazaarop.store/";
-            String eventsUrl = apiHost + "events.txt";
-            String body = downloadPage(eventsUrl);
+            ArrayList<String> streams = collectLiveTvStreams(match.eventUrl);
 
-            final ArrayList<String> streams = new ArrayList<>();
-
-            try {
-                JSONArray root = new JSONArray(body);
-
-                String wantedHome = normalizeTeam(match.home);
-                String wantedAway = normalizeTeam(match.away);
-
-                for (int i = 0; i < root.length(); i++) {
-                    JSONObject row = root.optJSONObject(i);
-                    if (row == null) continue;
-
-                    String rawEvent = row.optString("event", "");
-                    if (!rawEvent.trim().startsWith("{")) continue;
-
-                    JSONObject event = new JSONObject(rawEvent);
-                    if (!event.optBoolean("visible", true)) continue;
-
-                    String home = event.optString("teamAName", "").trim();
-                    String away = event.optString("teamBName", "").trim();
-
-                    if (!normalizeTeam(home).equals(wantedHome)
-                            || !normalizeTeam(away).equals(wantedAway)) {
-                        continue;
-                    }
-
-                    String linksPath = event.optString("links", "").trim();
-                    if (linksPath.isEmpty()) continue;
-
-                    String linksUrl = linksPath;
-                    if (!linksUrl.startsWith("http://")
-                            && !linksUrl.startsWith("https://")) {
-                        linksUrl = apiHost + linksUrl.replaceFirst("^/+", "");
-                    }
-
-                    String linksBody = downloadPage(linksUrl);
-                    streams.addAll(selectAk47Streams(linksBody));
-
-                    // Keep searching other matching AK47 event rows too.
-                }
-            } catch (Exception ignored) {
+            if (streams.isEmpty()) {
+                streams = collectAk47Streams(match);
             }
 
+            ArrayList<String> finalStreams = streams;
+
             runOnUiThread(() -> {
-                if (streams.isEmpty()) {
-                    showPlayer(match, "AK47 returned no playable streams.");
+                if (finalStreams.isEmpty()) {
+                    showPlayer(match, "No playable LiveTV904 or AK47 stream was found.");
                 } else {
-                    playAk47Streams(match, streams, 0);
+                    playAk47Streams(match, finalStreams, 0);
                 }
             });
         }).start();
+    }
+
+    // LiveTV904 loads the actual broadcast player inside the event page.
+    // Watch all page/iframe network requests and collect every media URL.
+    private ArrayList<String> collectLiveTvStreams(String eventUrl) {
+        final ArrayList<String> result = new ArrayList<>();
+        final Set<String> seen = new HashSet<>();
+
+        runOnUiThread(() -> {
+            try {
+                if (resolverWebView != null) {
+                    resolverWebView.stopLoading();
+                    resolverWebView.destroy();
+                }
+
+                resolverWebView = new WebView(this);
+                resolverWebView.setVisibility(View.INVISIBLE);
+                resolverWebView.getSettings().setJavaScriptEnabled(true);
+                resolverWebView.getSettings().setDomStorageEnabled(true);
+                resolverWebView.getSettings().setMediaPlaybackRequiresUserGesture(false);
+
+                CookieManager.getInstance().setAcceptCookie(true);
+                CookieManager.getInstance().setAcceptThirdPartyCookies(resolverWebView, true);
+                resolverWebView.setWebChromeClient(new WebChromeClient());
+
+                resolverWebView.setWebViewClient(new WebViewClient() {
+                    @Override
+                    public boolean shouldOverrideUrlLoading(WebView view, WebResourceRequest request) {
+                        return false;
+                    }
+
+                    @Override
+                    public android.webkit.WebResourceResponse shouldInterceptRequest(
+                            WebView view, WebResourceRequest request) {
+                        collectMediaCandidate(request.getUrl().toString(), result, seen);
+                        return super.shouldInterceptRequest(view, request);
+                    }
+
+                    @Override
+                    public android.webkit.WebResourceResponse shouldInterceptRequest(
+                            WebView view, String url) {
+                        collectMediaCandidate(url, result, seen);
+                        return super.shouldInterceptRequest(view, url);
+                    }
+
+                    @Override
+                    public void onPageFinished(WebView view, String url) {
+                        view.evaluateJavascript(
+                                "(function(){try{var a=[].slice.call(document.querySelectorAll('video,source,iframe'));"
+                                + "return a.map(function(x){return x.src||x.currentSrc||''}).join('\\n');"
+                                + "}catch(e){return ''}})();",
+                                value -> {
+                                    if (value == null) return;
+                                    String clean = value.replace("\\"", """);
+                                    for (String u : clean.split("\\n")) {
+                                        u = u.trim();
+                                        if (u.startsWith("http")) {
+                                            collectMediaCandidate(u, result, seen);
+                                        }
+                                    }
+                                });
+                    }
+                });
+
+                resolverWebView.loadUrl(eventUrl);
+            } catch (Exception ignored) {
+            }
+        });
+
+        long end = System.currentTimeMillis() + 12000L;
+        while (System.currentTimeMillis() < end && result.isEmpty()) {
+            try {
+                Thread.sleep(300L);
+            } catch (InterruptedException ignored) {
+                break;
+            }
+        }
+
+        runOnUiThread(() -> {
+            if (resolverWebView != null) {
+                resolverWebView.stopLoading();
+                resolverWebView.destroy();
+                resolverWebView = null;
+            }
+        });
+
+        return result;
+    }
+
+    private void collectMediaCandidate(
+            String url,
+            ArrayList<String> result,
+            Set<String> seen) {
+        if (url == null || url.isEmpty()) return;
+
+        String lower = url.toLowerCase(Locale.US);
+        if (lower.contains(".m3u8")
+                || lower.contains(".mpd")
+                || lower.contains(".mp4")
+                || lower.contains(".m3u")
+                || lower.contains("/hls/")
+                || lower.contains("/stream/")) {
+            synchronized (seen) {
+                if (seen.add(url)) {
+                    result.add(url);
+                }
+            }
+        }
+    }
+
+    private ArrayList<String> collectAk47Streams(Match match) {
+        ArrayList<String> streams = new ArrayList<>();
+
+        try {
+            final String apiHost = "https://zerohazaarop.store/";
+            String body = downloadPage(apiHost + "events.txt");
+            JSONArray root = new JSONArray(body);
+
+            String wantedHome = normalizeTeam(match.home);
+            String wantedAway = normalizeTeam(match.away);
+
+            for (int i = 0; i < root.length(); i++) {
+                JSONObject row = root.optJSONObject(i);
+                if (row == null) continue;
+
+                String rawEvent = row.optString("event", "");
+                if (!rawEvent.trim().startsWith("{")) continue;
+
+                JSONObject event = new JSONObject(rawEvent);
+                if (!event.optBoolean("visible", true)) continue;
+
+                if (!normalizeTeam(event.optString("teamAName", ""))
+                        .equals(wantedHome)
+                        || !normalizeTeam(event.optString("teamBName", ""))
+                        .equals(wantedAway)) {
+                    continue;
+                }
+
+                String linksPath = event.optString("links", "").trim();
+                if (linksPath.isEmpty()) continue;
+
+                String linksUrl = linksPath;
+                if (!linksUrl.startsWith("http://")
+                        && !linksUrl.startsWith("https://")) {
+                    linksUrl = apiHost + linksUrl.replaceFirst("^/+", "");
+                }
+
+                streams.addAll(selectAk47Streams(downloadPage(linksUrl)));
+            }
+        } catch (Exception ignored) {
+        }
+
+        return streams;
     }
 
     private String normalizeTeam(String value) {
