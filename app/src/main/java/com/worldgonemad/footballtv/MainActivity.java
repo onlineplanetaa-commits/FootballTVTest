@@ -202,19 +202,18 @@ public class MainActivity extends Activity {
 
     private void loadMatches() {
         new Thread(() -> {
-            String html = downloadPage(LIVE_TV_URL);
-            ArrayList<Match> liveMatches = parseMatches(html);
+            // SportSRC is the authoritative source for the match list.
+            // Only football events with a live_ ID AND a start timestamp
+            // that has already passed are accepted. This prevents future
+            // events that happen to carry a live_ ID from appearing as LIVE.
+            String json = httpGet(SPORTSRC_API);
+            ArrayList<Match> liveMatches = parseSportsrcLiveMatches(json);
 
-            // LiveTV904 can return a different/empty HTML document to a
-            // direct Android HTTP client than it renders in a browser.
-            // If the direct parser finds nothing, use the same browser
-            // engine that was proven reliable in builds 45/46.
             if (liveMatches.isEmpty()) {
-                runOnUiThread(() -> loadMatchesWithBrowser());
+                runOnUiThread(() -> showError("No live football matches found."));
                 return;
             }
 
-            attachSportSrcIds(liveMatches);
             publishLiveMatches(liveMatches);
         }).start();
     }
@@ -474,22 +473,96 @@ private String downloadPage(String address) {
         return result;
     }
 
+    private ArrayList<Match> parseSportsrcLiveMatches(String json) {
+        ArrayList<Match> out = new ArrayList<>();
+        if (json == null || json.trim().isEmpty()) return out;
+
+        try {
+            Object root = new JSONTokener(json.trim()).nextValue();
+            JSONArray arr = null;
+            if (root instanceof JSONArray) {
+                arr = (JSONArray) root;
+            } else if (root instanceof JSONObject) {
+                arr = firstArray((JSONObject) root, "data", "matches", "events", "results");
+            }
+            if (arr == null) return out;
+
+            long now = System.currentTimeMillis();
+
+            for (int i = 0; i < arr.length(); i++) {
+                JSONObject o = arr.optJSONObject(i);
+                if (o == null) continue;
+
+                String id = getString(o, "id", "match_id", "event_id");
+                String category = getString(o, "category", "sport", "type");
+                String home = getString(o, "home", "home_team", "homeTeam", "team_home");
+                String away = getString(o, "away", "away_team", "awayTeam", "team_away");
+                String title = getString(o, "title", "name", "event", "match");
+                String league = getString(o, "league", "competition", "tournament");
+
+                if (!"football".equalsIgnoreCase(category)) continue;
+                if (!id.toLowerCase(Locale.US).startsWith("live_")) continue;
+
+                long startTime = getLong(o, "date", "timestamp", "start", "start_time", "kickoff");
+                if (startTime <= 0) continue;
+                if (startTime < 100000000000L) startTime *= 1000L;
+
+                // A live_ ID is not enough: reject events whose scheduled
+                // start is still in the future.
+                if (startTime > now) continue;
+
+                JSONObject teams = o.optJSONObject("teams");
+                if (teams != null) {
+                    JSONObject ho = teams.optJSONObject("home");
+                    JSONObject ao = teams.optJSONObject("away");
+                    if (home.isEmpty() && ho != null) home = getString(ho, "name", "title");
+                    if (away.isEmpty() && ao != null) away = getString(ao, "name", "title");
+                }
+
+                if ((home.isEmpty() || away.isEmpty()) && !title.isEmpty()) {
+                    String[] pair = splitTeams(title);
+                    if (home.isEmpty()) home = pair[0];
+                    if (away.isEmpty()) away = pair[1];
+                }
+
+                if (home.isEmpty() || away.isEmpty()) continue;
+                if (league.isEmpty()) league = "Football";
+
+                String score = getString(o, "score", "result", "current_score");
+                if (score.isEmpty()) score = "LIVE";
+
+                out.add(new Match(
+                        league,
+                        cleanTeamName(home),
+                        cleanTeamName(away),
+                        cleanText(score) + "  LIVE",
+                        true,
+                        id,
+                        String.valueOf(startTime),
+                        ""
+                ));
+            }
+        } catch (Exception ignored) {
+        }
+
+        return out;
+    }
+
     private ArrayList<Match> parseSportsrcMatches(String json) {
         ArrayList<Match> out = new ArrayList<>();
         if (json == null || json.trim().isEmpty()) return out;
         try {
-            JSONArray root = new JSONArray(json);
-            parseSportsrcArray(root, out);
-            return out;
-        } catch (Exception ignored) {}
-        try {
-            JSONObject root = new JSONObject(json);
-            JSONArray arr = firstArray(root, "matches", "events", "data", "results");
+            Object root = new JSONTokener(json.trim()).nextValue();
+            JSONArray arr = null;
+            if (root instanceof JSONArray) {
+                arr = (JSONArray) root;
+            } else if (root instanceof JSONObject) {
+                arr = firstArray((JSONObject) root, "data", "matches", "events", "results");
+            }
             if (arr != null) parseSportsrcArray(arr, out);
         } catch (Exception ignored) {}
         return out;
     }
-
     private void parseSportsrcArray(JSONArray arr, ArrayList<Match> out) {
         for (int i = 0; i < arr.length(); i++) {
             try {
@@ -581,6 +654,18 @@ private String downloadPage(String address) {
             if (a != null) return a;
         }
         return null;
+    }
+
+    private long getLong(JSONObject o, String... keys) {
+        for (String k : keys) {
+            Object v = o.opt(k);
+            if (v == null || v == JSONObject.NULL) continue;
+            if (v instanceof Number) return ((Number) v).longValue();
+            try {
+                return Long.parseLong(String.valueOf(v).trim());
+            } catch (Exception ignored) {}
+        }
+        return 0L;
     }
 
     private String getString(JSONObject o, String... keys) {
