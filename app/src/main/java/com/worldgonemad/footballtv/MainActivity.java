@@ -258,7 +258,7 @@ public class MainActivity extends Activity {
                 view.evaluateJavascript(
                         "(function(){"
                         + "var out=[];"
-                        + "document.querySelectorAll('a[href*="/eventinfo/"]').forEach(function(a){"
+                        + "document.querySelectorAll('a[href*=\\\"/eventinfo/\\\"]').forEach(function(a){"
                         + "var e=a,ctx='',alt='';"
                         + "for(var i=0;i<7&&e;i++,e=e.parentElement){"
                         + "var t=(e.innerText||'').replace(/\\s+/g,' ').trim();"
