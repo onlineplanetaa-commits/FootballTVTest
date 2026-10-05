@@ -1,9 +1,9 @@
-name: Analyze AK47 Sports V1.6
+name: Analyze AK47 Sports V1.5
 
 on:
   push:
     paths:
-      - ".github/workflows/analyze-ak47-v16.yml"
+      - ".github/workflows/analyze-ak47-v15.yml"
   workflow_dispatch:
 
 jobs:
@@ -13,15 +13,15 @@ jobs:
       - name: Download official APK
         run: |
           set -e
-          curl -L --fail --retry 3 -A "Mozilla/5.0" "https://ak47sports.app/app/AK47Sports_V1.6.apk" -o AK47Sports_V1.6.apk
-          ls -lh AK47Sports_V1.6.apk
+          curl -L --fail --retry 3 -A "Mozilla/5.0" "https://ak47sports.app/app/AK47Sports_V1.5.apk" -o AK47Sports_V1.5.apk
+          ls -lh AK47Sports_V1.5.apk
 
       - name: Extract and inspect
         run: |
           set +e
           rm -rf apk_extract
           mkdir apk_extract
-          unzip -q AK47Sports_V1.6.apk -d apk_extract
+          unzip -q AK47Sports_V1.5.apk -d apk_extract
 
           echo "=== APK FILE LIST ===" > analysis.txt
           find apk_extract -type f | sort >> analysis.txt
@@ -49,7 +49,7 @@ jobs:
           echo >> analysis.txt
           echo "=== APK SIGNER ===" >> analysis.txt
           APKSIGNER=$(find "$ANDROID_HOME/build-tools" -type f -name apksigner 2>/dev/null | sort | tail -n 1)
-          if [ -n "$APKSIGNER" ]; then "$APKSIGNER" verify --print-certs AK47Sports_V1.6.apk >> analysis.txt 2>&1 || true; fi
+          if [ -n "$APKSIGNER" ]; then "$APKSIGNER" verify --print-certs AK47Sports_V1.5.apk >> analysis.txt 2>&1 || true; fi
 
           echo >> analysis.txt
           echo "=== ANALYSIS COMPLETE ===" >> analysis.txt
@@ -58,7 +58,7 @@ jobs:
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: ak47-v16-analysis
+          name: ak47-v15-analysis
           path: analysis.txt
           if-no-files-found: warn
           retention-days: 3
