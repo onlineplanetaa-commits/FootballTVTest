@@ -132,7 +132,7 @@ public class MainActivity extends Activity {
         header.addView(statusText, new LinearLayout.LayoutParams(-2, 65));
         root.addView(header);
 
-        TextView title = label("LIVE & UPCOMING", 24, TEXT);
+        TextView title = label("LIVE NOW", 24, TEXT);
         title.setTypeface(Typeface.DEFAULT, Typeface.BOLD);
         title.setPadding(42, 4, 42, 12);
         root.addView(title, new LinearLayout.LayoutParams(-1, 55));
@@ -227,12 +227,12 @@ public class MainActivity extends Activity {
             Match best = null;
 
             for (Match s : sportsrc) {
-                if (sameTeam(s.home, liveMatch.home) && sameTeam(s.away, liveMatch.away)) {
+                if (teamsMatch(s.home, liveMatch.home) && teamsMatch(s.away, liveMatch.away)) {
                     best = s;
                     break;
                 }
-                // Some feeds reverse home/away. Keep the match live either way.
-                if (sameTeam(s.home, liveMatch.away) && sameTeam(s.away, liveMatch.home)) {
+                // Some feeds reverse home/away or use short names.
+                if (teamsMatch(s.home, liveMatch.away) && teamsMatch(s.away, liveMatch.home)) {
                     best = s;
                     break;
                 }
@@ -297,6 +297,22 @@ public class MainActivity extends Activity {
 
     private boolean sameTeam(String a, String b) {
         return normalizeTeam(a).equals(normalizeTeam(b));
+    }
+
+    private boolean teamsMatch(String a, String b) {
+        String x = normalizeTeam(a);
+        String y = normalizeTeam(b);
+        if (x.isEmpty() || y.isEmpty()) return false;
+        if (x.equals(y)) return true;
+        if (x.length() >= 5 && y.length() >= 5 && (x.contains(y) || y.contains(x))) return true;
+
+        String[] xa = x.split("(?=.{1})");
+        String[] ya = y.split("(?=.{1})");
+        int common = 0;
+        for (String token : new String[]{x, y}) {
+            if (token.length() >= 5 && (x.contains(token) || y.contains(token))) common++;
+        }
+        return common > 0;
     }
 
     private String normalizeTeam(String s) {
