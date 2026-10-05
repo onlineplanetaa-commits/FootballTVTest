@@ -597,8 +597,7 @@ public class MainActivity extends Activity {
                     );
 
                 }
-        ).start();
-    }
+        ).start();    }
 
     private String downloadPage(
             String address
@@ -1197,7 +1196,6 @@ public class MainActivity extends Activity {
             }
 
             ArrayList<String> finalStreams = streams;
-
             runOnUiThread(() -> {
                 if (finalStreams.isEmpty()) {
                     showPlayer(match, "No playable LiveTV904 or AK47 stream was found.");
@@ -1696,4 +1694,204 @@ public class MainActivity extends Activity {
         root.addView(top);
 
         root.addView(
-                playerView,
+                playerView,                playerView,
+                new LinearLayout.LayoutParams(-1, 0, 1)
+        );
+
+        back.setOnClickListener(v -> {
+            releasePlayer();
+            showMatches();
+        });
+
+        setContentView(root);
+
+        player = new ExoPlayer.Builder(this).build();
+        playerView.setPlayer(player);
+
+        MediaItem item = new MediaItem.Builder()
+                .setUri(Uri.parse(hls))
+                .build();
+
+        player.setMediaItem(item);
+        player.prepare();
+        player.play();
+    }
+
+    private void releasePlayer() {
+        if (resolverWebView != null) {
+            try {
+                resolverWebView.stopLoading();
+                resolverWebView.destroy();
+            } catch (Exception ignored) {}
+            resolverWebView = null;
+        }
+
+        if (playerView != null) {
+            // Detach first, then release the player. This prevents a stale
+            // video surface from remaining attached while audio continues.
+            try {
+                playerView.setPlayer(null);
+            } catch (Exception ignored) {}
+        }
+
+        if (player != null) {
+            try {
+                player.stop();
+            } catch (Exception ignored) {}
+
+            try {
+                player.release();
+            } catch (Exception ignored) {}
+
+            player = null;
+        }
+
+        playerView = null;
+    }
+
+    private void showError(
+            String message
+    ) {
+
+        LinearLayout root =
+                new LinearLayout(this);
+
+        root.setOrientation(
+                LinearLayout.VERTICAL
+        );
+
+        root.setGravity(
+                Gravity.CENTER
+        );
+
+        root.setBackgroundColor(BG);
+
+        TextView title =
+                label(
+                        "MAX FOOTBALL ONLINE",
+                        28,
+                        TEXT
+                );
+
+        title.setTypeface(
+                Typeface.DEFAULT,
+                Typeface.BOLD
+        );
+
+        title.setGravity(Gravity.CENTER);
+
+        root.addView(
+                title,
+                new LinearLayout.LayoutParams(
+                        -1,
+                        70
+                )
+        );
+
+        TextView error =
+                label(
+                        message,
+                        18,
+                        MUTED
+                );
+
+        error.setGravity(Gravity.CENTER);
+
+        root.addView(
+                error,
+                new LinearLayout.LayoutParams(
+                        -1,
+                        70
+                )
+        );
+
+        Button retry =
+                action("RETRY");
+
+        retry.setOnClickListener(
+                v -> loadMatches()
+        );
+
+        root.addView(
+                retry,
+                new LinearLayout.LayoutParams(
+                        180,
+                        58
+                )
+        );
+
+        setContentView(root);
+    }
+
+    @Override
+    protected void onStop() {
+
+        super.onStop();
+
+        // Android recommends releasing an Activity-owned ExoPlayer from
+        // onStop(). Do it only when the player screen is actually active.
+        if (playerScreen) {
+            releasePlayer();
+            playerScreen = false;
+        }
+    }
+
+    @Override
+    protected void onStart() {
+
+        super.onStart();
+
+        // If the Activity was stopped while playing, return to the match list
+        // instead of leaving a PlayerView without a live ExoPlayer.
+        if (!playerScreen && player == null && !matches.isEmpty()) {
+            showMatches();
+        }
+    }
+
+    @Override
+    protected void onDestroy() {
+
+        handler.removeCallbacksAndMessages(
+                null
+        );
+
+        releasePlayer();
+
+        super.onDestroy();
+    }
+
+    @Override
+    public void onBackPressed() {
+
+        if (player != null || playerView != null || playerScreen) {
+
+            releasePlayer();
+            playerScreen = false;
+
+            showMatches();
+
+        } else {
+
+            super.onBackPressed();
+        }
+    }
+
+    private static class Match {
+
+        String league;
+        String home;
+        String away;
+        String time;
+        boolean live;
+        String eventUrl;
+
+        Match(
+                String league,
+                String home,
+                String away,
+                String time,
+                boolean live,
+                String eventUrl
+        ) {
+
+            this.league = league;
