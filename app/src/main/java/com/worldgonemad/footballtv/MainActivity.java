@@ -7,519 +7,1648 @@ import android.graphics.drawable.GradientDrawable;
 import android.os.Bundle;
 import android.os.Handler;
 import android.os.Looper;
-import android.util.Base64;
 import android.view.Gravity;
+import android.view.View;
+import android.net.Uri;
 import android.widget.Button;
 import android.widget.LinearLayout;
 import android.widget.ScrollView;
 import android.widget.TextView;
 
-import androidx.media3.common.MediaItem;
 import androidx.media3.datasource.DefaultHttpDataSource;
-import androidx.media3.exoplayer.ExoPlayer;
-import androidx.media3.exoplayer.source.DefaultMediaSourceFactory;
-import androidx.media3.ui.PlayerView;
-
 import org.json.JSONArray;
 import org.json.JSONObject;
 
+import java.util.Locale;
+import android.webkit.CookieManager;
+import android.webkit.WebChromeClient;
+import android.webkit.WebResourceRequest;
+import android.webkit.WebView;
+import android.webkit.WebViewClient;
+
 import java.io.BufferedReader;
+import java.io.InputStream;
 import java.io.InputStreamReader;
 import java.net.HttpURLConnection;
 import java.net.URL;
-import java.nio.charset.StandardCharsets;
-import java.text.SimpleDateFormat;
+import java.net.URLEncoder;
 import java.util.ArrayList;
-import java.util.Date;
-import java.util.HashMap;
-import java.util.Locale;
-import java.util.Map;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
+import java.util.HashSet;
+import java.util.Set;
+
+import androidx.media3.common.MediaItem;
+import androidx.media3.exoplayer.ExoPlayer;
+import androidx.media3.ui.PlayerView;
 
 public class MainActivity extends Activity {
-    private static final String DEFAULT_API = "https://zerohazaarop.store/";
-    private static final String UA = "Mozilla/5.0 (Linux; Android 10; Pixel 3 XL) AppleWebKit/537.36 Chrome/122.0.0.0 Mobile Safari/537.36";
-
-    private final Handler handler = new Handler(Looper.getMainLooper());
-    private final ArrayList<Match> matches = new ArrayList<>();
 
     private ExoPlayer player;
     private PlayerView playerView;
-    private LinearLayout list;
-    private TextView status;
-    private boolean playerScreen;
+    private WebView resolverWebView;
 
-    private final int BG = Color.rgb(10,12,16);
-    private final int PANEL = Color.rgb(20,23,29);
+    // True while the Activity is showing the player/resolver screen.
+    // Match refreshes must never replace that screen.
+    private boolean playerScreen = false;
+
+    private final Handler handler =
+            new Handler(Looper.getMainLooper());
+
+    private final int BG = Color.rgb(10, 12, 16);
+    private final int PANEL = Color.rgb(20, 23, 29);
     private final int TEXT = Color.WHITE;
-    private final int MUTED = Color.rgb(160,168,180);
-    private final int ACCENT = Color.rgb(55,125,255);
-    private final int LIVE = Color.rgb(90,220,140);
+    private final int MUTED = Color.rgb(160, 168, 180);
+    private final int ACCENT = Color.rgb(55, 125, 255);
+    private final int LIVE = Color.rgb(90, 220, 140);
 
-    @Override protected void onCreate(Bundle state) {
-        super.onCreate(state);
-        showLoading("Loading AK47 football events...");
+    private static final String LIVE_TV_URL =
+            "https://livetv904.me/enx/allupcoming/";
+
+    private final ArrayList<Match> matches =
+            new ArrayList<>();
+
+    private LinearLayout listContainer;
+    private TextView statusText;
+
+    private final Runnable refreshRunnable =
+            new Runnable() {
+                @Override
+                public void run() {
+                    loadMatches();
+
+                    handler.postDelayed(
+                            this,
+                            5 * 60 * 1000
+                    );
+                }
+            };
+
+    @Override
+    protected void onCreate(Bundle savedInstanceState) {
+        super.onCreate(savedInstanceState);
+
+        showLoading();
+
         loadMatches();
-        handler.postDelayed(new Runnable() {
-            @Override public void run() {
-                if (!playerScreen) loadMatches();
-                handler.postDelayed(this, 5 * 60 * 1000L);
-            }
-        }, 5 * 60 * 1000L);
+
+        handler.postDelayed(
+                refreshRunnable,
+                5 * 60 * 1000
+        );
     }
 
-    private TextView label(String s, float size, int color) {
+    private TextView label(
+            String text,
+            float size,
+            int color
+    ) {
         TextView t = new TextView(this);
-        t.setText(s); t.setTextSize(size); t.setTextColor(color);
+
+        t.setText(text);
+        t.setTextColor(color);
+        t.setTextSize(size);
         t.setGravity(Gravity.CENTER_VERTICAL);
+
         return t;
     }
 
-    private GradientDrawable bg(int color, float radius) {
-        GradientDrawable d = new GradientDrawable();
-        d.setColor(color); d.setCornerRadius(radius);
+    private GradientDrawable bg(
+            int color,
+            float radius
+    ) {
+        GradientDrawable d =
+                new GradientDrawable();
+
+        d.setColor(color);
+        d.setCornerRadius(radius);
+
         return d;
     }
 
-    private Button button(String text) {
+    private Button action(String caption) {
+
         Button b = new Button(this);
-        b.setText(text); b.setTextColor(TEXT); b.setTextSize(14); b.setAllCaps(false);
-        b.setTypeface(Typeface.DEFAULT, Typeface.BOLD);
-        b.setBackground(bg(ACCENT, 14)); b.setFocusable(true);
+
+        b.setText(caption);
+        b.setTextColor(TEXT);
+        b.setTextSize(14);
+        b.setAllCaps(false);
+
+        b.setTypeface(
+                Typeface.DEFAULT,
+                Typeface.BOLD
+        );
+
+        b.setGravity(Gravity.CENTER);
+        b.setFocusable(true);
+
+        b.setBackground(
+                bg(ACCENT, 14)
+        );
+
+        b.setPadding(
+                18,
+                2,
+                18,
+                2
+        );
+
+        b.setOnFocusChangeListener(
+                (v, hasFocus) ->
+                        v.setAlpha(
+                                hasFocus ? 1f : 0.82f
+                        )
+        );
+
         return b;
     }
 
-    private void showLoading(String message) {
+    private void showLoading() {
+
         playerScreen = false;
-        LinearLayout root = new LinearLayout(this);
-        root.setOrientation(LinearLayout.VERTICAL);
+
+        LinearLayout root =
+                new LinearLayout(this);
+
+        root.setOrientation(
+                LinearLayout.VERTICAL
+        );
+
         root.setGravity(Gravity.CENTER);
         root.setBackgroundColor(BG);
-        TextView title = label("MAX FOOTBALL ONLINE", 28, TEXT);
+
+        TextView title =
+                label(
+                        "MAX FOOTBALL ONLINE",
+                        28,
+                        TEXT
+                );
+
+        title.setTypeface(
+                Typeface.DEFAULT,
+                Typeface.BOLD
+        );
+
         title.setGravity(Gravity.CENTER);
-        title.setTypeface(Typeface.DEFAULT, Typeface.BOLD);
-        root.addView(title, new LinearLayout.LayoutParams(-1,70));
-        TextView msg = label(message,18,MUTED);
-        msg.setGravity(Gravity.CENTER);
-        root.addView(msg, new LinearLayout.LayoutParams(-1,60));
+
+        root.addView(
+                title,
+                new LinearLayout.LayoutParams(
+                        -1,
+                        70
+                )
+        );
+
+        TextView loading =
+                label(
+                        "Loading football matches...",
+                        18,
+                        MUTED
+                );
+
+        loading.setGravity(Gravity.CENTER);
+
+        root.addView(
+                loading,
+                new LinearLayout.LayoutParams(
+                        -1,
+                        60
+                )
+        );
+
         setContentView(root);
     }
 
     private void showMatches() {
+
         playerScreen = false;
-        LinearLayout root = new LinearLayout(this);
-        root.setOrientation(LinearLayout.VERTICAL);
+
+        LinearLayout root =
+                new LinearLayout(this);
+
+        root.setOrientation(
+                LinearLayout.VERTICAL
+        );
+
         root.setBackgroundColor(BG);
 
-        LinearLayout header = new LinearLayout(this);
-        header.setGravity(Gravity.CENTER_VERTICAL);
-        header.setPadding(36,16,36,8);
-        TextView title = label("MAX FOOTBALL ONLINE",27,TEXT);
-        title.setTypeface(Typeface.DEFAULT,Typeface.BOLD);
-        header.addView(title,new LinearLayout.LayoutParams(0,65,1));
-        status = label(matches.size()+" MATCHES",14,MUTED);
-        status.setGravity(Gravity.CENTER);
-        header.addView(status,new LinearLayout.LayoutParams(-2,65));
+        LinearLayout header =
+                new LinearLayout(this);
+
+        header.setOrientation(
+                LinearLayout.HORIZONTAL
+        );
+
+        header.setGravity(
+                Gravity.CENTER_VERTICAL
+        );
+
+        header.setPadding(
+                42,
+                20,
+                42,
+                12
+        );
+
+        TextView logo =
+                label(
+                        "MAX FOOTBALL ONLINE",
+                        27,
+                        TEXT
+                );
+
+        logo.setTypeface(
+                Typeface.DEFAULT,
+                Typeface.BOLD
+        );
+
+        header.addView(
+                logo,
+                new LinearLayout.LayoutParams(
+                        0,
+                        65,
+                        1
+                )
+        );
+
+        statusText =
+                label(
+                        matches.size()
+                                + " MATCHES",
+                        14,
+                        MUTED
+                );
+
+        statusText.setGravity(
+                Gravity.CENTER_VERTICAL |
+                        Gravity.RIGHT
+        );
+
+        header.addView(
+                statusText,
+                new LinearLayout.LayoutParams(
+                        -2,
+                        65
+                )
+        );
+
         root.addView(header);
 
-        TextView sub = label("LIVE & UPCOMING",24,TEXT);
-        sub.setTypeface(Typeface.DEFAULT,Typeface.BOLD);
-        sub.setPadding(36,4,36,12);
-        root.addView(sub,new LinearLayout.LayoutParams(-1,55));
+        TextView title =
+                label(
+                        "LIVE & UPCOMING",
+                        24,
+                        TEXT
+                );
 
-        ScrollView scroll = new ScrollView(this);
+        title.setTypeface(
+                Typeface.DEFAULT,
+                Typeface.BOLD
+        );
+
+        title.setPadding(
+                42,
+                4,
+                42,
+                12
+        );
+
+        root.addView(
+                title,
+                new LinearLayout.LayoutParams(
+                        -1,
+                        55
+                )
+        );
+
+        ScrollView scroll =
+                new ScrollView(this);
+
         scroll.setFillViewport(true);
-        list = new LinearLayout(this);
-        list.setOrientation(LinearLayout.VERTICAL);
-        list.setPadding(28,0,28,30);
-        scroll.addView(list);
-        root.addView(scroll,new LinearLayout.LayoutParams(-1,0,1));
+        scroll.setClipToPadding(false);
+
+        scroll.setPadding(
+                34,
+                0,
+                34,
+                30
+        );
+
+        listContainer =
+                new LinearLayout(this);
+
+        listContainer.setOrientation(
+                LinearLayout.VERTICAL
+        );
+
+        scroll.addView(listContainer);
+
+        root.addView(
+                scroll,
+                new LinearLayout.LayoutParams(
+                        -1,
+                        0,
+                        1
+                )
+        );
+
         setContentView(root);
+
         renderMatches();
     }
 
     private void renderMatches() {
-        if (list == null) return;
-        list.removeAllViews();
-        if (matches.isEmpty()) {
-            TextView e = label("No football matches found.",18,MUTED);
-            e.setGravity(Gravity.CENTER);
-            list.addView(e,new LinearLayout.LayoutParams(-1,100));
+
+        if (listContainer == null) {
             return;
         }
-        for (final Match m : matches) {
-            LinearLayout card = new LinearLayout(this);
-            card.setGravity(Gravity.CENTER_VERTICAL);
-            card.setPadding(20,10,14,10);
-            card.setBackground(bg(PANEL,18));
-            LinearLayout.LayoutParams cp = new LinearLayout.LayoutParams(-1,112);
-            cp.setMargins(6,6,6,6);
-            list.addView(card,cp);
 
-            LinearLayout info = new LinearLayout(this);
-            info.setOrientation(LinearLayout.VERTICAL);
-            TextView league = label(m.league,12,MUTED);
-            info.addView(league,new LinearLayout.LayoutParams(-1,25));
-            TextView teams = label(m.home+"  —  "+m.away,18,TEXT);
-            teams.setTypeface(Typeface.DEFAULT,Typeface.BOLD);
-            info.addView(teams,new LinearLayout.LayoutParams(-1,40));
-            TextView tm = label(m.live ? "LIVE  "+m.time : m.time,11,m.live?LIVE:MUTED);
-            info.addView(tm,new LinearLayout.LayoutParams(-1,25));
-            card.addView(info,new LinearLayout.LayoutParams(0,-1,1));
+        listContainer.removeAllViews();
 
-            Button watch = button("WATCH");
-            watch.setOnClickListener(v -> resolveAndPlay(m));
-            card.addView(watch,new LinearLayout.LayoutParams(130,58));
+        if (matches.isEmpty()) {
+
+            TextView empty =
+                    label(
+                            "No football matches found.",
+                            18,
+                            MUTED
+                    );
+
+            empty.setGravity(Gravity.CENTER);
+
+            listContainer.addView(
+                    empty,
+                    new LinearLayout.LayoutParams(
+                            -1,
+                            100
+                    )
+            );
+
+            return;
         }
-        if (status != null) status.setText(matches.size()+" MATCHES");
+
+        for (Match match : matches) {
+            addMatch(
+                    listContainer,
+                    match
+            );
+        }
+
+        if (statusText != null) {
+            statusText.setText(
+                    matches.size()
+                            + " MATCHES"
+            );
+        }
     }
+
+    private void addMatch(
+            LinearLayout list,
+            Match match
+    ) {
+
+        LinearLayout card =
+                new LinearLayout(this);
+
+        card.setOrientation(                LinearLayout.HORIZONTAL
+        );
+
+        card.setGravity(
+                Gravity.CENTER_VERTICAL
+        );
+
+        card.setPadding(
+                24,
+                14,
+                18,
+                14
+        );
+
+        card.setBackground(
+                bg(PANEL, 18)
+        );
+
+        LinearLayout.LayoutParams cardParams =
+                new LinearLayout.LayoutParams(
+                        -1,
+                        110
+                );
+
+        cardParams.setMargins(
+                8,
+                7,
+                8,
+                7
+        );
+
+        list.addView(
+                card,
+                cardParams
+        );
+
+        LinearLayout info =
+                new LinearLayout(this);
+
+        info.setOrientation(
+                LinearLayout.VERTICAL
+        );
+
+        info.setGravity(
+                Gravity.CENTER_VERTICAL
+        );
+
+        TextView league =
+                label(
+                        match.league,
+                        12,
+                        MUTED
+                );
+
+        info.addView(
+                league,
+                new LinearLayout.LayoutParams(
+                        -1,
+                        25
+                )
+        );
+
+        TextView teams =
+                label(
+                        match.home
+                                + "  —  "
+                                + match.away,
+                        18,
+                        TEXT
+                );
+
+        teams.setTypeface(
+                Typeface.DEFAULT,
+                Typeface.BOLD
+        );
+
+        info.addView(
+                teams,
+                new LinearLayout.LayoutParams(
+                        -1,
+                        38
+                )
+        );
+
+        TextView time =
+                label(
+                        match.time,
+                        11,
+                        match.live
+                                ? LIVE
+                                : MUTED
+                );
+
+        info.addView(
+                time,
+                new LinearLayout.LayoutParams(
+                        -1,
+                        25
+                )
+        );
+
+        card.addView(
+                info,
+                new LinearLayout.LayoutParams(
+                        0,
+                        -1,
+                        1
+                )
+        );
+
+        Button watch =
+                action("WATCH");
+
+        watch.setOnClickListener(
+                v ->
+                        resolveAndPlay(
+                                match
+                        )
+        );
+
+        card.addView(
+                watch,
+                new LinearLayout.LayoutParams(
+                        130,
+                        58
+                )
+        );
+    }
+
+    /*
+     * =========================================================
+     * LOAD MATCHES
+     * =========================================================
+     */
 
     private void loadMatches() {
-        new Thread(() -> {
-            String host = DEFAULT_API;
-            String liveUrl = "";
-            try {
-                String app = download(host + "app.txt");
-                String decoded = decodeAk47(app);
-                JSONObject cfg = tryObject(decoded);
-                if (cfg != null) {
-                    String h = cfg.optString("api_url","");
-                    if (h.startsWith("http")) host = h;
-                    liveUrl = cfg.optString("foot_live_url","");
-                    if (!liveUrl.startsWith("http")) liveUrl = "";
+
+        new Thread(
+                () -> {
+
+                    String html =
+                            downloadPage(
+                                    LIVE_TV_URL
+                            );
+
+                    ArrayList<Match> result =
+                            parseMatches(html);
+
+                    runOnUiThread(
+                            () -> {
+
+                                if (!result.isEmpty()) {
+
+                                    matches.clear();
+
+                                    matches.addAll(
+                                            result
+                                    );
+
+                                    // Refresh data in the background, but never
+                                    // replace the player/resolver Activity view.
+                                    if (!playerScreen) {
+                                        showMatches();
+                                    }
+
+                                } else {
+
+                                    if (matches.isEmpty()) {
+
+                                        showError(
+                                                "Could not load football matches."
+                                        );
+
+                                    } else if (
+                                            statusText != null
+                                    ) {
+
+                                        statusText.setText(
+                                                "UPDATE FAILED"
+                                        );
+                                    }
+                                }
+                            }
+                    );
+
                 }
-            } catch (Exception ignored) {}
-
-            if (!host.endsWith("/")) host += "/";
-
-            String body = "";
-            if (!liveUrl.isEmpty()) {
-                body = download(liveUrl);
-            }
-            if (body.trim().isEmpty()) {
-                body = download(host + "events.txt");
-            }
-
-            String decoded = decodeAk47(body);
-            ArrayList<Match> result = parseAk47Events(decoded);
-
-            runOnUiThread(() -> {
-                if (!result.isEmpty()) {
-                    matches.clear();
-                    matches.addAll(result);
-                    showMatches();
-                } else if (matches.isEmpty()) {
-                    showError("Could not load AK47 football events.");
-                } else if (status != null) {
-                    status.setText("UPDATE FAILED");
-                }
-            });
-        }).start();
+        ).start();
     }
 
-    private ArrayList<Match> parseAk47Events(String text) {
-        ArrayList<Match> out = new ArrayList<>();
-        if (text == null || text.trim().isEmpty()) return out;
+    private String downloadPage(
+            String address
+    ) {
+
+        HttpURLConnection connection =
+                null;
 
         try {
-            JSONArray root;
-            String s = text.trim();
 
-            if (s.startsWith("[")) {
-                root = new JSONArray(s);
-            } else if (s.startsWith("{")) {
-                JSONObject obj = new JSONObject(s);
-                JSONArray a = obj.optJSONArray("events");
-                if (a == null) a = obj.optJSONArray("data");
-                if (a == null) a = obj.optJSONArray("matches");
-                if (a != null) root = a;
-                else {
-                    root = new JSONArray();
-                    root.put(obj);
-                }
-            } else {
-                return out;
+            URL url =
+                    new URL(address);
+
+            connection =
+                    (HttpURLConnection)
+                            url.openConnection();
+
+            connection.setRequestMethod(
+                    "GET"
+            );
+
+            connection.setConnectTimeout(
+                    8000
+            );
+
+            connection.setReadTimeout(
+                    10000
+            );
+
+            connection.setRequestProperty(
+                    "User-Agent",
+                    "Mozilla/5.0 (Linux; Android 11; Android TV) AppleWebKit/537.36 Chrome/124.0.0.0 Safari/537.36"
+            );
+
+            connection.setRequestProperty(
+                    "Accept",
+                    "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8"
+            );
+
+            connection.setRequestProperty(
+                    "Accept-Language",
+                    "en-US,en;q=0.9,ru;q=0.8"
+            );
+
+            if (address.startsWith("https://livetv904.me/")) {
+                connection.setRequestProperty(
+                        "Referer",
+                        "https://livetv904.me/"
+                );
             }
 
-            for (int i=0;i<root.length();i++) {
-                JSONObject item = root.optJSONObject(i);
-                if (item == null) continue;
+            int code =
+                    connection.getResponseCode();
 
-                JSONObject e = item;
-                String raw = item.optString("event","");
-                if (raw.trim().startsWith("{")) {
-                    try { e = new JSONObject(raw); } catch (Exception ignored) {}
-                }
-
-                String category = e.optString("category", e.optString("sport",""));
-                if (!category.equalsIgnoreCase("football")) continue;
-                if (!e.optBoolean("visible", true)) continue;
-
-                String home = e.optString("teamAName", e.optString("home","")).trim();
-                String away = e.optString("teamBName", e.optString("away","")).trim();
-
-                String links = e.optString("links","").trim();
-                if (links.isEmpty() && e.has("links")) {
-                    Object lv = e.opt("links");
-                    if (lv != null) links = String.valueOf(lv);
-                }
-
-                if (home.isEmpty() || away.isEmpty() || links.isEmpty()) continue;
-
-                String date = e.optString("date","");
-                String time = e.optString("time","");
-                String endDate = e.optString("end_date", e.optString("endDate",""));
-                String endTime = e.optString("end_time", e.optString("endTime",""));
-
-                Match m = new Match();
-                m.league = category;
-                m.home = home;
-                m.away = away;
-                m.date = date;
-                m.time = time;
-                m.links = links;
-                m.live = isLive(date,time,endDate,endTime);
-                m.when = formatTime(date,time,m.live);
-
-                if (isEnded(date,time,endDate,endTime)) continue;
-                out.add(m);
+            if (
+                    code < 200 ||
+                    code >= 400
+            ) {
+                return "";
             }
-        } catch (Exception ignored) {}
 
-        return out;
+            InputStream input =
+                    connection.getInputStream();
+
+            BufferedReader reader =
+                    new BufferedReader(
+                            new InputStreamReader(
+                                    input,
+                                    "UTF-8"
+                            )
+                    );
+
+            StringBuilder result =
+                    new StringBuilder();
+
+            String line;
+
+            while (
+                    (line = reader.readLine())
+                            != null
+            ) {
+
+                result.append(line)
+                        .append("\n");
+            }
+
+            reader.close();
+
+            return result.toString();
+
+        } catch (Exception e) {
+
+            e.printStackTrace();
+
+            return "";
+
+        } finally {
+
+            if (connection != null) {
+                connection.disconnect();
+            }
+        }
     }
 
-    private boolean isLive(String date,String time,String endDate,String endTime) {
-        try {
-            SimpleDateFormat f = new SimpleDateFormat("dd/MM/yyyy|HH:mm:ss",Locale.US);
-            Date start = f.parse(date+"|"+time);
-            if (start == null) return false;
-            Date end = null;
-            if (!endDate.isEmpty() && !endTime.isEmpty()) end = f.parse(endDate+"|"+endTime);
-            long now = System.currentTimeMillis();
-            if (end != null) return now >= start.getTime() && now <= end.getTime();
-            return now >= start.getTime() && now <= start.getTime()+3*60*60*1000L;
-        } catch (Exception e) { return false; }
+    /*
+     * =========================================================
+     * PARSER
+     * =========================================================
+     */
+
+    private ArrayList<Match> parseMatches(
+            String html
+    ) {
+
+        ArrayList<Match> result =
+                new ArrayList<>();
+
+        if (html == null || html.isEmpty()) {
+            return result;
+        }
+
+        // LiveTV904 changes the exact HTML structure from time to time.
+        // Do not depend on a fixed distance between the sport image and
+        // the event link. Instead scan all eventinfo links and determine
+        // the sport from the nearest preceding Football image.
+        Pattern linkPattern =
+                Pattern.compile(
+                        "(?is)<a\\s+[^>]*href\\s*=\\s*[\\\"']"
+                                + "([^\\\"']*?/eventinfo/[^\\\"']+)"
+                                + "[\\\"'][^>]*>"
+                                + "(.*?)"
+                                + "</a>"
+                );
+
+        Matcher linkMatcher =
+                linkPattern.matcher(html);
+
+        while (linkMatcher.find()) {
+
+            String href = linkMatcher.group(1);
+            String anchorText = cleanText(linkMatcher.group(2));
+
+            if (href == null || href.isEmpty() || anchorText.isEmpty()) {
+                continue;
+            }
+
+            if (!anchorText.contains("–")
+                    && !anchorText.contains("—")
+                    && !anchorText.contains(" - ")) {
+                continue;
+            }
+
+            // Use the nearest preceding sport marker. The previous code
+        // searched 15,000 characters for any Football image, so a Hockey,
+        // Baseball or Tennis event could inherit a distant Football league.
+        String prefix =
+                html.substring(
+                        Math.max(0, linkMatcher.start() - 20000),
+                        linkMatcher.start()
+                );
+
+        Matcher sportMatcher =
+                Pattern.compile(
+                        "(?is)<img[^>]+alt\\s*=\\s*[\\\"']([^\\\"']+)[\\\"'][^>]*>"
+                ).matcher(prefix);
+
+        // Only the LAST marker belongs to the current event.
+        // Looking at every marker in the 20,000-character prefix made a
+        // football match disappear when a later hockey/volleyball marker
+        // happened to be closer to the link.
+        String lastAlt = "";
+
+        while (sportMatcher.find()) {
+            lastAlt = cleanText(sportMatcher.group(1));
+        }
+
+        String sport = "";
+        String league = "";
+
+        String lowerLastAlt = lastAlt.toLowerCase();
+
+        if (lowerLastAlt.startsWith("football.")
+                || lowerLastAlt.equals("football")) {
+            sport = "football";
+            league = lastAlt.length() > 9
+                    ? cleanText(lastAlt.substring(9))
+                    : "Football";
+        }
+
+        if (!"football".equals(sport) || league.isEmpty()) {
+            continue;
+        }
+
+        int afterStart = linkMatcher.end();
+            int afterEnd =
+                    Math.min(
+                            html.length(),
+                            afterStart + 1500
+                    );
+
+            String after =
+                    html.substring(afterStart, afterEnd);
+
+            Matcher timeMatcher =
+                    Pattern.compile(
+                            "\\b(\\d{1,2}:\\d{2})\\b"
+                    ).matcher(after);
+
+            String time = "";
+
+            if (timeMatcher.find()) {
+                time = timeMatcher.group(1);
+            }
+
+            boolean live =
+                    Pattern.compile(
+                            "(?is).*?\\b\\d+\\s*:\\s*\\d+\\b.*"
+                    ).matcher(anchorText).matches()
+                    || Pattern.compile(
+                            "(?is).*?\\b\\d+\\s*:\\s*\\d+\\b.*"
+                    ).matcher(after).matches();
+
+            if (time.isEmpty()) {
+                time = live ? "LIVE" : "UPCOMING";
+            }
+
+            String[] teams = splitTeams(anchorText);
+
+            if (teams == null || teams.length != 2) {
+                continue;
+            }
+
+            String home = cleanTeamName(teams[0]);
+            String away = cleanTeamName(teams[1]);
+
+            if (home.isEmpty() || away.isEmpty()) {
+                continue;
+            }
+
+            String eventUrl = normalizeUrl(href);
+
+            boolean duplicate = false;
+
+            for (Match existing : result) {
+                if (existing.eventUrl.equals(eventUrl)
+                        || (existing.home.equals(home)
+                        && existing.away.equals(away)
+                        && existing.time.equals(time))) {
+                    duplicate = true;
+                    break;
+                }
+            }
+
+            if (!duplicate) {
+                result.add(
+                        new Match(
+                                league,
+                                home,
+                                away,
+                                time,
+                                live,
+                                eventUrl
+                        )
+                );
+            }
+        }
+
+        return result;
     }
 
-    private boolean isEnded(String date,String time,String endDate,String endTime) {
-        try {
-            if (endDate.isEmpty() || endTime.isEmpty()) return false;
-            SimpleDateFormat f = new SimpleDateFormat("dd/MM/yyyy|HH:mm:ss",Locale.US);
-            Date end = f.parse(endDate+"|"+endTime);
-            return end != null && end.getTime() < System.currentTimeMillis();
-        } catch (Exception e) { return false; }
+    private Match parseMatchFromArea(
+            String area,
+            String league
+    ) {
+
+        Pattern linkPattern =
+                Pattern.compile(
+                        "(?is)"                                + "<a\\s+[^>]*href\\s*=\\s*[\"']"
+                                + "([^\"']+)"
+                                + "[\"'][^>]*>"
+                                + "(.*?)"
+                                + "</a>"
+                );
+
+        Matcher linkMatcher =
+                linkPattern.matcher(area);
+
+        while (
+                linkMatcher.find()
+        ) {
+
+            String href =
+                    linkMatcher.group(1);
+
+            String anchorText =
+                    cleanText(
+                            linkMatcher.group(2)
+                    );
+
+            if (
+                    href == null ||
+                    href.isEmpty()
+            ) {
+                continue;
+            }
+
+            if (
+                    anchorText.isEmpty()
+            ) {
+                continue;
+            }
+
+            if (
+                    !anchorText.contains("–")
+                    &&
+                    !anchorText.contains("—")
+                    &&
+                    !anchorText.contains(" - ")
+            ) {
+                continue;
+            }
+
+            String lower =
+                    anchorText.toLowerCase();
+
+            if (
+                    lower.contains("basketball")
+                    ||
+                    lower.contains("hockey")
+                    ||
+                    lower.contains("tennis")
+                    ||
+                    lower.contains("volleyball")
+                    ||
+                    lower.contains("handball")
+                    ||
+                    lower.contains("darts")
+            ) {
+                continue;
+            }
+
+            int timeStart =
+                    linkMatcher.end();
+
+            int timeEnd =
+                    Math.min(
+                            area.length(),
+                            timeStart + 1200
+                    );
+
+            String after =
+                    area.substring(
+                            timeStart,
+                            timeEnd
+                    );
+
+            Pattern timePattern =
+                    Pattern.compile(
+                            "\\b(\\d{1,2}:\\d{2})\\b"
+                    );
+
+            Matcher timeMatcher =
+                    timePattern.matcher(after);
+
+            String time = "";
+
+            if (timeMatcher.find()) {
+                time =
+                        timeMatcher.group(1);
+            }
+
+            boolean live =
+                    after.matches(
+                            "(?is).*?\\b\\d+\\s*:\\s*\\d+\\b.*"
+                    );
+
+            if (time.isEmpty()) {
+
+                time =
+                        live
+                                ? "LIVE"
+                                : "UPCOMING";
+            }
+
+            String[] teams =
+                    splitTeams(
+                            anchorText
+                    );
+
+            if (
+                    teams == null ||
+                    teams.length != 2
+            ) {
+                continue;
+            }
+
+            String home =
+                    cleanTeamName(
+                            teams[0]
+                    );
+
+            String away =
+                    cleanTeamName(
+                            teams[1]
+                    );
+
+            if (
+                    home.isEmpty() ||
+                    away.isEmpty()
+            ) {
+                continue;
+            }
+
+            String eventUrl =
+                    normalizeUrl(href);
+
+            return new Match(
+                    league,
+                    home,
+                    away,
+                    time,
+                    live,
+                    eventUrl
+            );
+        }
+
+        return null;
     }
 
-    private String formatTime(String date,String time,boolean live) {
-        if (live) return "LIVE";
-        if (date == null || date.isEmpty()) return time;
-        return date+"  "+time;
+    private String[] splitTeams(
+            String text
+    ) {
+
+        String separator = null;
+
+        if (text.contains("–")) {
+            separator = "–";
+        } else if (text.contains("—")) {
+            separator = "—";
+        } else if (text.contains(" - ")) {
+            separator = " - ";
+        }
+
+        if (separator == null) {
+            return null;
+        }
+
+        String[] parts =
+                text.split(
+                        Pattern.quote(separator),
+                        2
+                );
+
+        if (parts.length != 2) {
+            return null;
+        }
+
+        return parts;
     }
 
-    private void resolveAndPlay(Match m) {
-        if (m == null || m.links.isEmpty()) {
+    private String cleanTeamName(
+            String value
+    ) {
+
+        value =
+                cleanText(value);
+
+        value =
+                value.replaceFirst(
+                        "\\s+[A-Z]{3}$",
+                        ""
+                );
+
+        return value.trim();
+    }
+
+    private String normalizeUrl(
+            String href
+    ) {
+
+        if (href == null) {
+            return "";
+        }
+
+        href = href.trim();
+
+        if (
+                href.startsWith(
+                        "https://"
+                )
+        ) {
+            return href;
+        }
+
+        if (
+                href.startsWith(
+                        "http://"
+                )
+        ) {
+            return href;
+        }
+
+        if (
+                href.startsWith("//")
+        ) {
+            return "https:" + href;
+        }
+
+        if (
+                href.startsWith("/")
+        ) {
+            return "https://livetv904.me" + href;
+        }
+
+        return "https://livetv904.me/" + href;
+    }
+
+    private String cleanText(
+            String value
+    ) {
+
+        if (value == null) {
+            return "";
+        }
+
+        value =
+                value.replaceAll(
+                        "(?is)<[^>]+>",
+                        " "
+                );
+
+        value =
+                value.replace(
+                        "&nbsp;",
+                        " "
+                );
+
+        value =
+                value.replace(
+                        "&amp;",
+                        "&"
+                );
+
+        value =
+                value.replace(
+                        "&ndash;",
+                        "–"
+                );
+
+        value =
+                value.replace(
+                        "&mdash;",
+                        "—"
+                );
+
+        value =
+                value.replace(
+                        "&#8211;",
+                        "–"
+                );
+
+        value =
+                value.replace(
+                        "&#8212;",
+                        "—"
+                );
+
+        value =
+                value.replaceAll(
+                        "\\s+",
+                        " "
+                );
+
+        return value.trim();
+    }
+
+    /*
+     * =========================================================
+     * MATCH PAGE INSIDE APP
+     * =========================================================
+     */
+
+    private void resolveAndPlay(Match match) {
+
+        if (match == null || match.eventUrl == null || match.eventUrl.isEmpty()) {
             showError("Stream link is unavailable.");
             return;
         }
-        showPlayer(m,"Finding AK47 stream...");
-        new Thread(() -> {
-            String host = DEFAULT_API;
-            String app = download(host+"app.txt");
-            try {
-                JSONObject cfg = tryObject(decodeAk47(app));
-                if (cfg != null && cfg.optString("api_url","").startsWith("http")) host=cfg.optString("api_url",host);
-            } catch (Exception ignored) {}
-            if (!host.endsWith("/")) host += "/";
 
-            String path = m.links.trim();
-            String url = path.startsWith("http://") || path.startsWith("https://") ? path : host + path.replaceFirst("^/+","");
-            String body = download(url);
-            String decoded = decodeAk47(body);
-            String stream = selectAk47Link(decoded);
+        showPlayer(match, "Finding AK47 stream...");
+
+        new Thread(() -> {
+            final String apiHost = "https://zerohazaarop.store/";
+            String eventsUrl = apiHost + "events.txt";
+            String body = downloadPage(eventsUrl);
+
+            String stream = "";
+            try {
+                JSONArray root = new JSONArray(body);
+
+                String wantedHome = normalizeTeam(match.home);
+                String wantedAway = normalizeTeam(match.away);
+
+                for (int i = 0; i < root.length(); i++) {
+                    JSONObject row = root.optJSONObject(i);
+                    if (row == null) continue;
+
+                    String rawEvent = row.optString("event", "");
+                    if (!rawEvent.trim().startsWith("{")) continue;
+
+                    JSONObject event = new JSONObject(rawEvent);
+                    if (!event.optBoolean("visible", true)) continue;
+
+                    String home = event.optString("teamAName", "").trim();
+                    String away = event.optString("teamBName", "").trim();
+
+                    if (!normalizeTeam(home).equals(wantedHome)
+                            || !normalizeTeam(away).equals(wantedAway)) {
+                        continue;
+                    }
+
+                    String linksPath = event.optString("links", "").trim();
+                    if (linksPath.isEmpty()) continue;
+
+                    String linksUrl = linksPath;
+                    if (!linksUrl.startsWith("http://")
+                            && !linksUrl.startsWith("https://")) {
+                        linksUrl = apiHost + linksUrl.replaceFirst("^/+", "");
+                    }
+
+                    String linksBody = downloadPage(linksUrl);
+                    stream = selectAk47Stream(linksBody);
+
+                    if (!stream.isEmpty()) break;
+                }
+            } catch (Exception ignored) {
+            }
+
+            final String result = stream;
             runOnUiThread(() -> {
-                if (stream.isEmpty()) showPlayer(m,"AK47 returned no playable stream.");
-                else playStream(m,stream);
+                if (result.isEmpty()) {
+                    showPlayer(match, "AK47 returned no playable stream.");
+                } else {
+                    playAk47Stream(match, result);
+                }
             });
         }).start();
     }
 
-    private String selectAk47Link(String text) {
-        if (text == null || text.trim().isEmpty()) return "";
-        try {
-            JSONArray a = new JSONArray(text);
-            for (int i=0;i<a.length();i++) {
-                JSONObject o = a.optJSONObject(i);
-                if (o == null || !o.optBoolean("visible",true)) continue;
-                String link = o.optString("link","").trim();
-                if (link.isEmpty()) continue;
-                return link;
-            }
-        } catch (Exception ignored) {}
-        if (text.startsWith("http://") || text.startsWith("https://")) return text.trim();
-        return "";
-    }
-
-    private JSONObject tryObject(String text) {
-        try { return new JSONObject(text); } catch (Exception e) { return null; }
-    }
-
-    // Exact AK47Sports v1.6 decoder from y5.a.b(): custom alphabet -> Base64 -> UTF-8.
-    private String decodeAk47(String value) {
+    private String normalizeTeam(String value) {
         if (value == null) return "";
-        String s = value.trim();
-        if (s.isEmpty()) return "";
-        if (s.startsWith("[") || s.startsWith("{")) return s;
-        final char[] standard = "aAbBcCdDeEfFgGhHiIjJkKlLmMnNoOpPqQrRsStTuUvVwWxXyYzZ".toCharArray();
-        final char[] custom = "fFgGjJkKaApPbBmMoOzZeEnNcCdDrRqQtTvVuUxXhHiIwWyYlLsS".toCharArray();
-        char[] out = new char[s.length()];
-        for (int i=0;i<s.length();i++) {
-            char c=s.charAt(i);
-            int pos=-1;
-            for (int j=0;j<custom.length;j++) if (custom[j]==c) {pos=j;break;}
-            out[i]=pos>=0?standard[pos]:c;
-        }
+        return value.toLowerCase(Locale.US)
+                .replaceAll("[^a-z0-9а-яёііїєґ]+", " ")
+                .replaceAll("\\s+", " ")
+                .trim();
+    }
+
+    private String selectAk47Stream(String body) {
+        if (body == null || body.trim().isEmpty()) return "";
+
         try {
-            return new String(Base64.decode(new String(out),Base64.DEFAULT),StandardCharsets.UTF_8);
-        } catch (Exception e) {
-            return s;
+            JSONArray links = new JSONArray(body);
+
+            String first = "";
+            for (int i = 0; i < links.length(); i++) {
+                JSONObject link = links.optJSONObject(i);
+                if (link == null || !link.optBoolean("visible", true)) continue;
+
+                String url = link.optString("link", "").trim();
+                if (url.isEmpty()) continue;
+
+                if (url.toLowerCase(Locale.US).contains(".m3u8")) {
+                    return url;
+                }
+
+                if (first.isEmpty()) first = url;
+            }
+
+            return first;
+        } catch (Exception ignored) {
+            String s = body.trim();
+            return (s.startsWith("http://") || s.startsWith("https://")) ? s : "";
         }
     }
 
-    private String download(String address) {
-        HttpURLConnection c=null;
-        try {
-            c=(HttpURLConnection)new URL(address).openConnection();
-            c.setRequestMethod("GET");
-            c.setConnectTimeout(10000);
-            c.setReadTimeout(15000);
-            c.setRequestProperty("User-Agent",UA);
-            c.setRequestProperty("Accept","*/*");
-            int code=c.getResponseCode();
-            if (code<200 || code>=400) return "";
-            BufferedReader r=new BufferedReader(new InputStreamReader(c.getInputStream(),StandardCharsets.UTF_8));
-            StringBuilder b=new StringBuilder();
-            String line;
-            while((line=r.readLine())!=null)b.append(line).append('\n');
-            r.close();
-            return b.toString();
-        } catch(Exception e) { return ""; }
-        finally { if(c!=null)c.disconnect(); }
-    }
-
-    private void showPlayer(Match m,String message) {
+    private void playAk47Stream(Match match, String url) {
         releasePlayer();
-        playerScreen=true;
-        LinearLayout root=new LinearLayout(this);
+        playerScreen = true;
+
+        LinearLayout root = new LinearLayout(this);
         root.setOrientation(LinearLayout.VERTICAL);
         root.setBackgroundColor(Color.BLACK);
-        LinearLayout top=new LinearLayout(this);
+
+        LinearLayout top = new LinearLayout(this);
+        top.setOrientation(LinearLayout.HORIZONTAL);
         top.setGravity(Gravity.CENTER_VERTICAL);
-        top.setPadding(20,8,20,8);
-        TextView title=label(m.home+" — "+m.away,19,TEXT);
-        title.setTypeface(Typeface.DEFAULT,Typeface.BOLD);
-        top.addView(title,new LinearLayout.LayoutParams(0,56,1));
-        Button back=button("BACK");
-        top.addView(back,new LinearLayout.LayoutParams(120,52));
+        top.setPadding(20, 8, 20, 8);
+
+        TextView title = label(
+                match.home + " — " + match.away,
+                19,
+                TEXT
+        );
+        title.setTypeface(Typeface.DEFAULT, Typeface.BOLD);
+        top.addView(title, new LinearLayout.LayoutParams(0, 56, 1));
+
+        Button back = action("BACK");
+        top.addView(back, new LinearLayout.LayoutParams(120, 52));
         root.addView(top);
-        TextView msg=label(message,16,MUTED);
-        msg.setGravity(Gravity.CENTER);
-        root.addView(msg,new LinearLayout.LayoutParams(-1,55));
-        playerView=new PlayerView(this);
+
+        playerView = new PlayerView(this);
         playerView.setBackgroundColor(Color.BLACK);
         playerView.setKeepScreenOn(true);
-        root.addView(playerView,new LinearLayout.LayoutParams(-1,0,1));
-        back.setOnClickListener(v->{releasePlayer();showMatches();});
+
+        root.addView(
+                playerView,
+                new LinearLayout.LayoutParams(-1, 0, 1)
+        );
+
+        back.setOnClickListener(v -> {
+            releasePlayer();
+            showMatches();
+        });
+
+        setContentView(root);
+
+        DefaultHttpDataSource.Factory http =
+                new DefaultHttpDataSource.Factory()
+                        .setUserAgent(
+                                "Mozilla/5.0 (Linux; Android 11; Android TV) AppleWebKit/537.36 Chrome/124.0.0.0 Safari/537.36"
+                        );
+
+        player = new ExoPlayer.Builder(this)
+                .setMediaSourceFactory(
+                        new androidx.media3.exoplayer.source.DefaultMediaSourceFactory(http)
+                )
+                .build();
+
+        playerView.setPlayer(player);
+
+        player.setMediaItem(
+                new MediaItem.Builder()
+                        .setUri(Uri.parse(url))
+                        .build()
+        );
+
+        player.prepare();
+        player.play();
+    }
+
+    private void showPlayer(Match match, String message) {
+        releasePlayer();
+        playerScreen = true;
+
+        LinearLayout root = new LinearLayout(this);
+        root.setOrientation(LinearLayout.VERTICAL);
+        root.setBackgroundColor(Color.BLACK);
+
+        LinearLayout top = new LinearLayout(this);
+        top.setOrientation(LinearLayout.HORIZONTAL);
+        top.setGravity(Gravity.CENTER_VERTICAL);
+        top.setPadding(20, 8, 20, 8);
+
+        TextView title = label(
+                match.home + " — " + match.away,
+                19,
+                TEXT
+        );
+
+        title.setTypeface(Typeface.DEFAULT, Typeface.BOLD);
+
+        top.addView(
+                title,
+                new LinearLayout.LayoutParams(0, 56, 1)
+        );
+
+        Button back = action("BACK");
+
+        top.addView(
+                back,
+                new LinearLayout.LayoutParams(120, 52)
+        );
+
+        root.addView(top);
+
+        TextView status = label(
+                message,
+                16,
+                MUTED
+        );
+
+        status.setGravity(Gravity.CENTER);
+
+        root.addView(
+                status,
+                new LinearLayout.LayoutParams(-1, 55)
+        );
+
+        playerView = new PlayerView(this);
+        playerView.setBackgroundColor(Color.BLACK);
+        playerView.setKeepScreenOn(true);
+
+        root.addView(
+                playerView,
+                new LinearLayout.LayoutParams(-1, 0, 1)
+        );
+
+        back.setOnClickListener(v -> {
+            releasePlayer();
+            showMatches();
+        });
+
         setContentView(root);
     }
 
-    private void playStream(Match m,String raw) {
-        String[] parts=raw.split("\\|",2);
-        String url=parts[0].trim();
-        if (url.isEmpty()) { showPlayer(m,"Empty AK47 stream URL."); return; }
-
-        Map<String,String> headers=new HashMap<>();
-        if (parts.length>1) {
-            String meta=parts[1];
-            for (String p:meta.split("&")) {
-                int eq=p.indexOf('=');
-                if(eq>0) {
-                    String k=p.substring(0,eq).trim().toLowerCase(Locale.US);
-                    String v=p.substring(eq+1).trim();
-                    if(k.equals("user-agent")) headers.put("User-Agent",v);
-                    else if(k.equals("referer") || k.equals("referrer")) headers.put("Referer",v);
-                    else if(k.equals("origin")) headers.put("Origin",v);
-                    else if(k.equals("cookie")) headers.put("Cookie",v);
-                }
-            }
-        }
+    private void playHls(String hls) {
+        if (hls == null || hls.isEmpty()) return;
 
         releasePlayer();
-        playerScreen=true;
-        LinearLayout root=new LinearLayout(this);
+        playerScreen = true;
+
+        playerView = new PlayerView(this);
+        playerView.setBackgroundColor(Color.BLACK);
+
+        LinearLayout root = new LinearLayout(this);
         root.setOrientation(LinearLayout.VERTICAL);
         root.setBackgroundColor(Color.BLACK);
-        LinearLayout top=new LinearLayout(this);
-        top.setGravity(Gravity.CENTER_VERTICAL); top.setPadding(20,8,20,8);
-        TextView title=label(m.home+" — "+m.away,19,TEXT);
-        title.setTypeface(Typeface.DEFAULT,Typeface.BOLD);
-        top.addView(title,new LinearLayout.LayoutParams(0,56,1));
-        Button back=button("BACK");
-        top.addView(back,new LinearLayout.LayoutParams(120,52));
+
+        LinearLayout top = new LinearLayout(this);
+        top.setOrientation(LinearLayout.HORIZONTAL);
+        top.setGravity(Gravity.CENTER_VERTICAL);
+        top.setPadding(20, 8, 20, 8);
+
+        TextView title = label("MAX FOOTBALL ONLINE", 19, TEXT);
+        title.setTypeface(Typeface.DEFAULT, Typeface.BOLD);
+
+        top.addView(title, new LinearLayout.LayoutParams(0, 56, 1));
+
+        Button back = action("BACK");
+        top.addView(back, new LinearLayout.LayoutParams(120, 52));
+
         root.addView(top);
-        playerView=new PlayerView(this);
-        playerView.setBackgroundColor(Color.BLACK);
-        root.addView(playerView,new LinearLayout.LayoutParams(-1,0,1));
-        back.setOnClickListener(v->{releasePlayer();showMatches();});
+
+        root.addView(
+                playerView,
+                new LinearLayout.LayoutParams(-1, 0, 1)
+        );
+
+        back.setOnClickListener(v -> {
+            releasePlayer();
+            showMatches();
+        });
+
         setContentView(root);
 
-        DefaultHttpDataSource.Factory http=new DefaultHttpDataSource.Factory().setUserAgent(UA);
-        if(!headers.isEmpty()) http.setDefaultRequestProperties(headers);
-        DefaultMediaSourceFactory media=new DefaultMediaSourceFactory(http);
-        player=new ExoPlayer.Builder(this).setMediaSourceFactory(media).build();
+        player = new ExoPlayer.Builder(this).build();
         playerView.setPlayer(player);
-        player.setMediaItem(new MediaItem.Builder().setUri(url).build());
+
+        MediaItem item = new MediaItem.Builder()
+                .setUri(Uri.parse(hls))
+                .build();
+
+        player.setMediaItem(item);
         player.prepare();
         player.play();
     }
 
     private void releasePlayer() {
-        if(playerView!=null) try{playerView.setPlayer(null);}catch(Exception ignored){}
-        if(player!=null){try{player.stop();}catch(Exception ignored){} try{player.release();}catch(Exception ignored){} player=null;}
-        playerView=null;
+        if (resolverWebView != null) {
+            try {
+                resolverWebView.stopLoading();
+                resolverWebView.destroy();
+            } catch (Exception ignored) {}
+            resolverWebView = null;
+        }
+
+        if (playerView != null) {
+            // Detach first, then release the player. This prevents a stale
+            // video surface from remaining attached while audio continues.
+            try {
+                playerView.setPlayer(null);
+            } catch (Exception ignored) {}
+        }
+
+        if (player != null) {
+            try {
+                player.stop();
+            } catch (Exception ignored) {}
+
+            try {
+                player.release();
+            } catch (Exception ignored) {}
+
+            player = null;
+        }
+
+        playerView = null;
     }
 
-    private void showError(String msg) {
-        playerScreen=false;
-        LinearLayout root=new LinearLayout(this);
-        root.setOrientation(LinearLayout.VERTICAL); root.setGravity(Gravity.CENTER); root.setBackgroundColor(BG);
-        TextView title=label("MAX FOOTBALL ONLINE",28,TEXT);
-        title.setTypeface(Typeface.DEFAULT,Typeface.BOLD); title.setGravity(Gravity.CENTER);
-        root.addView(title,new LinearLayout.LayoutParams(-1,70));
-        TextView e=label(msg,18,MUTED); e.setGravity(Gravity.CENTER);
-        root.addView(e,new LinearLayout.LayoutParams(-1,70));
-        Button retry=button("RETRY"); retry.setOnClickListener(v->{showLoading("Loading AK47 football events...");loadMatches();});
-        root.addView(retry,new LinearLayout.LayoutParams(180,58));
+    private void showError(
+            String message
+    ) {
+
+        LinearLayout root =
+                new LinearLayout(this);
+
+        root.setOrientation(
+                LinearLayout.VERTICAL
+        );
+
+        root.setGravity(
+                Gravity.CENTER
+        );
+
+        root.setBackgroundColor(BG);
+
+        TextView title =
+                label(
+                        "MAX FOOTBALL ONLINE",
+                        28,
+                        TEXT
+                );
+
+        title.setTypeface(
+                Typeface.DEFAULT,
+                Typeface.BOLD
+        );
+
+        title.setGravity(Gravity.CENTER);
+
+        root.addView(
+                title,
+                new LinearLayout.LayoutParams(
+                        -1,
+                        70
+                )
+        );
+
+        TextView error =
+                label(
+                        message,
+                        18,
+                        MUTED
+                );
+
+        error.setGravity(Gravity.CENTER);
+
+        root.addView(
+                error,
+                new LinearLayout.LayoutParams(
+                        -1,
+                        70
+                )
+        );
+
+        Button retry =
+                action("RETRY");
+
+        retry.setOnClickListener(
+                v -> loadMatches()
+        );
+
+        root.addView(
+                retry,
+                new LinearLayout.LayoutParams(
+                        180,
+                        58
+                )
+        );
+
         setContentView(root);
     }
 
-    @Override protected void onStop() {
+    @Override
+    protected void onStop() {
+
         super.onStop();
-        if(playerScreen){releasePlayer();playerScreen=false;}
+
+        // Android recommends releasing an Activity-owned ExoPlayer from
+        // onStop(). Do it only when the player screen is actually active.
+        if (playerScreen) {
+            releasePlayer();
+            playerScreen = false;
+        }
     }
 
-    @Override protected void onDestroy() {
-        handler.removeCallbacksAndMessages(null);
+    @Override
+    protected void onStart() {
+
+        super.onStart();
+
+        // If the Activity was stopped while playing, return to the match list
+        // instead of leaving a PlayerView without a live ExoPlayer.
+        if (!playerScreen && player == null && !matches.isEmpty()) {
+            showMatches();
+        }
+    }
+
+    @Override
+    protected void onDestroy() {
+
+        handler.removeCallbacksAndMessages(
+                null
+        );
+
         releasePlayer();
+
         super.onDestroy();
     }
 
-    @Override public void onBackPressed() {
-        if(playerScreen){releasePlayer();playerScreen=false;showMatches();}
-        else super.onBackPressed();
+    @Override
+    public void onBackPressed() {
+
+        if (player != null || playerView != null || playerScreen) {
+
+            releasePlayer();
+            playerScreen = false;
+
+            showMatches();
+
+        } else {
+
+            super.onBackPressed();
+        }
     }
 
     private static class Match {
-        String league,home,away,date,time,links,when;
+
+        String league;
+        String home;
+        String away;
+        String time;
         boolean live;
+        String eventUrl;
+
+        Match(
+                String league,
+                String home,
+                String away,
+                String time,
+                boolean live,
+                String eventUrl
+        ) {
+
+            this.league = league;
+            this.home = home;
+            this.away = away;
+            this.time = time;
+            this.live = live;
+            this.eventUrl = eventUrl;
+        }
     }
 }
