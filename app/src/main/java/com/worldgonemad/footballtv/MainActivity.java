@@ -434,11 +434,15 @@ public class MainActivity extends Activity {
                 String r = findHtml((JSONObject) v);
                 if (!r.isEmpty()) return r;
             } else if (v instanceof JSONArray) {
-                for (int i = 0; i < v.length(); i++) {
-                    Object x = v.opt(i);
+                JSONArray a = (JSONArray) v;
+                for (int i = 0; i < a.length(); i++) {
+                    Object x = a.opt(i);
                     if (x instanceof JSONObject) {
                         String r = findHtml((JSONObject) x);
                         if (!r.isEmpty()) return r;
+                    } else if (x instanceof String) {
+                        String s2 = (String) x;
+                        if (s2.contains("<iframe") || s2.contains("<video")) return s2;
                     }
                 }
             }
