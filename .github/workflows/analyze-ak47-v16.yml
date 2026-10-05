@@ -1,0 +1,56 @@
+name: Analyze AK47 Sports V1.6
+
+on:
+  push:
+    paths:
+      - ".github/workflows/analyze-ak47-v16.yml"
+  workflow_dispatch:
+
+jobs:
+  analyze:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Download official APK
+        run: |
+          set -e
+          curl -L --fail --retry 3 -A "Mozilla/5.0"             "https://ak47sports.app/app/AK47Sports_V1.6.apk"             -o AK47Sports_V1.6.apk
+          ls -lh AK47Sports_V1.6.apk
+      - name: Extract and inspect
+        run: |
+          set -e
+          rm -rf apk_extract
+          mkdir apk_extract
+          unzip -q AK47Sports_V1.6.apk -d apk_extract
+
+          echo "=== APK FILE LIST ===" > analysis.txt
+          find apk_extract -type f | sort >> analysis.txt
+
+          echo >> analysis.txt
+          echo "=== URLS FROM ALL DEX FILES ===" >> analysis.txt
+          find apk_extract -name 'classes*.dex' -print0 |
+            xargs -0 strings -a 2>/dev/null |
+            grep -Eo 'https?://[^[:space:]'"'"'">)]+' |
+            sort -u >> analysis.txt || true
+
+          echo >> analysis.txt
+          echo "=== URL-LIKE / API / PLAYLIST STRINGS ===" >> analysis.txt
+          find apk_extract -name 'classes*.dex' -print0 |
+            xargs -0 strings -a 2>/dev/null |
+            grep -Ei 'https?://|api|baseurl|playlist|m3u8?|xtream|stream|channel|live|score|football' |
+            sort -u >> analysis.txt || true
+
+          echo >> analysis.txt
+          echo "=== INTERESTING NON-DEX FILES ===" >> analysis.txt
+          find apk_extract/assets apk_extract/res -type f 2>/dev/null | sort >> analysis.txt || true
+
+          echo >> analysis.txt
+          echo "=== MANIFEST PERMISSIONS / COMPONENTS ===" >> analysis.txt
+          unzip -p AK47Sports_V1.6.apk AndroidManifest.xml 2>/dev/null | strings -a >> analysis.txt || true
+
+          cp analysis.txt /tmp/analysis.txt
+      - name: Upload analysis
+        uses: actions/upload-artifact@v4
+        with:
+          name: ak47-v16-analysis
+          path: /tmp/analysis.txt
+          retention-days: 3
