@@ -18,6 +18,7 @@ jobs:
           curl -L --fail --silent --show-error -A 'Mozilla/5.0' "$MATCHES_URL" -o matches.json
           python3 - <<'PY'
           import json, urllib.parse, urllib.request
+          print("RAW MATCHES BODY:",open("matches.json").read()[:30000])
           data=json.load(open("matches.json"))
           arr=data if isinstance(data,list) else next((data[k] for k in ("data","matches","events","results") if isinstance(data.get(k),list)),[])
           live=[]
