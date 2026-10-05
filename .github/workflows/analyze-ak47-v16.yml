@@ -58,7 +58,7 @@ jobs:
           test -n "$JADX_BIN"
           chmod +x "$JADX_BIN"
           "$JADX_BIN" -q -d source AK47Sports_V1.6.apk || true
-          grep -RniE 'api_host|api_url|foot_live_url|cric_live_url|iptv_playlist|playlist|m3u8?|xtream|http://|https://|Retrofit|OkHttp|WebView' source/app.aksports.live 2>/dev/null |
+          grep -RniE 'api_host|api_url|foot_live_url|cric_live_url|iptv_playlist|playlist|m3u8?|xtream|http://|https://|Retrofit|OkHttp|WebView' source/sources/app/aksports/live 2>/dev/null |
             head -n 1000 >> analysis.txt || true
 
           echo >> analysis.txt
