@@ -1712,10 +1712,7 @@ public class MainActivity extends Activity {
 
                         resolverWebView = null;
 
-                        showPlayer(
-                                match,
-                                "No public video stream was found for this match."
-                        );
+                        showEmbeddedSource(match);
                     }
                 }, 8000);
             }
@@ -1795,12 +1792,112 @@ public class MainActivity extends Activity {
 
                 resolverWebView = null;
 
-                showPlayer(
-                        match,
-                        "No public video stream was found for this match."
-                );
+                showEmbeddedSource(match);
             }
         }, 80000);
+    }
+
+    private void showEmbeddedSource(Match match) {
+        releasePlayer();
+        playerScreen = true;
+
+        LinearLayout root = new LinearLayout(this);
+        root.setOrientation(LinearLayout.VERTICAL);
+        root.setBackgroundColor(Color.BLACK);
+
+        LinearLayout top = new LinearLayout(this);
+        top.setOrientation(LinearLayout.HORIZONTAL);
+        top.setGravity(Gravity.CENTER_VERTICAL);
+        top.setPadding(20, 8, 20, 8);
+
+        TextView title = label(
+                match.home + " — " + match.away,
+                19,
+                TEXT
+        );
+        title.setTypeface(Typeface.DEFAULT, Typeface.BOLD);
+        top.addView(title, new LinearLayout.LayoutParams(0, 56, 1));
+
+        Button back = action("BACK");
+        top.addView(back, new LinearLayout.LayoutParams(120, 52));
+        root.addView(top);
+
+        WebView web = new WebView(this);
+        resolverWebView = web;
+
+        web.setBackgroundColor(Color.BLACK);
+        web.setOverScrollMode(View.OVER_SCROLL_NEVER);
+        web.getSettings().setJavaScriptEnabled(true);
+        web.getSettings().setDomStorageEnabled(true);
+        web.getSettings().setMediaPlaybackRequiresUserGesture(false);
+        web.getSettings().setJavaScriptCanOpenWindowsAutomatically(true);
+        web.getSettings().setSupportMultipleWindows(false);
+        web.getSettings().setLoadsImagesAutomatically(true);
+        web.getSettings().setUserAgentString(
+                "Mozilla/5.0 (Linux; Android 11; Android TV) AppleWebKit/537.36 " +
+                "(KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36"
+        );
+
+        CookieManager.getInstance().setAcceptCookie(true);
+        CookieManager.getInstance().setAcceptThirdPartyCookies(web, true);
+
+        web.setWebChromeClient(new WebChromeClient());
+
+        web.setWebViewClient(new WebViewClient() {
+            @Override
+            public boolean shouldOverrideUrlLoading(
+                    WebView view,
+                    WebResourceRequest request
+            ) {
+                String url = request.getUrl().toString();
+
+                // Keep navigation inside the application. Never hand the
+                // match/source URL to the Android browser.
+                if (url.startsWith("intent:")
+                        || url.startsWith("market:")
+                        || url.startsWith("mailto:")
+                        || url.startsWith("tel:")) {
+                    return true;
+                }
+
+                if (url.startsWith("http://")
+                        || url.startsWith("https://")) {
+                    view.loadUrl(url);
+                    return true;
+                }
+
+                return true;
+            }
+
+            @Override
+            public boolean shouldOverrideUrlLoading(
+                    WebView view,
+                    String url
+            ) {
+                if (url == null) return true;
+
+                if (url.startsWith("http://")
+                        || url.startsWith("https://")) {
+                    view.loadUrl(url);
+                }
+
+                return true;
+            }
+        });
+
+        root.addView(
+                web,
+                new LinearLayout.LayoutParams(-1, 0, 1)
+        );
+
+        back.setOnClickListener(v -> {
+            releasePlayer();
+            showMatches();
+        });
+
+        setContentView(root);
+
+        web.loadUrl(match.eventUrl);
     }
 
     private void showPlayer(Match match, String message) {
