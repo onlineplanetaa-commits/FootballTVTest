@@ -10,11 +10,32 @@ jobs:
   analyze:
     runs-on: ubuntu-latest
     steps:
-      - name: Download official V1.5 APK
+      - name: Download V1.5 APK
         run: |
-          set -e
-          curl -L --fail --retry 3 -A "Mozilla/5.0" "https://ak47sports.app/app/AK47Sports_V1.5.apk" -o AK47Sports_V1.5.apk
+          set -euo pipefail
+          rm -f AK47Sports_V1.5.apk
+          echo "Trying the historical official V1.5 URL..."
+          if curl -L --fail --retry 3 --connect-timeout 15 -A "Mozilla/5.0"             "https://ak47sports.app/app/AK47Sports_V1.5.apk" -o AK47Sports_V1.5.apk; then
+            echo "Official V1.5 URL worked."
+          else
+            echo "Official V1.5 URL is unavailable now. Trying Wayback CDX for the same exact URL..."
+            rm -f AK47Sports_V1.5.apk
+            CDX_URL='https://web.archive.org/cdx/search/cdx?url=ak47sports.app/app/AK47Sports_V1.5.apk&output=json&filter=statuscode:200&filter=mimetype:application/vnd.android.package-archive&collapse=digest'
+            SNAPSHOT=$(curl -L --fail --retry 3 --connect-timeout 15 -A "Mozilla/5.0" "$CDX_URL"               | python3 -c 'import json,sys; d=json.load(sys.stdin); print(d[-1][1] if len(d)>1 else "")')
+            test -n "$SNAPSHOT"
+            echo "Archived snapshot: $SNAPSHOT"
+            curl -L --fail --retry 3 -A "Mozilla/5.0" "$SNAPSHOT" -o AK47Sports_V1.5.apk
+          fi
+          file AK47Sports_V1.5.apk
           ls -lh AK47Sports_V1.5.apk
+          python3 - <<'PY'
+          import zipfile, sys
+          p="AK47Sports_V1.5.apk"
+          if not zipfile.is_zipfile(p):
+              print("ERROR: downloaded file is not a valid APK/ZIP")
+              sys.exit(1)
+          print("APK ZIP structure: OK")
+          PY
 
       - name: Extract and deeply inspect
         run: |
@@ -22,6 +43,10 @@ jobs:
           rm -rf apk_extract
           mkdir apk_extract
           unzip -q AK47Sports_V1.5.apk -d apk_extract
+          if [ $? -ne 0 ]; then
+            echo "ERROR: APK extraction failed" > analysis.txt
+            exit 0
+          fi
 
           echo "=== APK FILE LIST ===" > analysis.txt
           find apk_extract -type f | sort >> analysis.txt
@@ -29,27 +54,29 @@ jobs:
           echo >> analysis.txt
           echo "=== APK SIZE / HASH ===" >> analysis.txt
           sha256sum AK47Sports_V1.5.apk >> analysis.txt
+          sha1sum AK47Sports_V1.5.apk >> analysis.txt
+          md5sum AK47Sports_V1.5.apk >> analysis.txt
           stat -c '%n %s bytes' AK47Sports_V1.5.apk >> analysis.txt
 
           echo >> analysis.txt
-          echo "=== URLS FROM DEX ===" >> analysis.txt
-          find apk_extract -name 'classes*.dex' -print0 | xargs -0 strings -a 2>/dev/null | grep -Eoi 'https?://[^[:space:]'"'"'">)]+' | sort -u >> analysis.txt || true
+          echo "=== DEX URLS ===" >> analysis.txt
+          find apk_extract -name 'classes*.dex' -print0 | xargs -0 strings -a 2>/dev/null | grep -Eoi 'https?://[^[:space:]'">)]+' | sort -u >> analysis.txt || true
 
           echo >> analysis.txt
           echo "=== NETWORK / PLAYLIST STRINGS ===" >> analysis.txt
-          find apk_extract -name 'classes*.dex' -print0 | xargs -0 strings -a 2>/dev/null | grep -Ei 'api_host|api_url|base_url|baseurl|endpoint|retrofit|okhttp|football|soccer|foot_live_url|live_events|live_event|stream|stream_url|stream_url|playlist|m3u8?|m3u|xtream|hls|score|cric' | sort -u >> analysis.txt || true
+          find apk_extract -name 'classes*.dex' -print0 | xargs -0 strings -a 2>/dev/null | grep -Ei 'api_host|api_url|base_url|baseurl|endpoint|retrofit|okhttp|football|soccer|foot_live_url|live_events|live_event|match|fixture|stream|stream_url|playlist|m3u8?|m3u|xtream|hls|score|sport|cric' | sort -u >> analysis.txt || true
 
           echo >> analysis.txt
-          echo "=== URL-LIKE STRINGS INCLUDING OBFUSCATED/SCHEME-FREE HOSTS ===" >> analysis.txt
-          find apk_extract -name 'classes*.dex' -print0 | xargs -0 strings -a 2>/dev/null | grep -Ei '([a-z0-9-]+\.)+[a-z]{2,}([/:?][^[:space:]'"'"'">)]*)?' | grep -Ev 'android|google|firebase|jetbrains|kotlin|apache|mozilla|w3.org|schemas.android|dashif.org|youtrack|issuetracker|googlesyndication|gstatic|googleapis' | sort -u >> analysis.txt || true
+          echo "=== URL-LIKE STRINGS / HOSTS ===" >> analysis.txt
+          find apk_extract -name 'classes*.dex' -print0 | xargs -0 strings -a 2>/dev/null | grep -Ei '([a-z0-9-]+.)+[a-z]{2,}([/:?][^[:space:]'">)]*)?' | grep -Ev 'android|google|firebase|jetbrains|kotlin|apache|mozilla|w3.org|schemas.android|dashif.org|youtrack|issuetracker|googlesyndication|gstatic|googleapis' | sort -u >> analysis.txt || true
 
           echo >> analysis.txt
           echo "=== NATIVE LIBRARY URL STRINGS ===" >> analysis.txt
-          find apk_extract/lib -type f -print0 2>/dev/null | xargs -0 strings -a 2>/dev/null | grep -Eoi 'https?://[^[:space:]'"'"'">)]+' | sort -u >> analysis.txt || true
+          find apk_extract/lib -type f -print0 2>/dev/null | xargs -0 strings -a 2>/dev/null | grep -Eoi 'https?://[^[:space:]'">)]+' | sort -u >> analysis.txt || true
 
           echo >> analysis.txt
           echo "=== RESOURCE URL STRINGS ===" >> analysis.txt
-          find apk_extract/res apk_extract/assets -type f -print0 2>/dev/null | xargs -0 strings -a 2>/dev/null | grep -Eoi 'https?://[^[:space:]'"'"'">)]+' | sort -u >> analysis.txt || true
+          find apk_extract/res apk_extract/assets -type f -print0 2>/dev/null | xargs -0 strings -a 2>/dev/null | grep -Eoi 'https?://[^[:space:]'">)]+' | sort -u >> analysis.txt || true
 
           echo >> analysis.txt
           echo "=== FIREBASE / API IDENTIFIERS ===" >> analysis.txt
