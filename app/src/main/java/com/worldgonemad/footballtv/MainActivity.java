@@ -54,6 +54,8 @@ public class MainActivity extends Activity {
 
     private static final String API =
             "https://api.sportsrc.org/?data=matches&category=football";
+    private static final String LIVE_API =
+            "https://www.sofascore.com/api/v1/sport/football/events/live";
 
     @Override
     protected void onCreate(Bundle state) {
@@ -198,11 +200,13 @@ public class MainActivity extends Activity {
     private void loadMatches() {
         new Thread(() -> {
             String json = httpGet(API);
-            ArrayList<Match> result = parseMatches(json);
+            String liveJson = httpGet(LIVE_API);
+            ArrayList<Match> sportsrcMatches = parseMatches(json);
+            ArrayList<Match> liveMatches = parseLiveMatches(liveJson);
 
-            // SportSRC V1 returns a broad schedule. The home screen must show
-            // ONLY matches that are currently live, never upcoming fixtures.
-            ArrayList<Match> filtered = filterLiveMatches(result);
+            // The live-score feed is authoritative for LIVE state.
+            // SportSRC is used only to find the matching stream/event ID.
+            ArrayList<Match> filtered = mergeLiveWithSportsrc(liveMatches, sportsrcMatches);
 
             runOnUiThread(() -> {
                 matches.clear();
@@ -216,54 +220,91 @@ public class MainActivity extends Activity {
         }).start();
     }
 
-    private ArrayList<Match> filterLiveMatches(ArrayList<Match> source) {
+    private ArrayList<Match> mergeLiveWithSportsrc(ArrayList<Match> live, ArrayList<Match> sportsrc) {
         ArrayList<Match> out = new ArrayList<>();
-        long now = System.currentTimeMillis();
 
-        for (Match m : source) {
-            if (m.live) {
-                out.add(m);
-                continue;
+        for (Match liveMatch : live) {
+            Match best = null;
+
+            for (Match s : sportsrc) {
+                if (sameTeam(s.home, liveMatch.home) && sameTeam(s.away, liveMatch.away)) {
+                    best = s;
+                    break;
+                }
+                // Some feeds reverse home/away. Keep the match live either way.
+                if (sameTeam(s.home, liveMatch.away) && sameTeam(s.away, liveMatch.home)) {
+                    best = s;
+                    break;
+                }
             }
 
-            // If V1 has no live status, infer live state from kickoff time:
-            // football normally runs about 90 minutes plus stoppage time.
-            long start = parseMatchTime(m.rawTime);
-            if (start > 0 && start <= now && now <= start + 125L * 60L * 1000L) {
-                m.live = true;
-                out.add(m);
+            if (best != null) {
+                best.live = true;
+                if (best.league == null || best.league.isEmpty() || "Football".equals(best.league)) {
+                    best.league = liveMatch.league;
+                }
+                out.add(best);
             }
         }
         return out;
     }
 
-    private long parseMatchTime(String value) {
-        if (value == null || value.trim().isEmpty()) return -1L;
-        String s = value.trim();
+    private ArrayList<Match> parseLiveMatches(String json) {
+        ArrayList<Match> out = new ArrayList<>();
+        if (json == null || json.trim().isEmpty()) return out;
 
         try {
-            long n = Long.parseLong(s);
-            if (n < 100000000000L) n *= 1000L;
-            return n;
+            JSONObject root = new JSONObject(json);
+            JSONArray events = root.optJSONArray("events");
+            if (events == null) return out;
+
+            for (int i = 0; i < events.length(); i++) {
+                JSONObject e = events.optJSONObject(i);
+                if (e == null) continue;
+
+                JSONObject status = e.optJSONObject("status");
+                String type = status == null ? "" : getString(status, "type", "description");
+                String state = type == null ? "" : type.toLowerCase(Locale.US);
+
+                if (!(state.contains("inprogress") || state.contains("in progress")
+                        || state.equals("live") || state.equals("1h")
+                        || state.equals("2h") || state.equals("halftime")
+                        || state.equals("extratime"))) {
+                    continue;
+                }
+
+                JSONObject homeObj = e.optJSONObject("homeTeam");
+                JSONObject awayObj = e.optJSONObject("awayTeam");
+                if (homeObj == null || awayObj == null) continue;
+
+                String home = getString(homeObj, "name", "shortName");
+                String away = getString(awayObj, "name", "shortName");
+                if (home.isEmpty() || away.isEmpty()) continue;
+
+                JSONObject tournament = e.optJSONObject("tournament");
+                String league = tournament == null ? "Football" : getString(tournament, "name");
+                if (league.isEmpty()) league = "Football";
+
+                String id = getString(e, "id");
+                if (id.isEmpty()) id = home + "_" + away;
+
+                out.add(new Match(league, home, away, "LIVE", true, id, ""));
+            }
         } catch (Exception ignored) {}
 
-        String[] patterns = {
-                "yyyy-MM-dd'T'HH:mm:ssXXX",
-                "yyyy-MM-dd'T'HH:mm:ss.SSSXXX",
-                "yyyy-MM-dd'T'HH:mm:ss'Z'",
-                "yyyy-MM-dd HH:mm:ss",
-                "yyyy-MM-dd HH:mm"
-        };
+        return out;
+    }
 
-        for (String p : patterns) {
-            try {
-                SimpleDateFormat f = new SimpleDateFormat(p, Locale.US);
-                if (p.endsWith("'Z'")) f.setTimeZone(TimeZone.getTimeZone("UTC"));
-                Date d = f.parse(s);
-                if (d != null) return d.getTime();
-            } catch (Exception ignored) {}
-        }
-        return -1L;
+    private boolean sameTeam(String a, String b) {
+        return normalizeTeam(a).equals(normalizeTeam(b));
+    }
+
+    private String normalizeTeam(String s) {
+        if (s == null) return "";
+        return s.toLowerCase(Locale.US)
+                .replaceAll("[^a-z0-9]+", "")
+                .replace("footballclub", "")
+                .replace("fc", "");
     }
 
     private String httpGet(String address) {
@@ -407,21 +448,8 @@ public class MainActivity extends Activity {
         String status = getString(o, "status", "state", "match_status", "matchStatus");
         String s = status == null ? "" : status.toLowerCase(Locale.US);
 
-        if (s.contains("live") || s.contains("inprogress")
-                || s.contains("in progress") || s.equals("playing")) {
-            return true;
-        }
-
-        // SportSRC V1 normally has no explicit live flag.
-        // Determine live state from the real kickoff timestamp instead.
-        long start = parseMatchTime(time);
-        if (start <= 0) return false;
-
-        long now = System.currentTimeMillis();
-        long elapsed = now - start;
-
-        // 125 minutes covers 90 minutes, half-time and normal stoppage time.
-        return elapsed >= 0 && elapsed <= 125L * 60L * 1000L;
+        return s.contains("live") || s.contains("inprogress")
+                || s.contains("in progress") || s.equals("playing");
     }
 
     private void openMatch(Match match) {
