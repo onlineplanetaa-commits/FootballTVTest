@@ -254,32 +254,61 @@ public class MainActivity extends Activity {
         ArrayList<Match> result = new ArrayList<>();
         if (html == null || html.isEmpty()) return result;
 
-        // LiveTV904 marks currently running events by showing a score.
-        // We use the old site's LIVE list for the homepage; SportSRC is
-        // used only later to resolve the stream.
+        // LiveTV904 has a dedicated "Top Events LIVE" block. Live football
+        // rows contain a football marker, a score, and an /eventinfo/ link.
+        // Do not use kickoff times here: the homepage must contain LIVE only.
         Pattern linkPattern = Pattern.compile(
-                "(?is)<a\\s+[^>]*href\\s*=\\s*[\\\"']([^\\\"']*?/eventinfo/[^\\\"']+)[\\\"'][^>]*>(.*?)</a>");
+                "(?is)href\\s*=\\s*[\\\"']([^\\\"']*/eventinfo/[^\\\"']+)[\\\"']");
         Matcher linkMatcher = linkPattern.matcher(html);
 
         while (linkMatcher.find()) {
             String href = linkMatcher.group(1);
-            String anchorText = cleanText(linkMatcher.group(2));
-            if (href == null || href.isEmpty() || anchorText.isEmpty()) continue;
+            if (href == null || href.isEmpty()) continue;
 
-            int from = Math.max(0, linkMatcher.start() - 700);
-            int to = Math.min(html.length(), linkMatcher.end() + 700);
+            int from = Math.max(0, linkMatcher.start() - 1800);
+            int to = Math.min(html.length(), linkMatcher.end() + 1800);
             String context = html.substring(from, to);
             String textContext = cleanText(context);
             String lowerContext = textContext.toLowerCase(Locale.US);
 
+            // Football identification comes from the same event row/block.
             if (!lowerContext.contains("football")) continue;
 
+            // A numeric score is the reliable LIVE marker on LiveTV904.
             Matcher scoreMatcher = Pattern.compile(
                     "(?<!\\d)\\d{1,2}\\s*:\\s*\\d{1,2}(?!\\d)")
                     .matcher(textContext);
             if (!scoreMatcher.find()) continue;
 
             String score = scoreMatcher.group();
+
+            // Extract the actual event anchor text from this context.
+            String anchorText = "";
+            Pattern exactLink = Pattern.compile(
+                    "(?is)<a\\\\s+[^>]*href\\\\s*=\\\\s*[\\\"']"
+                    + Pattern.quote(href)
+                    + "[\\\"'][^>]*>(.*?)</a>");
+            Matcher am = exactLink.matcher(context);
+            if (am.find()) anchorText = cleanText(am.group(1));
+
+            if (anchorText.isEmpty()) {
+                // Fallback: locate the event URL and take the nearest visible
+                // text around it. This handles small HTML layout changes.
+                String hrefToken = Pattern.quote(href);
+                Matcher tm = Pattern.compile(
+                        "(?is)" + hrefToken + "[^>]*>(.*?)</a>")
+                        .matcher(context);
+                if (tm.find()) anchorText = cleanText(tm.group(1));
+            }
+
+            String[] teams = splitTeams(anchorText);
+            if (teams.length != 2 || teams[0].isEmpty() || teams[1].isEmpty()) {
+                continue;
+            }
+
+            String home = cleanTeamName(teams[0]);
+            String away = cleanTeamName(teams[1]);
+            if (home.isEmpty() || away.isEmpty()) continue;
 
             String league = "Football";
             Matcher sportMatcher = Pattern.compile(
@@ -290,13 +319,6 @@ public class MainActivity extends Activity {
                 String rest = alt.replaceFirst("(?i)^Football\\.?\\s*", "").trim();
                 if (!rest.isEmpty()) league = rest;
             }
-
-            String[] teams = splitTeams(anchorText);
-            if (teams.length != 2) continue;
-
-            String home = cleanTeamName(teams[0]);
-            String away = cleanTeamName(teams[1]);
-            if (home.isEmpty() || away.isEmpty()) continue;
 
             String eventUrl = href.startsWith("http") ? href : "https://livetv904.me" + href;
 
