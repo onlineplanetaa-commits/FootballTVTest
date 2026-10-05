@@ -1257,7 +1257,7 @@ public class MainActivity extends Activity {
                                 + "}catch(e){return ''}})();",
                                 value -> {
                                     if (value == null) return;
-                                    String clean = value.replace("\\"", """);
+                                    String clean = value.replace("\\\"", "\"");
                                     for (String u : clean.split("\\n")) {
                                         u = u.trim();
                                         if (u.startsWith("http")) {
