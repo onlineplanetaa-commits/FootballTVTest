@@ -1,6 +1,9 @@
 name: Analyze AK47 Sports V1.5
 
 on:
+  push:
+    paths:
+      - ".github/workflows/analyze-ak47-v16.yml"
   workflow_dispatch:
 
 jobs:
@@ -12,12 +15,10 @@ jobs:
           set -e
           curl -L --fail --retry 3 -A "Mozilla/5.0" "https://ak47sports.app/app/AK47Sports_V1.5.apk" -o AK47Sports_V1.5.apk
           ls -lh AK47Sports_V1.5.apk
-
       - name: Install analysis tools
         run: |
           sudo apt-get update -qq
           sudo apt-get install -y -qq jadx
-
       - name: Deep decompile and inspect
         run: |
           set +e
@@ -25,34 +26,26 @@ jobs:
           mkdir apk_extract
           unzip -q AK47Sports_V1.5.apk -d apk_extract
           jadx --show-bad-code --no-res -d jadx_out AK47Sports_V1.5.apk >/tmp/jadx.log 2>&1 || true
-
           echo "=== APK URLS ===" > analysis.txt
           find apk_extract -name 'classes*.dex' -print0 | xargs -0 strings -a 2>/dev/null | grep -Eo 'https?://[^[:space:]'"'"'">)]+' | sort -u >> analysis.txt || true
-
           echo >> analysis.txt
           echo "=== INTERESTING DEX STRINGS ===" >> analysis.txt
           find apk_extract -name 'classes*.dex' -print0 | xargs -0 strings -a 2>/dev/null | grep -Ei 'api_host|api_url|iptv_playlist|foot_live_url|cric_live_url|playlist|m3u8?|xtream|live_events|foot_score|cric_score' | sort -u >> analysis.txt || true
-
           echo >> analysis.txt
           echo "=== DECOMPILED REFERENCES TO LIVE/API/PLAYLIST ===" >> analysis.txt
           grep -RniE -C 8 'foot_live_url|cric_live_url|api_host|api_url|live_events|foot_score|cric_score|pro\.m3u8|m3u8|playlist' jadx_out 2>/dev/null | head -n 30000 >> analysis.txt || true
-
           echo >> analysis.txt
           echo "=== DECOMPILED HTTP REQUEST CODE ===" >> analysis.txt
           grep -RniE -C 10 'Retrofit|OkHttp|Request\.Builder|HttpURLConnection|\.url\(|baseUrl|GET|POST' jadx_out 2>/dev/null | head -n 20000 >> analysis.txt || true
-
           echo >> analysis.txt
           echo "=== NATIVE URL STRINGS ===" >> analysis.txt
           find apk_extract/lib -type f -print0 2>/dev/null | xargs -0 strings -a 2>/dev/null | grep -Eoi 'https?://[^[:space:]'"'"'">)]+' | sort -u >> analysis.txt || true
-
           echo >> analysis.txt
           echo "=== SIGNER ===" >> analysis.txt
           APKSIGNER=$(find "$ANDROID_HOME/build-tools" -type f -name apksigner 2>/dev/null | sort | tail -n 1)
           if [ -n "$APKSIGNER" ]; then "$APKSIGNER" verify --print-certs AK47Sports_V1.5.apk >> analysis.txt 2>&1 || true; fi
-
           echo >> analysis.txt
           echo "=== ANALYSIS COMPLETE ===" >> analysis.txt
-
       - name: Upload deep analysis
         if: always()
         uses: actions/upload-artifact@v4
