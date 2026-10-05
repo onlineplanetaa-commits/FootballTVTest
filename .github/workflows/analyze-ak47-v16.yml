@@ -118,15 +118,16 @@ jobs:
           echo "=== LIVE FIREBASE REMOTE CONFIG FETCH ===" >> analysis.txt
           API_KEY="AIzaSyCOhPo6X5o8517oC_tFtH_L8ka3ElacTu0"
           APP_ID="1:987682933046:android:b0d2f52255416b34cb0b97"
-          INSTALL_JSON=$(curl -sS --fail \
-            -X POST \
-            -H "Content-Type: application/json" \
-            -H "X-Goog-Api-Key: $API_KEY" \
-            -d "{\"appId\":\"$APP_ID\",\"sdkVersion\":\"21.0.0\"}" \
-            "https://firebaseinstallations.googleapis.com/v1/projects/-/installations")
-          echo "$INSTALL_JSON" | sed -E 's/(refreshToken|token|authToken)[^,]*/REDACTED/g' >> analysis.txt
-          FID=$(printf '%s' "$INSTALL_JSON" | python3 -c 'import json,sys; print(json.load(sys.stdin)["fid"])')
-          AUTH=$(printf '%s' "$INSTALL_JSON" | python3 -c 'import json,sys; print(json.load(sys.stdin)["authToken"]["token"])')
+
+          APKSIGNER=$(find "$ANDROID_HOME/build-tools" -type f -name apksigner 2>/dev/null | sort | tail -n 1)
+          test -n "$APKSIGNER"
+          CERT_SHA1=$("$APKSIGNER" verify --print-certs AK47Sports_V1.6.apk 2>/dev/null |
+            sed -n 's/Signer #1 certificate SHA-1 digest: //p' | tr -d '\r' | head -n 1)
+          test -n "$CERT_SHA1"
+          echo "Android package: app.aksports.live" >> analysis.txt
+          echo "Android cert SHA-1: $CERT_SHA1" >> analysis.txt
+
+          INSTALL_JSON=$(curl -sS --fail             -X POST             -H "Content-Type: application/json"             -H "X-Goog-Api-Key: $API_KEY"             -H "X-Android-Package: app.aksports.live"             -H "X-Android-Cert: $CERT_SHA1"             -d "{\"appId\":\"$APP_ID\",\"sdkVersion\":\"21.0.0\"}"             "https://firebaseinstallations.googleapis.com/v1/projects/-/installations")
           RC_JSON=$(curl -sS --fail \
             -X POST \
             -H "Content-Type: application/json" \
