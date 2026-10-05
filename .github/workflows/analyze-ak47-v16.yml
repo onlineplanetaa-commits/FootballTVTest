@@ -76,5 +76,5 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: ak47-v16-analysis
-          path: /tmp/analysis.txt
+          path: analysis.txt
           retention-days: 3
