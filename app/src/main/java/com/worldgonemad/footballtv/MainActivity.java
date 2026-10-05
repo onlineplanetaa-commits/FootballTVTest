@@ -358,92 +358,160 @@ public class MainActivity extends Activity {
     }
 
     private String findEmbed(String json) {
-        if (json == null || json.isEmpty()) return "";
+        if (json == null || json.trim().isEmpty()) return "";
+
         try {
-            JSONObject root = new JSONObject(json);
-            String found = findUrl(root);
+            Object root;
+            String trimmed = json.trim();
+            if (trimmed.startsWith("[")) {
+                root = new JSONArray(trimmed);
+            } else {
+                root = new JSONObject(trimmed);
+            }
+
+            // SportSRC detail responses can wrap the match inside data/result
+            // and streams can be an array of objects containing url/src/embed.
+            String found = findStreamUrl(root);
             if (!found.isEmpty()) return found;
 
             String html = findHtml(root);
-            Matcher m = Pattern.compile(
-                    "(?i)<iframe[^>]+src\\s*=\\s*[\\\"']([^\\\"']+)")
-                    .matcher(html == null ? "" : html);
-            if (m.find()) return m.group(1);
+            if (!html.isEmpty()) {
+                Matcher m = Pattern.compile(
+                        "(?i)<iframe[^>]+src\\s*=\\s*[\\\"']([^\\\"']+)")
+                        .matcher(html);
+                if (m.find()) return m.group(1);
+            }
         } catch (Exception ignored) {}
 
+        // Last-resort extraction, but only accept URLs that look like a player/stream.
         Matcher m = Pattern.compile(
                 "(?i)https?://[^\\\"'\\s<>]+")
                 .matcher(json);
         while (m.find()) {
             String u = m.group();
-            String low = u.toLowerCase(Locale.US);
-            if (low.contains("embed") || low.contains("player") || low.contains("stream")
-                    || low.contains("iframe")) return u;
+            if (looksLikeStreamUrl(u)) return u;
         }
         return "";
     }
 
-    private String findUrl(JSONObject o) {
-        Iterator<String> it = o.keys();
-        while (it.hasNext()) {
-            String k = it.next();
-            Object v = o.opt(k);
-            String key = k.toLowerCase(Locale.US);
+    private String findStreamUrl(Object value) {
+        if (value instanceof JSONObject) {
+            JSONObject o = (JSONObject) value;
 
-            if (v instanceof String) {
-                String s = (String) v;
-                if (s.startsWith("http://") || s.startsWith("https://")) {
-                    if (key.contains("embed") || key.contains("stream")
-                            || key.contains("iframe") || key.contains("player")
-                            || key.contains("source") || key.contains("url")) return s;
+            // First pass: fields whose names explicitly identify a stream/embed.
+            String[] preferred = {
+                    "stream", "streams", "stream_url", "streamUrl",
+                    "embed", "embed_url", "embedUrl", "iframe",
+                    "iframe_url", "iframeUrl", "player", "player_url",
+                    "playerUrl", "source", "source_url", "sourceUrl",
+                    "src", "url", "link", "href"
+            };
+
+            for (String key : preferred) {
+                Object v = o.opt(key);
+                String r = extractStreamValue(v);
+                if (!r.isEmpty()) return r;
+            }
+
+            // Then recurse through the rest of the actual JSON structure.
+            Iterator<String> it = o.keys();
+            while (it.hasNext()) {
+                String key = it.next();
+                Object v = o.opt(key);
+                if (v instanceof JSONObject || v instanceof JSONArray) {
+                    String r = findStreamUrl(v);
+                    if (!r.isEmpty()) return r;
+                } else if (v instanceof String) {
+                    String s = ((String) v).trim();
+                    if (looksLikeStreamUrl(s)) return s;
                 }
-            } else if (v instanceof JSONObject) {
-                String r = findUrl((JSONObject) v);
-                if (!r.isEmpty()) return r;
-            } else if (v instanceof JSONArray) {
-                String r = findUrl((JSONArray) v);
-                if (!r.isEmpty()) return r;
+            }
+        } else if (value instanceof JSONArray) {
+            JSONArray a = (JSONArray) value;
+
+            // Prefer objects that are explicitly stream/source records.
+            for (int i = 0; i < a.length(); i++) {
+                Object item = a.opt(i);
+                if (item instanceof JSONObject) {
+                    String r = findStreamUrl((JSONObject) item);
+                    if (!r.isEmpty()) return r;
+                }
+            }
+
+            for (int i = 0; i < a.length(); i++) {
+                Object item = a.opt(i);
+                if (item instanceof String) {
+                    String s = ((String) item).trim();
+                    if (looksLikeStreamUrl(s)) return s;
+                }
             }
         }
         return "";
     }
 
-    private String findUrl(JSONArray a) {
-        for (int i = 0; i < a.length(); i++) {
-            Object v = a.opt(i);
-            if (v instanceof JSONObject) {
-                String r = findUrl((JSONObject) v);
-                if (!r.isEmpty()) return r;
-            } else if (v instanceof String) {
-                String s = (String) v;
-                if (s.startsWith("http://") || s.startsWith("https://")) return s;
+    private String extractStreamValue(Object v) {
+        if (v == null || v == JSONObject.NULL) return "";
+
+        if (v instanceof JSONObject || v instanceof JSONArray) {
+            return findStreamUrl(v);
+        }
+
+        if (v instanceof String) {
+            String s = ((String) v).trim();
+            if (s.contains("<iframe") || s.contains("<video")) {
+                Matcher m = Pattern.compile(
+                        "(?i)<iframe[^>]+src\\s*=\\s*[\\\"']([^\\\"']+)")
+                        .matcher(s);
+                if (m.find()) return m.group(1);
             }
+            if (looksLikeStreamUrl(s)) return s;
         }
         return "";
     }
 
-    private String findHtml(JSONObject o) {
-        Iterator<String> it = o.keys();
-        while (it.hasNext()) {
-            String k = it.next();
-            Object v = o.opt(k);
-            if (v instanceof String) {
-                String s = (String) v;
-                if (s.contains("<iframe") || s.contains("<video")) return s;
-            } else if (v instanceof JSONObject) {
-                String r = findHtml((JSONObject) v);
-                if (!r.isEmpty()) return r;
-            } else if (v instanceof JSONArray) {
-                JSONArray a = (JSONArray) v;
-                for (int i = 0; i < a.length(); i++) {
-                    Object x = a.opt(i);
-                    if (x instanceof JSONObject) {
-                        String r = findHtml((JSONObject) x);
-                        if (!r.isEmpty()) return r;
-                    } else if (x instanceof String) {
-                        String s2 = (String) x;
-                        if (s2.contains("<iframe") || s2.contains("<video")) return s2;
-                    }
+    private boolean looksLikeStreamUrl(String s) {
+        if (s == null) return false;
+        String u = s.trim().toLowerCase(Locale.US);
+        if (!(u.startsWith("http://") || u.startsWith("https://"))) return false;
+
+        // Avoid selecting logos, flags, posters and other ordinary assets.
+        if (u.matches(".*\\.(png|jpe?g|gif|webp|svg)(\\?.*)?$")) return false;
+
+        return u.contains("embed")
+                || u.contains("player")
+                || u.contains("stream")
+                || u.contains("iframe")
+                || u.contains(".m3u8")
+                || u.contains(".mp4")
+                || u.contains("/watch")
+                || u.contains("/live")
+                || u.contains("video");
+    }
+
+    private String findHtml(Object value) {
+        if (value instanceof JSONObject) {
+            JSONObject o = (JSONObject) value;
+            Iterator<String> it = o.keys();
+            while (it.hasNext()) {
+                Object v = o.opt(it.next());
+                if (v instanceof String) {
+                    String s = (String) v;
+                    if (s.contains("<iframe") || s.contains("<video")) return s;
+                } else if (v instanceof JSONObject || v instanceof JSONArray) {
+                    String r = findHtml(v);
+                    if (!r.isEmpty()) return r;
+                }
+            }
+        } else if (value instanceof JSONArray) {
+            JSONArray a = (JSONArray) value;
+            for (int i = 0; i < a.length(); i++) {
+                Object v = a.opt(i);
+                if (v instanceof String) {
+                    String s = (String) v;
+                    if (s.contains("<iframe") || s.contains("<video")) return s;
+                } else if (v instanceof JSONObject || v instanceof JSONArray) {
+                    String r = findHtml(v);
+                    if (!r.isEmpty()) return r;
                 }
             }
         }
