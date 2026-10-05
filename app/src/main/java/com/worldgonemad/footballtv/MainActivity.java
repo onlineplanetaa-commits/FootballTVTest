@@ -1200,21 +1200,17 @@ public class MainActivity extends Activity {
         showPlayer(match, "Finding direct stream...");
 
         new Thread(() -> {
-            String hls = resolvePublicHls(match.eventUrl);
+            // SoccerStreams100 is the PRIMARY football source.
+            // It provides dedicated match pages with external WATCH players.
+            fallbackSourceUrls.addAll(findSoccerStreamsMatchUrls(match));
 
+            // LiveTV904 direct HLS is now only a fallback.
+            String hls = resolvePublicHls(match.eventUrl);
             if (!hls.isEmpty()) {
-                runOnUiThread(() -> {
-                    if (playerScreen) {
-                        activeSourceUrl = hls;
-                        playHls(hls);
-                    }
-                });
-                return;
+                fallbackSourceUrls.add(hls);
             }
 
-            // Try a dedicated football source before the old LiveTV mirror.
-            // SoccerStreams100 provides match pages with external WATCH players.
-            fallbackSourceUrls.addAll(findSoccerStreamsMatchUrls(match));
+            // Old LiveTV mirror is the last fallback.
             fallbackSourceUrls.addAll(findAlternateSourceUrls(match));
 
             runOnUiThread(() -> {
