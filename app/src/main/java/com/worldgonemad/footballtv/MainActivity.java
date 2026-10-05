@@ -419,15 +419,6 @@ public class MainActivity extends Activity {
         return "";
     }
 
-    private String[] splitTeams(String title) {
-        String s = title.replaceAll("\\s+", " ").trim();
-        String[] parts = s.split("\\s+(?:vs\\.?|v\\.?|—|–)\\s+", 2);
-        if (parts.length == 2) return parts;
-        parts = s.split("\\s+-\\s+", 2);
-        if (parts.length == 2) return parts;
-        return new String[] {"", ""};
-    }
-
     private String cleanText(String s) {
         if (s == null) return "";
         return s.replaceAll("<[^>]+>", " ").replace("&nbsp;", " ").replace("&amp;", "&").replaceAll("\\s+", " ").trim();
