@@ -36,6 +36,8 @@ import java.util.ArrayList;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 import java.util.HashSet;
+import java.util.HashMap;
+import java.util.Map;
 import java.util.Set;
 
 import androidx.media3.common.MediaItem;
@@ -1342,16 +1344,13 @@ public class MainActivity extends Activity {
                     continue;
                 }
 
-                String linksPath = event.optString("links", "").trim();
-                if (linksPath.isEmpty()) continue;
+                // AK47Sports stores the links array itself in the "links"
+                // field. It is encoded with the custom alphabet from y5.a.b().
+                // Do NOT treat this value as a URL.
+                String linksData = event.optString("links", "").trim();
+                if (linksData.isEmpty()) continue;
 
-                String linksUrl = linksPath;
-                if (!linksUrl.startsWith("http://")
-                        && !linksUrl.startsWith("https://")) {
-                    linksUrl = apiHost + linksUrl.replaceFirst("^/+", "");
-                }
-
-                streams.addAll(selectAk47Streams(downloadPage(linksUrl)));
+                streams.addAll(selectAk47Streams(linksData));
             }
         } catch (Exception ignored) {
         }
@@ -1386,9 +1385,23 @@ public class MainActivity extends Activity {
                 String url = link.optString("link", "").trim();
                 if (url.isEmpty()) continue;
 
-                // Keep URL plus optional AK47 request metadata. The player method
-                // below can apply the metadata when opening the candidate.
-                if (seen.add(url)) result.add(url);
+                // AK47Sports also supplies request headers for some streams.
+                // Preserve them instead of throwing them away. The internal
+                // separator is never sent to ExoPlayer.
+                String ua = link.optString("user-agent",
+                        link.optString("user_agent", "")).trim();
+                String cookie = link.optString("cookie", "").trim();
+                String referer = link.optString("referrer",
+                        link.optString("referer", "")).trim();
+                String origin = link.optString("origin", "").trim();
+
+                String candidate = url
+                        + "\tUA=" + ua
+                        + "\tCOOKIE=" + cookie
+                        + "\tREFERER=" + referer
+                        + "\tORIGIN=" + origin;
+
+                if (seen.add(candidate)) result.add(candidate);
             }
         } catch (Exception ignored) {
             String s = decoded.trim();
@@ -1452,10 +1465,34 @@ public class MainActivity extends Activity {
             return;
         }
 
-        String url = streams.get(index);
-        if (url == null || url.trim().isEmpty()) {
+        String candidate = streams.get(index);
+        if (candidate == null || candidate.trim().isEmpty()) {
             playAk47Streams(match, streams, index + 1);
             return;
+        }
+
+        String[] parts = candidate.split("\\t", -1);
+        String url = parts.length > 0 ? parts[0].trim() : "";
+        if (url.isEmpty()) {
+            playAk47Streams(match, streams, index + 1);
+            return;
+        }
+
+        Map<String, String> headers = new HashMap<>();
+        for (int p = 1; p < parts.length; p++) {
+            int eq = parts[p].indexOf('=');
+            if (eq <= 0) continue;
+            String key = parts[p].substring(0, eq);
+            String value = parts[p].substring(eq + 1);
+            if ("UA".equals(key) && !value.isEmpty()) {
+                headers.put("User-Agent", value);
+            } else if ("COOKIE".equals(key) && !value.isEmpty()) {
+                headers.put("Cookie", value);
+            } else if ("REFERER".equals(key) && !value.isEmpty()) {
+                headers.put("Referer", value);
+            } else if ("ORIGIN".equals(key) && !value.isEmpty()) {
+                headers.put("Origin", value);
+            }
         }
 
         releasePlayer();
@@ -1500,7 +1537,8 @@ public class MainActivity extends Activity {
                 new DefaultHttpDataSource.Factory()
                         .setUserAgent(
                                 "Mozilla/5.0 (Linux; Android 11; Android TV) AppleWebKit/537.36 Chrome/124.0.0.0 Safari/537.36"
-                        );
+                        )
+                        .setDefaultRequestProperties(headers);
 
         player = new ExoPlayer.Builder(this)
                 .setMediaSourceFactory(
