@@ -217,7 +217,7 @@ public class MainActivity extends Activity {
             // SportSRC V1 currently returns the full football schedule but no
             // live_ IDs. Use the live-event source to discover active games,
             // then attach the corresponding SportSRC match ID for detail/stream.
-            loadMatchesWithBrowser();
+            runOnUiThread(() -> loadMatchesWithBrowser());
         }).start();
     }
 
