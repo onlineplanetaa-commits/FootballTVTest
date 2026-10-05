@@ -486,79 +486,81 @@ private String downloadPage(String address) {
     private ArrayList<Match> parseSportsrcLiveMatches(String json) {
         ArrayList<Match> out = new ArrayList<>();
         if (json == null || json.trim().isEmpty()) return out;
-
         try {
             Object root = new JSONTokener(json.trim()).nextValue();
-            JSONArray arr = null;
-            if (root instanceof JSONArray) {
-                arr = (JSONArray) root;
-            } else if (root instanceof JSONObject) {
-                JSONObject ro = (JSONObject) root;
-                arr = firstArray(ro, "data", "matches", "events", "results");
-                if (arr == null) {
-                    JSONObject data = ro.optJSONObject("data");
-                    if (data != null) arr = firstArray(data, "matches", "events", "results");
-                }
+            collectSportsrcLiveMatches(root, out);
+        } catch (Exception ignored) {}
+        ArrayList<Match> unique = new ArrayList<>();
+        for (Match m : out) {
+            boolean duplicate = false;
+            for (Match x : unique) {
+                if (!m.sportSrcId.isEmpty() && m.sportSrcId.equals(x.sportSrcId)) { duplicate = true; break; }
+                if (teamsMatch(m.home, x.home) && teamsMatch(m.away, x.away)) { duplicate = true; break; }
             }
-            if (arr == null) return out;
+            if (!duplicate) unique.add(m);
+        }
+        return unique;
+    }
 
-            for (int i = 0; i < arr.length(); i++) {
-                JSONObject o = arr.optJSONObject(i);
-                if (o == null) continue;
-
-                String id = getString(o, "id", "match_id", "event_id");
-                String category = getString(o, "category", "sport", "type");
-                String status = getString(o, "status", "state", "match_status", "matchStatus");
-                String home = getString(o, "home", "home_team", "homeTeam", "team_home");
-                String away = getString(o, "away", "away_team", "awayTeam", "team_away");
-                String title = getString(o, "title", "name", "event", "match");
-                String league = getString(o, "league", "competition", "tournament");
-
-                JSONObject teams = o.optJSONObject("teams");
-                if (teams != null) {
-                    JSONObject ho = teams.optJSONObject("home");
-                    JSONObject ao = teams.optJSONObject("away");
-                    if (home.isEmpty() && ho != null) home = getString(ho, "name", "title");
-                    if (away.isEmpty() && ao != null) away = getString(ao, "name", "title");
-                }
-
-                if ((home.isEmpty() || away.isEmpty()) && !title.isEmpty()) {
-                    String[] pair = splitTeams(title);
-                    if (home.isEmpty()) home = pair[0];
-                    if (away.isEmpty()) away = pair[1];
-                }
-
-                boolean football = "football".equalsIgnoreCase(category)
-                        || "soccer".equalsIgnoreCase(category)
-                        || "football".equalsIgnoreCase(getString(o, "sport_name"));
-                boolean live = id.toLowerCase(Locale.US).startsWith("live_")
-                        || isLive(o, status);
-
-                // Some V1 responses omit category/status/date. A live_ event ID
-                // is the strongest LIVE marker, so do not require a timestamp.
-                if (!football && !title.toLowerCase(Locale.US).contains("football")) continue;
-                if (!live) continue;
-                if (home.isEmpty() || away.isEmpty()) continue;
-
-                if (league.isEmpty()) league = "Football";
-                String score = getString(o, "score", "result", "current_score");
-                if (score.isEmpty()) score = "LIVE";
-
-                out.add(new Match(
-                        league,
-                        cleanTeamName(home),
-                        cleanTeamName(away),
-                        cleanText(score) + "  LIVE",
-                        true,
-                        id,
-                        "",
-                        ""
-                ));
+    private void collectSportsrcLiveMatches(Object value, ArrayList<Match> out) {
+        if (value instanceof JSONObject) {
+            JSONObject o = (JSONObject) value;
+            tryAddSportsrcLiveMatch(o, out);
+            Iterator<String> it = o.keys();
+            while (it.hasNext()) {
+                Object child = o.opt(it.next());
+                if (child instanceof JSONObject || child instanceof JSONArray) collectSportsrcLiveMatches(child, out);
             }
-        } catch (Exception ignored) {
+        } else if (value instanceof JSONArray) {
+            JSONArray a = (JSONArray) value;
+            for (int i = 0; i < a.length(); i++) {
+                Object child = a.opt(i);
+                if (child instanceof JSONObject || child instanceof JSONArray) collectSportsrcLiveMatches(child, out);
+            }
+        }
+    }
+
+    private void tryAddSportsrcLiveMatch(JSONObject o, ArrayList<Match> out) {
+        String id = getString(o, "id", "match_id", "event_id");
+        if (id.isEmpty()) return;
+        String category = getString(o, "category", "sport", "type", "sport_name");
+        String status = getString(o, "status", "state", "match_status", "matchStatus", "live_status");
+        String home = getString(o, "home", "home_team", "homeTeam", "team_home", "home_name");
+        String away = getString(o, "away", "away_team", "awayTeam", "team_away", "away_name");
+        String title = getString(o, "title", "name", "event", "match");
+        String league = getString(o, "league", "competition", "tournament", "league_name");
+
+        JSONObject teams = o.optJSONObject("teams");
+        if (teams != null) {
+            JSONObject ho = teams.optJSONObject("home"), ao = teams.optJSONObject("away");
+            if (ho != null && home.isEmpty()) home = getString(ho, "name", "title", "team");
+            if (ao != null && away.isEmpty()) away = getString(ao, "name", "title", "team");
+        }
+        JSONObject h = o.optJSONObject("home"), a = o.optJSONObject("away");
+        if (h != null) home = getString(h, "name", "title", "team");
+        if (a != null) away = getString(a, "name", "title", "team");
+        if ((home.isEmpty() || away.isEmpty()) && !title.isEmpty()) {
+            String[] pair = splitTeams(title);
+            if (home.isEmpty()) home = pair[0];
+            if (away.isEmpty()) away = pair[1];
         }
 
-        return out;
+        boolean liveId = id.toLowerCase(Locale.US).startsWith("live_");
+        boolean liveStatus = isLive(o, status);
+        boolean football = category.isEmpty()
+                || "football".equalsIgnoreCase(category)
+                || "soccer".equalsIgnoreCase(category)
+                || title.toLowerCase(Locale.US).contains("football")
+                || league.toLowerCase(Locale.US).contains("football")
+                || liveId;
+        if (!football || (!liveId && !liveStatus)) return;
+        if (home.isEmpty() || away.isEmpty()) return;
+
+        String score = getString(o, "score", "result", "current_score", "score_display");
+        if (score.isEmpty()) score = "LIVE";
+        if (league.isEmpty()) league = "Football";
+        out.add(new Match(league, cleanTeamName(home), cleanTeamName(away),
+                cleanText(score) + "  LIVE", true, id, "", ""));
     }
 
     private ArrayList<Match> parseSportsrcMatches(String json) {
