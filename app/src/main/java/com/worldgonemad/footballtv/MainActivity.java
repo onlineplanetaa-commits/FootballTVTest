@@ -1208,108 +1208,34 @@ public class MainActivity extends Activity {
     // Watch all page/iframe network requests and collect every media URL.
     private ArrayList<String> collectLiveTvStreams(String eventUrl) {
         final ArrayList<String> result = new ArrayList<>();
-        final Set<String> seen = new HashSet<>();
+        try {
+            String html = downloadPage(eventUrl);
+            if (html == null || html.isEmpty()) return result;
 
-        runOnUiThread(() -> {
-            try {
-                if (resolverWebView != null) {
-                    resolverWebView.stopLoading();
-                    resolverWebView.destroy();
+            Pattern iframePattern = Pattern.compile(
+                    "(?is)<iframe[^>]+src\\s*=\\s*[\\\"']([^\\\"']+)[\\\"']"
+            );
+            Matcher m = iframePattern.matcher(html);
+
+            while (m.find()) {
+                String src = m.group(1);
+                if (src == null || src.trim().isEmpty()) continue;
+                src = src.trim();
+
+                if (src.startsWith("//")) {
+                    src = "https:" + src;
+                } else if (src.startsWith("/")) {
+                    src = "https://livetv904.me" + src;
                 }
 
-                resolverWebView = new WebView(this);
-                resolverWebView.setVisibility(View.INVISIBLE);
-                resolverWebView.getSettings().setJavaScriptEnabled(true);
-                resolverWebView.getSettings().setDomStorageEnabled(true);
-                resolverWebView.getSettings().setMediaPlaybackRequiresUserGesture(false);
-
-                CookieManager.getInstance().setAcceptCookie(true);
-                CookieManager.getInstance().setAcceptThirdPartyCookies(resolverWebView, true);
-                resolverWebView.setWebChromeClient(new WebChromeClient());
-
-                resolverWebView.setWebViewClient(new WebViewClient() {
-                    @Override
-                    public boolean shouldOverrideUrlLoading(WebView view, WebResourceRequest request) {
-                        return false;
-                    }
-
-                    @Override
-                    public android.webkit.WebResourceResponse shouldInterceptRequest(
-                            WebView view, WebResourceRequest request) {
-                        collectMediaCandidate(request.getUrl().toString(), result, seen);
-                        return super.shouldInterceptRequest(view, request);
-                    }
-
-                    @Override
-                    public android.webkit.WebResourceResponse shouldInterceptRequest(
-                            WebView view, String url) {
-                        collectMediaCandidate(url, result, seen);
-                        return super.shouldInterceptRequest(view, url);
-                    }
-
-                    @Override
-                    public void onPageFinished(WebView view, String url) {
-                        view.evaluateJavascript(
-                                "(function(){try{var a=[].slice.call(document.querySelectorAll('video,source,iframe'));"
-                                + "return a.map(function(x){return x.src||x.currentSrc||''}).join('\\n');"
-                                + "}catch(e){return ''}})();",
-                                value -> {
-                                    if (value == null) return;
-                                    String clean = value.replace("\\\"", "\"");
-                                    for (String u : clean.split("\\n")) {
-                                        u = u.trim();
-                                        if (u.startsWith("http")) {
-                                            collectMediaCandidate(u, result, seen);
-                                        }
-                                    }
-                                });
-                    }
-                });
-
-                resolverWebView.loadUrl(eventUrl);
-            } catch (Exception ignored) {
+                if (src.startsWith("http")) {
+                    result.add("WEBVIEW\\t" + src);
+                    break;
+                }
             }
-        });
-
-        long end = System.currentTimeMillis() + 12000L;
-        while (System.currentTimeMillis() < end && result.isEmpty()) {
-            try {
-                Thread.sleep(300L);
-            } catch (InterruptedException ignored) {
-                break;
-            }
+        } catch (Exception ignored) {
         }
-
-        runOnUiThread(() -> {
-            if (resolverWebView != null) {
-                resolverWebView.stopLoading();
-                resolverWebView.destroy();
-                resolverWebView = null;
-            }
-        });
-
         return result;
-    }
-
-    private void collectMediaCandidate(
-            String url,
-            ArrayList<String> result,
-            Set<String> seen) {
-        if (url == null || url.isEmpty()) return;
-
-        String lower = url.toLowerCase(Locale.US);
-        if (lower.contains(".m3u8")
-                || lower.contains(".mpd")
-                || lower.contains(".mp4")
-                || lower.contains(".m3u")
-                || lower.contains("/hls/")
-                || lower.contains("/stream/")) {
-            synchronized (seen) {
-                if (seen.add(url)) {
-                    result.add(url);
-                }
-            }
-        }
     }
 
     private void playStreamCandidates(
@@ -1323,6 +1249,12 @@ public class MainActivity extends Activity {
         }
 
         String candidate = streams.get(index);
+        if (candidate.startsWith("WEBVIEW\\t")) {
+            String playerUrl = candidate.substring("WEBVIEW\\t".length()).trim();
+            showLiveTvWebPlayer(match, playerUrl);
+            return;
+        }
+
         if (candidate == null || candidate.trim().isEmpty()) {
             playStreamCandidates(match, streams, index + 1);
             return;
@@ -1428,6 +1360,54 @@ public class MainActivity extends Activity {
 
         player.prepare();
         player.play();
+    }
+
+    private void showLiveTvWebPlayer(Match match, String playerUrl) {
+        releasePlayer();
+        playerScreen = true;
+
+        LinearLayout root = new LinearLayout(this);
+        root.setOrientation(LinearLayout.VERTICAL);
+        root.setBackgroundColor(Color.BLACK);
+
+        LinearLayout top = new LinearLayout(this);
+        top.setOrientation(LinearLayout.HORIZONTAL);
+        top.setGravity(Gravity.CENTER_VERTICAL);
+        top.setPadding(20, 8, 20, 8);
+
+        TextView title = label(match.home + " — " + match.away, 19, TEXT);
+        title.setTypeface(Typeface.DEFAULT, Typeface.BOLD);
+        top.addView(title, new LinearLayout.LayoutParams(0, 56, 1));
+
+        Button back = action("BACK");
+        top.addView(back, new LinearLayout.LayoutParams(120, 52));
+        root.addView(top);
+
+        WebView web = new WebView(this);
+        resolverWebView = web;
+        web.setBackgroundColor(Color.BLACK);
+        web.getSettings().setJavaScriptEnabled(true);
+        web.getSettings().setDomStorageEnabled(true);
+        web.getSettings().setMediaPlaybackRequiresUserGesture(false);
+        web.getSettings().setAllowFileAccess(true);
+        web.getSettings().setAllowContentAccess(true);
+        web.getSettings().setMixedContentMode(android.webkit.WebSettings.MIXED_CONTENT_COMPATIBILITY_MODE);
+
+        CookieManager.getInstance().setAcceptCookie(true);
+        CookieManager.getInstance().setAcceptThirdPartyCookies(web, true);
+
+        web.setWebChromeClient(new WebChromeClient());
+        web.setWebViewClient(new WebViewClient());
+
+        root.addView(web, new LinearLayout.LayoutParams(-1, 0, 1));
+
+        back.setOnClickListener(v -> {
+            releasePlayer();
+            showMatches();
+        });
+
+        setContentView(root);
+        web.loadUrl(playerUrl);
     }
 
     private void showPlayer(Match match, String message) {
