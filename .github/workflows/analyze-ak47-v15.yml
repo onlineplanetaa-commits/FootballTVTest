@@ -37,6 +37,23 @@ jobs:
           print("APK ZIP structure: OK")
           PY
 
+      - name: Deep decompile with JADX
+        run: |
+          set -euo pipefail
+          curl -L --fail --retry 3 -o jadx.zip https://github.com/skylot/jadx/releases/download/v1.5.3/jadx-1.5.3.zip
+          rm -rf jadx && mkdir jadx
+          unzip -q jadx.zip -d jadx
+          rm -rf decompiled
+          ./jadx/bin/jadx --show-bad-code --deobf --deobf-min 2 -d decompiled AK47Sports_V1.5.apk > jadx.log 2>&1 || true
+          echo "=== JADX LOG ===" >> analysis.txt
+          tail -n 300 jadx.log >> analysis.txt
+          echo >> analysis.txt
+          echo "=== DECOMPILED LIVE/API REFERENCES ===" >> analysis.txt
+          grep -RniE -C 5 'foot_live_url|live_events|live_event|football|soccer|stream_url|streamUrl|m3u8|m3u|http://|https://|Retrofit|OkHttp|baseUrl|apiUrl|WebView|loadUrl' decompiled 2>/dev/null | head -n 30000 >> analysis.txt || true
+          echo >> analysis.txt
+          echo "=== DECOMPILED URLS ===" >> analysis.txt
+          grep -RhoE 'https?://[^"[:space:]<>)]+' decompiled 2>/dev/null | sort -u >> analysis.txt || true
+
       - name: Extract and deeply inspect
         run: |
           set +e
