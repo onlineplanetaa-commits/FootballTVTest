@@ -97,6 +97,22 @@ jobs:
           echo "=== FIREBASE PROJECT / REMOTE CONFIG IDENTIFIERS ===" >> analysis.txt
           grep -RniE -C 5 'google_app_id|gcm_defaultSenderId|project_id|google_api_key|google_storage_bucket|firebase' apk_extract/res apk_extract/assets source 2>/dev/null |
             head -n 6000 >> analysis.txt || true
+
+          echo >> analysis.txt
+          echo "=== ANDROID RESOURCE TABLE ===" >> analysis.txt
+          AAPT2=$(find "$ANDROID_HOME/build-tools" -type f -name aapt2 2>/dev/null | sort | tail -n 1)
+          if [ -n "$AAPT2" ]; then
+            "$AAPT2" dump resources AK47Sports_V1.6.apk 2>/dev/null |
+              grep -Ei -C 8 'api_url|google_app_id|google_api_key|project_id|gcm_defaultSenderId|firebase' |
+              head -n 12000 >> analysis.txt || true
+          fi
+
+          echo >> analysis.txt
+          echo "=== APK STRING RESOURCE NAMES ===" >> analysis.txt
+          find apk_extract -type f \( -name '*.arsc' -o -name '*.xml' \) -print0 2>/dev/null |
+            xargs -0 strings -a 2>/dev/null |
+            grep -Ei 'api_url|google_app_id|google_api_key|project_id|gcm_defaultSenderId' |
+            sort -u >> analysis.txt || true
           echo >> analysis.txt
           echo "=== MANIFEST STRINGS ===" >> analysis.txt
           unzip -p AK47Sports_V1.6.apk AndroidManifest.xml 2>/dev/null | strings -a >> analysis.txt || true
