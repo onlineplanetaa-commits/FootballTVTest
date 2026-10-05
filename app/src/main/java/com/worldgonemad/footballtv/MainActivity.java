@@ -1841,19 +1841,24 @@ public class MainActivity extends Activity {
 
             private void markMediaRequest(String url) {
                 if (resolverWebView != web || playingDetected || url == null) return;
+
                 String u = url.toLowerCase();
-                if (u.contains(".m3u8")
-                        || u.contains(".mp4")
-                        || u.contains(".m4s")
-                        || u.contains(".ts")
-                        || u.contains("/manifest")
-                        || u.contains("/playlist")
-                        || u.contains("/stream/")) {
-                    playingDetected = true;
-                    browserPlaybackDetected = true;
-                    web.setVisibility(View.VISIBLE);
-                    status("LiveTV904 stream connected.");
-                }
+
+                // Segment/ad requests are not proof of playback. Only a manifest
+                // or playlist is strong enough to stop source rotation.
+                boolean manifest =
+                        u.contains(".m3u8")
+                                || u.contains(".mpd")
+                                || u.contains("/manifest")
+                                || u.contains("/playlist")
+                                || u.contains("/stream/");
+
+                if (!manifest) return;
+
+                playingDetected = true;
+                browserPlaybackDetected = true;
+                web.setVisibility(View.VISIBLE);
+                status("Football stream connected.");
             }
 
             private void inspectForPlayback() {
@@ -1863,8 +1868,10 @@ public class MainActivity extends Activity {
                         "(function(){" +
                         "try{" +
                         "var v=document.querySelector('video');" +
-                        "if(v&&(!v.paused&&v.readyState>=2))return 'PLAYING';" +
-                        "if(v&&v.readyState>=2&&(v.currentTime||0)>0)return 'PLAYING';" +
+                        "if(v&&(!v.paused&&v.readyState>=3&&(v.currentTime||0)>0))return 'PLAYING';" +
+                        "if(v&&v.src&&/\\.(m3u8|mpd)(\\?|$)/i.test(v.src))return 'MEDIA:'+v.src;" +
+                        "var ss=document.querySelectorAll('video source,source');" +
+                        "for(var i=0;i<ss.length;i++){var s=ss[i].src||ss[i].getAttribute('src')||'';if(/\\.(m3u8|mpd)(\\?|$)/i.test(s))return 'MEDIA:'+s;}" +
                         "var e=document.querySelector('iframe');" +
                         "if(e&&e.src)return 'FRAME:'+e.src;" +
                         "var o=document.querySelector('object,embed');" +
@@ -1887,6 +1894,14 @@ public class MainActivity extends Activity {
                         browserPlaybackDetected = true;
                         showOnlyPlayerContent();
                         status("Playing");
+                        return;
+                    }
+
+                    if (decoded.startsWith("MEDIA:")) {
+                        playingDetected = true;
+                        browserPlaybackDetected = true;
+                        showOnlyPlayerContent();
+                        status("Football stream found.");
                         return;
                     }
 
@@ -2149,12 +2164,12 @@ public class MainActivity extends Activity {
                 }
 
                 if (url.contains("/cache/ltvplayer/")) {
-                    // LiveTV904 embeds the actual browser player through this cache iframe.
-                    // Treat this page as the player and stop rotating through dead source links.
-                    playingDetected = true;
-                    browserPlaybackDetected = true;
+                    // The iframe itself is not proof that video is playing.
                     web.setVisibility(View.VISIBLE);
-                    status("LiveTV904 player loaded.");
+                    status("LiveTV904 player loaded — waiting for stream...");
+                    handler.postDelayed(this::inspectForPlayback, 500);
+                    handler.postDelayed(this::inspectForPlayback, 1500);
+                    handler.postDelayed(this::inspectForPlayback, 3000);
                 } else if (url.contains("/export/webplayer.iframe.php")
                         || url.contains("/player/")) {
                     // Reaching the browser-player URL is not proof of playback.
