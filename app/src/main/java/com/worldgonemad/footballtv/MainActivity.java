@@ -45,6 +45,7 @@ public class MainActivity extends Activity {
     private LinearLayout listContainer;
     private TextView statusText;
     private WebView playerWebView;
+    private WebView resolverWebView;
     private boolean playerScreen = false;
 
     private final int BG = Color.rgb(10, 12, 16);
