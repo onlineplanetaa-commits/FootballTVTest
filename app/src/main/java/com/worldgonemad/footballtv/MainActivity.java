@@ -325,10 +325,27 @@ public class MainActivity extends Activity {
                 String league = getString(o, "league", "competition", "tournament", "category");
                 String timeValue = getString(o, "date", "datetime", "time", "timestamp", "start", "start_time", "startTime");
 
-                if ((home == null || home.isEmpty()) && title != null) {
-                    String[] pair = splitTeams(title);
-                    home = pair[0];
-                    away = pair[1];
+                // SportSRC V1 puts team names inside teams.home.name / teams.away.name.
+                JSONObject teams = o.optJSONObject("teams");
+                if (teams != null) {
+                    JSONObject homeObj = teams.optJSONObject("home");
+                    JSONObject awayObj = teams.optJSONObject("away");
+                    if ((home == null || home.isEmpty()) && homeObj != null) {
+                        home = getString(homeObj, "name", "title");
+                    }
+                    if ((away == null || away.isEmpty()) && awayObj != null) {
+                        away = getString(awayObj, "name", "title");
+                    }
+                }
+
+                // V1 uses an epoch-millisecond numeric date field.
+                // Keep rawTime so live detection uses the exact kickoff timestamp.
+                if ((home == null || home.isEmpty()) || (away == null || away.isEmpty())) {
+                    if (title != null) {
+                        String[] pair = splitTeams(title);
+                        if (home == null || home.isEmpty()) home = pair[0];
+                        if (away == null || away.isEmpty()) away = pair[1];
+                    }
                 }
 
                 if (id == null || id.isEmpty() || home == null || away == null
@@ -387,9 +404,24 @@ public class MainActivity extends Activity {
     }
 
     private boolean isLive(JSONObject o, String time) {
-        String status = getString(o, "status", "state", "match_status");
+        String status = getString(o, "status", "state", "match_status", "matchStatus");
         String s = status == null ? "" : status.toLowerCase(Locale.US);
-        return s.contains("live") || s.contains("inprogress") || s.contains("in progress");
+
+        if (s.contains("live") || s.contains("inprogress")
+                || s.contains("in progress") || s.equals("playing")) {
+            return true;
+        }
+
+        // SportSRC V1 normally has no explicit live flag.
+        // Determine live state from the real kickoff timestamp instead.
+        long start = parseMatchTime(time);
+        if (start <= 0) return false;
+
+        long now = System.currentTimeMillis();
+        long elapsed = now - start;
+
+        // 125 minutes covers 90 minutes, half-time and normal stoppage time.
+        return elapsed >= 0 && elapsed <= 125L * 60L * 1000L;
     }
 
     private void openMatch(Match match) {
