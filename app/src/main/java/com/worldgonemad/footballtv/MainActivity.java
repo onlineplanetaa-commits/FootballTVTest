@@ -254,47 +254,62 @@ public class MainActivity extends Activity {
         ArrayList<Match> result = new ArrayList<>();
         if (html == null || html.isEmpty()) return result;
 
-        Pattern linkPattern = Pattern.compile("(?is)<a\\s+[^>]*href\\s*=\\s*[\\\"']([^\\\"']*?/eventinfo/[^\\\"']+)[\\\"'][^>]*>(.*?)</a>");
+        // LiveTV904 marks currently running events by showing a score.
+        // We use the old site's LIVE list for the homepage; SportSRC is
+        // used only later to resolve the stream.
+        Pattern linkPattern = Pattern.compile(
+                "(?is)<a\\s+[^>]*href\\s*=\\s*[\\\"']([^\\\"']*?/eventinfo/[^\\\"']+)[\\\"'][^>]*>(.*?)</a>");
         Matcher linkMatcher = linkPattern.matcher(html);
 
         while (linkMatcher.find()) {
             String href = linkMatcher.group(1);
             String anchorText = cleanText(linkMatcher.group(2));
             if (href == null || href.isEmpty() || anchorText.isEmpty()) continue;
-            if (!anchorText.contains("–") && !anchorText.contains("—") && !anchorText.contains(" - ")) continue;
 
-            String prefix = html.substring(Math.max(0, linkMatcher.start() - 20000), linkMatcher.start());
-            Matcher sportMatcher = Pattern.compile("(?is)<img[^>]+alt\\s*=\\s*[\\\"']([^\\\"']+)[\\\"'][^>]*>").matcher(prefix);
-            String lastAlt = "";
-            while (sportMatcher.find()) lastAlt = cleanText(sportMatcher.group(1));
+            int from = Math.max(0, linkMatcher.start() - 700);
+            int to = Math.min(html.length(), linkMatcher.end() + 700);
+            String context = html.substring(from, to);
+            String textContext = cleanText(context);
+            String lowerContext = textContext.toLowerCase(Locale.US);
 
-            String lowerAlt = lastAlt.toLowerCase(Locale.US);
-            if (!(lowerAlt.equals("football") || lowerAlt.startsWith("football."))) continue;
+            if (!lowerContext.contains("football")) continue;
 
-            String league = lastAlt.length() > 9 ? cleanText(lastAlt.substring(9)) : "Football";
-            if (league.isEmpty()) league = "Football";
+            Matcher scoreMatcher = Pattern.compile(
+                    "(?<!\\d)\\d{1,2}\\s*:\\s*\\d{1,2}(?!\\d)")
+                    .matcher(textContext);
+            if (!scoreMatcher.find()) continue;
 
-            String after = html.substring(linkMatcher.end(), Math.min(html.length(), linkMatcher.end() + 1500));
-            Matcher timeMatcher = Pattern.compile("\\b(\\d{1,2}:\\d{2})\\b").matcher(after);
-            String time = timeMatcher.find() ? timeMatcher.group(1) : "";
+            String score = scoreMatcher.group();
 
-            boolean live = Pattern.compile("(?is).*?\\b\\d+\\s*:\\s*\\d+\\b.*").matcher(anchorText).matches()
-                    || Pattern.compile("(?is).*?\\b\\d+\\s*:\\s*\\d+\\b.*").matcher(after).matches();
-            if (!live) continue;
-            if (time.isEmpty()) time = "LIVE";
+            String league = "Football";
+            Matcher sportMatcher = Pattern.compile(
+                    "(?is)<img[^>]+alt\\s*=\\s*[\\\"']([^\\\"']*Football[^\\\"']*)[\\\"'][^>]*>")
+                    .matcher(context);
+            if (sportMatcher.find()) {
+                String alt = cleanText(sportMatcher.group(1));
+                String rest = alt.replaceFirst("(?i)^Football\\.?\\s*", "").trim();
+                if (!rest.isEmpty()) league = rest;
+            }
 
             String[] teams = splitTeams(anchorText);
             if (teams.length != 2) continue;
+
             String home = cleanTeamName(teams[0]);
             String away = cleanTeamName(teams[1]);
             if (home.isEmpty() || away.isEmpty()) continue;
 
             String eventUrl = href.startsWith("http") ? href : "https://livetv904.me" + href;
+
             boolean duplicate = false;
             for (Match existing : result) {
-                if (existing.eventUrl.equals(eventUrl)) { duplicate = true; break; }
+                if (existing.eventUrl.equals(eventUrl)) {
+                    duplicate = true;
+                    break;
+                }
             }
-            if (!duplicate) result.add(new Match(league, home, away, time, true, "", "", eventUrl));
+            if (!duplicate) {
+                result.add(new Match(league, home, away, score + "  LIVE", true, "", "", eventUrl));
+            }
         }
         return result;
     }
