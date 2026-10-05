@@ -1,0 +1,79 @@
+name: Analyze AK47 Sports V1.5
+
+on:
+  push:
+    paths:
+      - ".github/workflows/analyze-ak47-v15.yml"
+  workflow_dispatch:
+
+jobs:
+  analyze:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Download official V1.5 APK
+        run: |
+          set -e
+          curl -L --fail --retry 3 -A "Mozilla/5.0" "https://ak47sports.app/app/AK47Sports_V1.5.apk" -o AK47Sports_V1.5.apk
+          ls -lh AK47Sports_V1.5.apk
+
+      - name: Extract and deeply inspect
+        run: |
+          set +e
+          rm -rf apk_extract
+          mkdir apk_extract
+          unzip -q AK47Sports_V1.5.apk -d apk_extract
+
+          echo "=== APK FILE LIST ===" > analysis.txt
+          find apk_extract -type f | sort >> analysis.txt
+
+          echo >> analysis.txt
+          echo "=== APK SIZE / HASH ===" >> analysis.txt
+          sha256sum AK47Sports_V1.5.apk >> analysis.txt
+          stat -c '%n %s bytes' AK47Sports_V1.5.apk >> analysis.txt
+
+          echo >> analysis.txt
+          echo "=== URLS FROM DEX ===" >> analysis.txt
+          find apk_extract -name 'classes*.dex' -print0 | xargs -0 strings -a 2>/dev/null | grep -Eoi 'https?://[^[:space:]'"'"'">)]+' | sort -u >> analysis.txt || true
+
+          echo >> analysis.txt
+          echo "=== NETWORK / PLAYLIST STRINGS ===" >> analysis.txt
+          find apk_extract -name 'classes*.dex' -print0 | xargs -0 strings -a 2>/dev/null | grep -Ei 'api_host|api_url|base_url|baseurl|endpoint|retrofit|okhttp|football|soccer|foot_live_url|live_events|live_event|stream|stream_url|stream_url|playlist|m3u8?|m3u|xtream|hls|score|cric' | sort -u >> analysis.txt || true
+
+          echo >> analysis.txt
+          echo "=== URL-LIKE STRINGS INCLUDING OBFUSCATED/SCHEME-FREE HOSTS ===" >> analysis.txt
+          find apk_extract -name 'classes*.dex' -print0 | xargs -0 strings -a 2>/dev/null | grep -Ei '([a-z0-9-]+\.)+[a-z]{2,}([/:?][^[:space:]'"'"'">)]*)?' | grep -Ev 'android|google|firebase|jetbrains|kotlin|apache|mozilla|w3.org|schemas.android|dashif.org|youtrack|issuetracker|googlesyndication|gstatic|googleapis' | sort -u >> analysis.txt || true
+
+          echo >> analysis.txt
+          echo "=== NATIVE LIBRARY URL STRINGS ===" >> analysis.txt
+          find apk_extract/lib -type f -print0 2>/dev/null | xargs -0 strings -a 2>/dev/null | grep -Eoi 'https?://[^[:space:]'"'"'">)]+' | sort -u >> analysis.txt || true
+
+          echo >> analysis.txt
+          echo "=== RESOURCE URL STRINGS ===" >> analysis.txt
+          find apk_extract/res apk_extract/assets -type f -print0 2>/dev/null | xargs -0 strings -a 2>/dev/null | grep -Eoi 'https?://[^[:space:]'"'"'">)]+' | sort -u >> analysis.txt || true
+
+          echo >> analysis.txt
+          echo "=== FIREBASE / API IDENTIFIERS ===" >> analysis.txt
+          grep -RniE -C 8 'google_app_id|gcm_defaultSenderId|project_id|google_api_key|google_storage_bucket|firebase_database_url|firebase' apk_extract/res apk_extract/assets 2>/dev/null | head -n 12000 >> analysis.txt || true
+
+          echo >> analysis.txt
+          echo "=== MANIFEST / NETWORK CONFIG ===" >> analysis.txt
+          if [ -f apk_extract/AndroidManifest.xml ]; then
+            strings -a apk_extract/AndroidManifest.xml | grep -Ei 'http|network|cleartext|uses-permission|package' >> analysis.txt || true
+          fi
+
+          echo >> analysis.txt
+          echo "=== APK SIGNER ===" >> analysis.txt
+          APKSIGNER=$(find "$ANDROID_HOME/build-tools" -type f -name apksigner 2>/dev/null | sort | tail -n 1)
+          if [ -n "$APKSIGNER" ]; then "$APKSIGNER" verify --print-certs AK47Sports_V1.5.apk >> analysis.txt 2>&1 || true; fi
+
+          echo >> analysis.txt
+          echo "=== ANALYSIS COMPLETE ===" >> analysis.txt
+
+      - name: Upload V1.5 analysis
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: ak47-v15-analysis
+          path: analysis.txt
+          if-no-files-found: warn
+          retention-days: 3
