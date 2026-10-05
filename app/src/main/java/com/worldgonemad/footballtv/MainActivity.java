@@ -52,10 +52,8 @@ public class MainActivity extends Activity {
     private final int ACCENT = Color.rgb(55, 125, 255);
     private final int LIVE = Color.rgb(90, 220, 140);
 
-    private static final String API_V2_BASE = "https://api.sportsrc.org/v2/";
-    // SportSRC V2 currently documents API-key authentication. Leave empty only
-    // when the endpoint is available without a key; otherwise put the key here.
-    private static final String SPORTSRC_API_KEY = "";
+    private static final String API =
+            "https://api.sportsrc.org/?data=matches&category=football";
 
     @Override
     protected void onCreate(Bundle state) {
@@ -155,7 +153,7 @@ public class MainActivity extends Activity {
         listContainer.removeAllViews();
 
         if (matches.isEmpty()) {
-            TextView empty = label("No live football matches found.", 18, MUTED);
+            TextView empty = label("No football matches found.", 18, MUTED);
             empty.setGravity(Gravity.CENTER);
             listContainer.addView(empty, new LinearLayout.LayoutParams(-1, 100));
             return;
@@ -199,24 +197,17 @@ public class MainActivity extends Activity {
 
     private void loadMatches() {
         new Thread(() -> {
-            String api = API_V2_BASE
-                    + "?type=matches&sport=football&status=inprogress&date="
-                    + todayDate();
-            if (!SPORTSRC_API_KEY.isEmpty()) {
-                api += "&api_key=" + encode(SPORTSRC_API_KEY);
-            }
-
-            String json = httpGet(api);
+            String json = httpGet(API);
             ArrayList<Match> result = parseMatches(json);
 
-            // V2 already applies the official inprogress filter, so do not
-            // mix in future or finished fixtures with the live list.
-            for (Match m : result) m.live = true;
+            // SportSRC V1 returns a broad schedule. The home screen must show
+            // ONLY matches that are currently live, never upcoming fixtures.
+            ArrayList<Match> filtered = filterLiveMatches(result);
 
             runOnUiThread(() -> {
                 matches.clear();
-                matches.addAll(result);
-                if (!result.isEmpty()) {
+                matches.addAll(filtered);
+                if (!filtered.isEmpty()) {
                     showMatches();
                 } else {
                     showError("No live football matches found.");
@@ -225,16 +216,9 @@ public class MainActivity extends Activity {
         }).start();
     }
 
-    private String todayDate() {
-        SimpleDateFormat f = new SimpleDateFormat("yyyy-MM-dd", Locale.US);
-        f.setTimeZone(TimeZone.getDefault());
-        return f.format(new Date());
-    }
-
-    private ArrayList<Match> filterRelevantMatches(ArrayList<Match> source) {
+    private ArrayList<Match> filterLiveMatches(ArrayList<Match> source) {
         ArrayList<Match> out = new ArrayList<>();
         long now = System.currentTimeMillis();
-        long maxFuture = now + 24L * 60L * 60L * 1000L;
 
         for (Match m : source) {
             if (m.live) {
@@ -242,8 +226,11 @@ public class MainActivity extends Activity {
                 continue;
             }
 
+            // If V1 has no live status, infer live state from kickoff time:
+            // football normally runs about 90 minutes plus stoppage time.
             long start = parseMatchTime(m.rawTime);
-            if (start > 0 && start >= now - 30L * 60L * 1000L && start <= maxFuture) {
+            if (start > 0 && start <= now && now <= start + 125L * 60L * 1000L) {
+                m.live = true;
                 out.add(m);
             }
         }
@@ -288,9 +275,6 @@ public class MainActivity extends Activity {
             c.setReadTimeout(15000);
             c.setRequestProperty("User-Agent", "Mozilla/5.0 (Android TV)");
             c.setRequestProperty("Accept", "application/json,text/plain,*/*");
-            if (!SPORTSRC_API_KEY.isEmpty()) {
-                c.setRequestProperty("X-API-KEY", SPORTSRC_API_KEY);
-            }
 
             int code = c.getResponseCode();
             if (code < 200 || code >= 400) return "";
@@ -314,48 +298,49 @@ public class MainActivity extends Activity {
         if (json == null || json.trim().isEmpty()) return out;
 
         try {
-            String trimmed = json.trim();
-            if (trimmed.startsWith("[")) {
-                parseAny(new JSONArray(trimmed), out);
-            } else {
-                parseAny(new JSONObject(trimmed), out);
-            }
+            Object root = new JSONArray(json);
+            parseArray((JSONArray) root, out);
+            return out;
+        } catch (Exception ignored) {}
+
+        try {
+            JSONObject root = new JSONObject(json);
+            JSONArray arr = firstArray(root, "matches", "events", "data", "results");
+            if (arr != null) parseArray(arr, out);
         } catch (Exception ignored) {}
 
         return out;
     }
 
-    private void parseAny(Object value, ArrayList<Match> out) {
-        if (value instanceof JSONObject) {
-            JSONObject o = (JSONObject) value;
+    private void parseArray(JSONArray arr, ArrayList<Match> out) {
+        for (int i = 0; i < arr.length(); i++) {
+            try {
+                JSONObject o = arr.optJSONObject(i);
+                if (o == null) continue;
 
-            String id = getString(o, "match_id", "id", "event_id");
-            String home = getString(o, "home_team", "home", "homeTeam", "team_home");
-            String away = getString(o, "away_team", "away", "awayTeam", "team_away");
+                String id = getString(o, "id", "match_id", "event_id");
+                String home = getString(o, "home", "home_team", "homeTeam", "team_home");
+                String away = getString(o, "away", "away_team", "awayTeam", "team_away");
+                String title = getString(o, "title", "name", "event", "match");
+                String league = getString(o, "league", "competition", "tournament", "category");
+                String timeValue = getString(o, "date", "datetime", "time", "timestamp", "start", "start_time", "startTime");
 
-            if (!id.isEmpty() && !home.isEmpty() && !away.isEmpty()) {
-                String league = getString(o, "league", "league_name", "competition", "tournament", "category");
-                if (league.isEmpty()) league = "Football";
-                String timeValue = getString(o, "date", "datetime", "time", "timestamp", "start", "start_time", "startTime", "match_time");
-                String status = getString(o, "status", "state", "match_status");
-                String statusLower = status.toLowerCase(Locale.US);
-                boolean live = statusLower.contains("live")
-                        || statusLower.contains("inprogress")
-                        || statusLower.contains("in_progress");
-                out.add(new Match(league, home, away, formatTime(timeValue), live, id, timeValue));
-                return;
-            }
-
-            Iterator<String> it = o.keys();
-            while (it.hasNext()) {
-                Object child = o.opt(it.next());
-                if (child instanceof JSONObject || child instanceof JSONArray) {
-                    parseAny(child, out);
+                if ((home == null || home.isEmpty()) && title != null) {
+                    String[] pair = splitTeams(title);
+                    home = pair[0];
+                    away = pair[1];
                 }
-            }
-        } else if (value instanceof JSONArray) {
-            JSONArray a = (JSONArray) value;
-            for (int i = 0; i < a.length(); i++) parseAny(a.opt(i), out);
+
+                if (id == null || id.isEmpty() || home == null || away == null
+                        || home.isEmpty() || away.isEmpty()) continue;
+
+                if (league == null || league.isEmpty()) league = "Football";
+
+                String time = formatTime(timeValue);
+                boolean live = isLive(o, timeValue);
+
+                out.add(new Match(league, home, away, time, live, id, timeValue));
+            } catch (Exception ignored) {}
         }
     }
 
@@ -411,10 +396,8 @@ public class MainActivity extends Activity {
         showPlayerLoading(match);
 
         new Thread(() -> {
-            String url = API_V2_BASE + "?type=detail&id=" + encode(match.id);
-            if (!SPORTSRC_API_KEY.isEmpty()) {
-                url += "&api_key=" + encode(SPORTSRC_API_KEY);
-            }
+            String url = "https://api.sportsrc.org/?data=detail&category=football&id="
+                    + encode(match.id);
             String json = httpGet(url);
             String embed = findEmbed(json);
 
