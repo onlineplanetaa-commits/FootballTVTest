@@ -52,10 +52,10 @@ public class MainActivity extends Activity {
     private final int ACCENT = Color.rgb(55, 125, 255);
     private final int LIVE = Color.rgb(90, 220, 140);
 
-    private static final String API =
+    private static final String LIVE_TV_URL =
+            "https://livetv904.me/enx/allupcoming/";
+    private static final String SPORTSRC_API =
             "https://api.sportsrc.org/?data=matches&category=football";
-    private static final String LIVE_API =
-            "https://www.sofascore.com/api/v1/sport/football/events/live";
 
     @Override
     protected void onCreate(Bundle state) {
@@ -199,100 +199,150 @@ public class MainActivity extends Activity {
 
     private void loadMatches() {
         new Thread(() -> {
-            String json = httpGet(API);
-            String liveJson = httpGet(LIVE_API);
-            ArrayList<Match> sportsrcMatches = parseMatches(json);
-            ArrayList<Match> liveMatches = parseLiveMatches(liveJson);
+            String html = downloadPage(LIVE_TV_URL);
+            ArrayList<Match> liveMatches = parseMatches(html);
 
-            // The live-score feed is authoritative for LIVE state.
-            // SportSRC is used only to find the matching stream/event ID.
-            ArrayList<Match> filtered = mergeLiveWithSportsrc(liveMatches, sportsrcMatches);
+            String sportsrcJson = httpGet(SPORTSRC_API);
+            ArrayList<Match> sportsrcMatches = parseSportsrcMatches(sportsrcJson);
+
+            for (Match liveMatch : liveMatches) {
+                for (Match s : sportsrcMatches) {
+                    if (teamsMatch(liveMatch.home, s.home) && teamsMatch(liveMatch.away, s.away)
+                            || teamsMatch(liveMatch.home, s.away) && teamsMatch(liveMatch.away, s.home)) {
+                        liveMatch.sportSrcId = s.id;
+                        break;
+                    }
+                }
+            }
 
             runOnUiThread(() -> {
                 matches.clear();
-                matches.addAll(filtered);
-                if (!filtered.isEmpty()) {
-                    showMatches();
-                } else {
-                    showError("No live football matches found.");
-                }
+                matches.addAll(liveMatches);
+                if (!liveMatches.isEmpty()) showMatches();
+                else showError("No live football matches found.");
             });
         }).start();
     }
 
-    private ArrayList<Match> mergeLiveWithSportsrc(ArrayList<Match> live, ArrayList<Match> sportsrc) {
-        ArrayList<Match> out = new ArrayList<>();
-
-        for (Match liveMatch : live) {
-            Match best = null;
-
-            for (Match s : sportsrc) {
-                if (teamsMatch(s.home, liveMatch.home) && teamsMatch(s.away, liveMatch.away)) {
-                    best = s;
-                    break;
-                }
-                // Some feeds reverse home/away or use short names.
-                if (teamsMatch(s.home, liveMatch.away) && teamsMatch(s.away, liveMatch.home)) {
-                    best = s;
-                    break;
-                }
-            }
-
-            if (best != null) {
-                best.live = true;
-                if (best.league == null || best.league.isEmpty() || "Football".equals(best.league)) {
-                    best.league = liveMatch.league;
-                }
-                out.add(best);
-            }
+    private String downloadPage(String address) {
+        HttpURLConnection c = null;
+        try {
+            c = (HttpURLConnection) new URL(address).openConnection();
+            c.setRequestMethod("GET");
+            c.setConnectTimeout(10000);
+            c.setReadTimeout(15000);
+            c.setRequestProperty("User-Agent", "Mozilla/5.0 (Linux; Android 11; Android TV) AppleWebKit/537.36 Chrome/124.0.0.0 Safari/537.36");
+            c.setRequestProperty("Accept", "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8");
+            c.setRequestProperty("Accept-Language", "en-US,en;q=0.9,ru;q=0.8");
+            c.setRequestProperty("Referer", "https://livetv904.me/");
+            int code = c.getResponseCode();
+            if (code < 200 || code >= 400) return "";
+            BufferedReader r = new BufferedReader(new InputStreamReader(c.getInputStream(), "UTF-8"));
+            StringBuilder out = new StringBuilder();
+            String line;
+            while ((line = r.readLine()) != null) out.append(line).append("\n");
+            r.close();
+            return out.toString();
+        } catch (Exception e) {
+            return "";
+        } finally {
+            if (c != null) c.disconnect();
         }
+    }
+
+    private ArrayList<Match> parseMatches(String html) {
+        ArrayList<Match> result = new ArrayList<>();
+        if (html == null || html.isEmpty()) return result;
+
+        Pattern linkPattern = Pattern.compile("(?is)<a\\s+[^>]*href\\s*=\\s*[\\\"']([^\\\"']*?/eventinfo/[^\\\"']+)[\\\"'][^>]*>(.*?)</a>");
+        Matcher linkMatcher = linkPattern.matcher(html);
+
+        while (linkMatcher.find()) {
+            String href = linkMatcher.group(1);
+            String anchorText = cleanText(linkMatcher.group(2));
+            if (href == null || href.isEmpty() || anchorText.isEmpty()) continue;
+            if (!anchorText.contains("–") && !anchorText.contains("—") && !anchorText.contains(" - ")) continue;
+
+            String prefix = html.substring(Math.max(0, linkMatcher.start() - 20000), linkMatcher.start());
+            Matcher sportMatcher = Pattern.compile("(?is)<img[^>]+alt\\s*=\\s*[\\\"']([^\\\"']+)[\\\"'][^>]*>").matcher(prefix);
+            String lastAlt = "";
+            while (sportMatcher.find()) lastAlt = cleanText(sportMatcher.group(1));
+
+            String lowerAlt = lastAlt.toLowerCase(Locale.US);
+            if (!(lowerAlt.equals("football") || lowerAlt.startsWith("football."))) continue;
+
+            String league = lastAlt.length() > 9 ? cleanText(lastAlt.substring(9)) : "Football";
+            if (league.isEmpty()) league = "Football";
+
+            String after = html.substring(linkMatcher.end(), Math.min(html.length(), linkMatcher.end() + 1500));
+            Matcher timeMatcher = Pattern.compile("\\b(\\d{1,2}:\\d{2})\\b").matcher(after);
+            String time = timeMatcher.find() ? timeMatcher.group(1) : "";
+
+            boolean live = Pattern.compile("(?is).*?\\b\\d+\\s*:\\s*\\d+\\b.*").matcher(anchorText).matches()
+                    || Pattern.compile("(?is).*?\\b\\d+\\s*:\\s*\\d+\\b.*").matcher(after).matches();
+            if (!live) continue;
+            if (time.isEmpty()) time = "LIVE";
+
+            String[] teams = splitTeams(anchorText);
+            if (teams.length != 2) continue;
+            String home = cleanTeamName(teams[0]);
+            String away = cleanTeamName(teams[1]);
+            if (home.isEmpty() || away.isEmpty()) continue;
+
+            String eventUrl = href.startsWith("http") ? href : "https://livetv904.me" + href;
+            boolean duplicate = false;
+            for (Match existing : result) {
+                if (existing.eventUrl.equals(eventUrl)) { duplicate = true; break; }
+            }
+            if (!duplicate) result.add(new Match(league, home, away, time, true, "", "", eventUrl));
+        }
+        return result;
+    }
+
+    private ArrayList<Match> parseSportsrcMatches(String json) {
+        ArrayList<Match> out = new ArrayList<>();
+        if (json == null || json.trim().isEmpty()) return out;
+        try {
+            JSONArray root = new JSONArray(json);
+            parseSportsrcArray(root, out);
+            return out;
+        } catch (Exception ignored) {}
+        try {
+            JSONObject root = new JSONObject(json);
+            JSONArray arr = firstArray(root, "matches", "events", "data", "results");
+            if (arr != null) parseSportsrcArray(arr, out);
+        } catch (Exception ignored) {}
         return out;
     }
 
-    private ArrayList<Match> parseLiveMatches(String json) {
-        ArrayList<Match> out = new ArrayList<>();
-        if (json == null || json.trim().isEmpty()) return out;
+    private void parseSportsrcArray(JSONArray arr, ArrayList<Match> out) {
+        for (int i = 0; i < arr.length(); i++) {
+            try {
+                JSONObject o = arr.optJSONObject(i);
+                if (o == null) continue;
+                String id = getString(o, "id", "match_id", "event_id");
+                String home = getString(o, "home", "home_team", "homeTeam", "team_home");
+                String away = getString(o, "away", "away_team", "awayTeam", "team_away");
+                String title = getString(o, "title", "name", "event", "match");
+                String league = getString(o, "league", "competition", "tournament", "category");
 
-        try {
-            JSONObject root = new JSONObject(json);
-            JSONArray events = root.optJSONArray("events");
-            if (events == null) return out;
-
-            for (int i = 0; i < events.length(); i++) {
-                JSONObject e = events.optJSONObject(i);
-                if (e == null) continue;
-
-                JSONObject status = e.optJSONObject("status");
-                String type = status == null ? "" : getString(status, "type", "description");
-                String state = type == null ? "" : type.toLowerCase(Locale.US);
-
-                if (!(state.contains("inprogress") || state.contains("in progress")
-                        || state.equals("live") || state.equals("1h")
-                        || state.equals("2h") || state.equals("halftime")
-                        || state.equals("extratime"))) {
-                    continue;
+                JSONObject teams = o.optJSONObject("teams");
+                if (teams != null) {
+                    JSONObject ho = teams.optJSONObject("home");
+                    JSONObject ao = teams.optJSONObject("away");
+                    if (home.isEmpty() && ho != null) home = getString(ho, "name", "title");
+                    if (away.isEmpty() && ao != null) away = getString(ao, "name", "title");
                 }
-
-                JSONObject homeObj = e.optJSONObject("homeTeam");
-                JSONObject awayObj = e.optJSONObject("awayTeam");
-                if (homeObj == null || awayObj == null) continue;
-
-                String home = getString(homeObj, "name", "shortName");
-                String away = getString(awayObj, "name", "shortName");
-                if (home.isEmpty() || away.isEmpty()) continue;
-
-                JSONObject tournament = e.optJSONObject("tournament");
-                String league = tournament == null ? "Football" : getString(tournament, "name");
+                if ((home.isEmpty() || away.isEmpty()) && !title.isEmpty()) {
+                    String[] pair = splitTeams(title);
+                    if (home.isEmpty()) home = pair[0];
+                    if (away.isEmpty()) away = pair[1];
+                }
+                if (id.isEmpty() || home.isEmpty() || away.isEmpty()) continue;
                 if (league.isEmpty()) league = "Football";
-
-                String id = getString(e, "id");
-                if (id.isEmpty()) id = home + "_" + away;
-
-                out.add(new Match(league, home, away, "LIVE", true, id, ""));
-            }
-        } catch (Exception ignored) {}
-
-        return out;
+                out.add(new Match(league, home, away, "", false, id, "", ""));
+            } catch (Exception ignored) {}
+        }
     }
 
     private boolean sameTeam(String a, String b) {
@@ -446,6 +496,24 @@ public class MainActivity extends Activity {
         return new String[] {"", ""};
     }
 
+    private String cleanText(String s) {
+        if (s == null) return "";
+        return s.replaceAll("<[^>]+>", " ").replace("&nbsp;", " ").replace("&amp;", "&").replaceAll("\\s+", " ").trim();
+    }
+
+    private String cleanTeamName(String s) {
+        return s == null ? "" : s.replaceAll("\\s+", " ").trim();
+    }
+
+    private String[] splitTeams(String title) {
+        String s = cleanText(title);
+        String[] parts = s.split("\\s+(?:vs\\.?|v\\.?|—|–)\\s+", 2);
+        if (parts.length == 2) return parts;
+        parts = s.split("\\s+-\\s+", 2);
+        if (parts.length == 2) return parts;
+        return new String[] {"", ""};
+    }
+
     private String formatTime(String value) {
         if (value == null || value.isEmpty()) return "";
         try {
@@ -470,19 +538,28 @@ public class MainActivity extends Activity {
 
     private void openMatch(Match match) {
         showPlayerLoading(match);
-
         new Thread(() -> {
-            String url = "https://api.sportsrc.org/?data=detail&category=football&id="
-                    + encode(match.id);
+            String sportSrcId = match.sportSrcId;
+            if (sportSrcId == null || sportSrcId.isEmpty()) {
+                ArrayList<Match> sportsrc = parseSportsrcMatches(httpGet(SPORTSRC_API));
+                for (Match s : sportsrc) {
+                    if (teamsMatch(match.home, s.home) && teamsMatch(match.away, s.away)
+                            || teamsMatch(match.home, s.away) && teamsMatch(match.away, s.home)) {
+                        sportSrcId = s.id;
+                        break;
+                    }
+                }
+            }
+            if (sportSrcId == null || sportSrcId.isEmpty()) {
+                runOnUiThread(() -> showPlayerError(match, "No SportSRC stream match was found."));
+                return;
+            }
+            String url = "https://api.sportsrc.org/?data=detail&category=football&id=" + encode(sportSrcId);
             String json = httpGet(url);
             String embed = findEmbed(json);
-
             runOnUiThread(() -> {
-                if (embed.isEmpty()) {
-                    showPlayerError(match, "No working stream was returned for this match.");
-                } else {
-                    showEmbedPlayer(match, embed);
-                }
+                if (embed.isEmpty()) showPlayerError(match, "No working stream was returned for this match.");
+                else showEmbedPlayer(match, embed);
             });
         }).start();
     }
@@ -847,8 +924,10 @@ public class MainActivity extends Activity {
         boolean live;
         String id;
         String rawTime;
+        String eventUrl;
+        String sportSrcId;
 
-        Match(String league, String home, String away, String time, boolean live, String id, String rawTime) {
+        Match(String league, String home, String away, String time, boolean live, String id, String rawTime, String eventUrl) {
             this.league = league;
             this.home = home;
             this.away = away;
@@ -856,6 +935,8 @@ public class MainActivity extends Activity {
             this.live = live;
             this.id = id;
             this.rawTime = rawTime;
+            this.eventUrl = eventUrl;
+            this.sportSrcId = "";
         }
     }
 }
