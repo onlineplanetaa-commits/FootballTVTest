@@ -769,14 +769,16 @@ public class MainActivity extends Activity {
         String time;
         boolean live;
         String id;
+        String rawTime;
 
-        Match(String league, String home, String away, String time, boolean live, String id) {
+        Match(String league, String home, String away, String time, boolean live, String id, String rawTime) {
             this.league = league;
             this.home = home;
             this.away = away;
             this.time = time;
             this.live = live;
             this.id = id;
+            this.rawTime = rawTime;
         }
     }
 }
