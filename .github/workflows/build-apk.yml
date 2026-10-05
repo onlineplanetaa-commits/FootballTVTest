@@ -6,6 +6,12 @@ on:
     branches:
       - main
       - master
+    paths:
+      - 'app/**'
+      - 'build.gradle*'
+      - 'settings.gradle*'
+      - 'gradle.properties'
+      - '.github/workflows/build-apk.yml'
 
 jobs:
   build:
