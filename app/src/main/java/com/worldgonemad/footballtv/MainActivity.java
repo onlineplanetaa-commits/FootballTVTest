@@ -483,11 +483,14 @@ private String downloadPage(String address) {
             if (root instanceof JSONArray) {
                 arr = (JSONArray) root;
             } else if (root instanceof JSONObject) {
-                arr = firstArray((JSONObject) root, "data", "matches", "events", "results");
+                JSONObject ro = (JSONObject) root;
+                arr = firstArray(ro, "data", "matches", "events", "results");
+                if (arr == null) {
+                    JSONObject data = ro.optJSONObject("data");
+                    if (data != null) arr = firstArray(data, "matches", "events", "results");
+                }
             }
             if (arr == null) return out;
-
-            long now = System.currentTimeMillis();
 
             for (int i = 0; i < arr.length(); i++) {
                 JSONObject o = arr.optJSONObject(i);
@@ -495,21 +498,11 @@ private String downloadPage(String address) {
 
                 String id = getString(o, "id", "match_id", "event_id");
                 String category = getString(o, "category", "sport", "type");
+                String status = getString(o, "status", "state", "match_status", "matchStatus");
                 String home = getString(o, "home", "home_team", "homeTeam", "team_home");
                 String away = getString(o, "away", "away_team", "awayTeam", "team_away");
                 String title = getString(o, "title", "name", "event", "match");
                 String league = getString(o, "league", "competition", "tournament");
-
-                if (!"football".equalsIgnoreCase(category)) continue;
-                if (!id.toLowerCase(Locale.US).startsWith("live_")) continue;
-
-                long startTime = getLong(o, "date", "timestamp", "start", "start_time", "kickoff");
-                if (startTime <= 0) continue;
-                if (startTime < 100000000000L) startTime *= 1000L;
-
-                // A live_ ID is not enough: reject events whose scheduled
-                // start is still in the future.
-                if (startTime > now) continue;
 
                 JSONObject teams = o.optJSONObject("teams");
                 if (teams != null) {
@@ -525,9 +518,19 @@ private String downloadPage(String address) {
                     if (away.isEmpty()) away = pair[1];
                 }
 
-                if (home.isEmpty() || away.isEmpty()) continue;
-                if (league.isEmpty()) league = "Football";
+                boolean football = "football".equalsIgnoreCase(category)
+                        || "soccer".equalsIgnoreCase(category)
+                        || "football".equalsIgnoreCase(getString(o, "sport_name"));
+                boolean live = id.toLowerCase(Locale.US).startsWith("live_")
+                        || isLive(o, status);
 
+                // Some V1 responses omit category/status/date. A live_ event ID
+                // is the strongest LIVE marker, so do not require a timestamp.
+                if (!football && !title.toLowerCase(Locale.US).contains("football")) continue;
+                if (!live) continue;
+                if (home.isEmpty() || away.isEmpty()) continue;
+
+                if (league.isEmpty()) league = "Football";
                 String score = getString(o, "score", "result", "current_score");
                 if (score.isEmpty()) score = "LIVE";
 
@@ -538,7 +541,7 @@ private String downloadPage(String address) {
                         cleanText(score) + "  LIVE",
                         true,
                         id,
-                        String.valueOf(startTime),
+                        "",
                         ""
                 ));
             }
