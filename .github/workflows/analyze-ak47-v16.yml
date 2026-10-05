@@ -81,6 +81,22 @@ jobs:
           echo >> analysis.txt
           echo "=== P5/M6/L5 NETWORK CLASSES ===" >> analysis.txt
           grep -Rni -E 'class .*p5|class .*l5|class .*c6|api_host|app\\.txt' source/sources/app/aksports/live 2>/dev/null | head -n 5000 >> analysis.txt || true
+
+          echo >> analysis.txt
+          echo "=== REMOTE CONFIG XML ===" >> analysis.txt
+          find apk_extract/res -type f 2>/dev/null |
+            grep -Ei 'remote.*config|config.*default' |
+            while read f; do echo "--- $f ---" >> analysis.txt; cat "$f" >> analysis.txt; done || true
+
+          echo >> analysis.txt
+          echo "=== ALL XML CONTAINING API_HOST / FOOT_LIVE / LIVE_EVENTS ===" >> analysis.txt
+          grep -RniE -C 10 'api_host|foot_live_url|foot_score|live_events|iptv_playlist|cric_live_url|cric_score' apk_extract/res apk_extract/assets source 2>/dev/null |
+            head -n 12000 >> analysis.txt || true
+
+          echo >> analysis.txt
+          echo "=== FIREBASE PROJECT / REMOTE CONFIG IDENTIFIERS ===" >> analysis.txt
+          grep -RniE -C 5 'google_app_id|gcm_defaultSenderId|project_id|google_api_key|google_storage_bucket|firebase' apk_extract/res apk_extract/assets source 2>/dev/null |
+            head -n 6000 >> analysis.txt || true
           echo >> analysis.txt
           echo "=== MANIFEST STRINGS ===" >> analysis.txt
           unzip -p AK47Sports_V1.6.apk AndroidManifest.xml 2>/dev/null | strings -a >> analysis.txt || true
