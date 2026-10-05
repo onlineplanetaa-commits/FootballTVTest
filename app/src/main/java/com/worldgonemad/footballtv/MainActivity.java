@@ -176,23 +176,29 @@ public class MainActivity extends Activity {
     private void loadMatches() {
         new Thread(() -> {
             String host = DEFAULT_API;
+            String liveUrl = "";
             try {
                 String app = download(host + "app.txt");
                 String decoded = decodeAk47(app);
                 JSONObject cfg = tryObject(decoded);
-                if (cfg != null && cfg.optString("api_url","").startsWith("http")) {
-                    host = cfg.optString("api_url", DEFAULT_API);
-                } else if (app != null && app.contains("api_url")) {
-                    cfg = tryObject(app);
-                    if (cfg != null && cfg.optString("api_url","").startsWith("http")) {
-                        host = cfg.optString("api_url", DEFAULT_API);
-                    }
+                if (cfg != null) {
+                    String h = cfg.optString("api_url","");
+                    if (h.startsWith("http")) host = h;
+                    liveUrl = cfg.optString("foot_live_url","");
+                    if (!liveUrl.startsWith("http")) liveUrl = "";
                 }
             } catch (Exception ignored) {}
 
             if (!host.endsWith("/")) host += "/";
-            final String api = host;
-            String body = download(api + "events.txt");
+
+            String body = "";
+            if (!liveUrl.isEmpty()) {
+                body = download(liveUrl);
+            }
+            if (body.trim().isEmpty()) {
+                body = download(host + "events.txt");
+            }
+
             String decoded = decodeAk47(body);
             ArrayList<Match> result = parseAk47Events(decoded);
 
@@ -213,29 +219,57 @@ public class MainActivity extends Activity {
     private ArrayList<Match> parseAk47Events(String text) {
         ArrayList<Match> out = new ArrayList<>();
         if (text == null || text.trim().isEmpty()) return out;
+
         try {
-            JSONArray root = new JSONArray(text);
+            JSONArray root;
+            String s = text.trim();
+
+            if (s.startsWith("[")) {
+                root = new JSONArray(s);
+            } else if (s.startsWith("{")) {
+                JSONObject obj = new JSONObject(s);
+                JSONArray a = obj.optJSONArray("events");
+                if (a == null) a = obj.optJSONArray("data");
+                if (a == null) a = obj.optJSONArray("matches");
+                if (a != null) root = a;
+                else {
+                    root = new JSONArray();
+                    root.put(obj);
+                }
+            } else {
+                return out;
+            }
+
             for (int i=0;i<root.length();i++) {
                 JSONObject item = root.optJSONObject(i);
                 if (item == null) continue;
-                String raw = item.optString("event", "");
-                JSONObject e;
-                try { e = raw.trim().startsWith("{") ? new JSONObject(raw) : item; }
-                catch (Exception ex) { e = item; }
 
-                if (!e.optBoolean("visible", true)) continue;
-                String category = e.optString("category","");
+                JSONObject e = item;
+                String raw = item.optString("event","");
+                if (raw.trim().startsWith("{")) {
+                    try { e = new JSONObject(raw); } catch (Exception ignored) {}
+                }
+
+                String category = e.optString("category", e.optString("sport",""));
                 if (!category.equalsIgnoreCase("football")) continue;
+                if (!e.optBoolean("visible", true)) continue;
 
-                String home = e.optString("teamAName","").trim();
-                String away = e.optString("teamBName","").trim();
-                String links = e.optString("links","");
+                String home = e.optString("teamAName", e.optString("home","")).trim();
+                String away = e.optString("teamBName", e.optString("away","")).trim();
+
+                String links = e.optString("links","").trim();
+                if (links.isEmpty() && e.has("links")) {
+                    Object lv = e.opt("links");
+                    if (lv != null) links = String.valueOf(lv);
+                }
+
                 if (home.isEmpty() || away.isEmpty() || links.isEmpty()) continue;
 
                 String date = e.optString("date","");
                 String time = e.optString("time","");
-                String endDate = e.optString("end_date","");
-                String endTime = e.optString("end_time","");
+                String endDate = e.optString("end_date", e.optString("endDate",""));
+                String endTime = e.optString("end_time", e.optString("endTime",""));
+
                 Match m = new Match();
                 m.league = category;
                 m.home = home;
@@ -245,10 +279,12 @@ public class MainActivity extends Activity {
                 m.links = links;
                 m.live = isLive(date,time,endDate,endTime);
                 m.when = formatTime(date,time,m.live);
+
                 if (isEnded(date,time,endDate,endTime)) continue;
                 out.add(m);
             }
         } catch (Exception ignored) {}
+
         return out;
     }
 
