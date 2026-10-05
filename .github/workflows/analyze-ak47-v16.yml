@@ -68,6 +68,19 @@ jobs:
             sort |
             head -n 1000 >> analysis.txt || true
 
+
+          echo >> analysis.txt
+          echo "=== API HOST SOURCE CONTEXT ===" >> analysis.txt
+          grep -Rni -C 30 'api_host' source/sources/app/aksports/live 2>/dev/null | head -n 12000 >> analysis.txt || true
+          echo >> analysis.txt
+          echo "=== APP.TXT CONTEXT ===" >> analysis.txt
+          grep -Rni -C 50 'app\\.txt' source/sources/app/aksports/live 2>/dev/null | head -n 12000 >> analysis.txt || true
+          echo >> analysis.txt
+          echo "=== FOOT LIVE CONTEXT ===" >> analysis.txt
+          grep -Rni -C 30 'foot_live_url' source/sources/app/aksports/live 2>/dev/null | head -n 10000 >> analysis.txt || true
+          echo >> analysis.txt
+          echo "=== P5/M6/L5 NETWORK CLASSES ===" >> analysis.txt
+          grep -Rni -E 'class .*p5|class .*l5|class .*c6|api_host|app\\.txt' source/sources/app/aksports/live 2>/dev/null | head -n 5000 >> analysis.txt || true
           echo >> analysis.txt
           echo "=== MANIFEST STRINGS ===" >> analysis.txt
           unzip -p AK47Sports_V1.6.apk AndroidManifest.xml 2>/dev/null | strings -a >> analysis.txt || true
