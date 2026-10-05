@@ -39,6 +39,8 @@ import java.util.regex.Pattern;
 
 public class MainActivity extends Activity {
 
+    // Live football parser build trigger.
+
     private final Handler handler = new Handler(Looper.getMainLooper());
     private final ArrayList<Match> matches = new ArrayList<>();
 
