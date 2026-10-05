@@ -200,16 +200,69 @@ public class MainActivity extends Activity {
             String json = httpGet(API);
             ArrayList<Match> result = parseMatches(json);
 
+            // SportSRC V1 returns a broad schedule, including finished and
+            // distant upcoming fixtures. The app should show only matches
+            // that are live now or starting soon.
+            ArrayList<Match> filtered = filterRelevantMatches(result);
+
             runOnUiThread(() -> {
-                if (!result.isEmpty()) {
-                    matches.clear();
-                    matches.addAll(result);
+                matches.clear();
+                matches.addAll(filtered);
+                if (!filtered.isEmpty()) {
                     showMatches();
-                } else if (matches.isEmpty()) {
-                    showError("Could not load football matches.");
+                } else {
+                    showError("No live or near-start football matches found.");
                 }
             });
         }).start();
+    }
+
+    private ArrayList<Match> filterRelevantMatches(ArrayList<Match> source) {
+        ArrayList<Match> out = new ArrayList<>();
+        long now = System.currentTimeMillis();
+        long maxFuture = now + 24L * 60L * 60L * 1000L;
+
+        for (Match m : source) {
+            if (m.live) {
+                out.add(m);
+                continue;
+            }
+
+            long start = parseMatchTime(m.rawTime);
+            if (start > 0 && start >= now - 30L * 60L * 1000L && start <= maxFuture) {
+                out.add(m);
+            }
+        }
+        return out;
+    }
+
+    private long parseMatchTime(String value) {
+        if (value == null || value.trim().isEmpty()) return -1L;
+        String s = value.trim();
+
+        try {
+            long n = Long.parseLong(s);
+            if (n < 100000000000L) n *= 1000L;
+            return n;
+        } catch (Exception ignored) {}
+
+        String[] patterns = {
+                "yyyy-MM-dd'T'HH:mm:ssXXX",
+                "yyyy-MM-dd'T'HH:mm:ss.SSSXXX",
+                "yyyy-MM-dd'T'HH:mm:ss'Z'",
+                "yyyy-MM-dd HH:mm:ss",
+                "yyyy-MM-dd HH:mm"
+        };
+
+        for (String p : patterns) {
+            try {
+                SimpleDateFormat f = new SimpleDateFormat(p, Locale.US);
+                if (p.endsWith("'Z'")) f.setTimeZone(TimeZone.getTimeZone("UTC"));
+                Date d = f.parse(s);
+                if (d != null) return d.getTime();
+            } catch (Exception ignored) {}
+        }
+        return -1L;
     }
 
     private String httpGet(String address) {
@@ -269,7 +322,7 @@ public class MainActivity extends Activity {
                 String away = getString(o, "away", "away_team", "awayTeam", "team_away");
                 String title = getString(o, "title", "name", "event", "match");
                 String league = getString(o, "league", "competition", "tournament", "category");
-                String timeValue = getString(o, "date", "datetime", "time", "timestamp", "start");
+                String timeValue = getString(o, "date", "datetime", "time", "timestamp", "start", "start_time", "startTime");
 
                 if ((home == null || home.isEmpty()) && title != null) {
                     String[] pair = splitTeams(title);
@@ -285,7 +338,7 @@ public class MainActivity extends Activity {
                 String time = formatTime(timeValue);
                 boolean live = isLive(o, timeValue);
 
-                out.add(new Match(league, home, away, time, live, id));
+                out.add(new Match(league, home, away, time, live, id, timeValue));
             } catch (Exception ignored) {}
         }
     }
