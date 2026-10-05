@@ -9,45 +9,41 @@ import android.os.Handler;
 import android.os.Looper;
 import android.view.Gravity;
 import android.view.View;
-import android.net.Uri;
-import android.widget.Button;
-import android.widget.LinearLayout;
-import android.widget.ScrollView;
-import android.widget.TextView;
 import android.webkit.CookieManager;
 import android.webkit.WebChromeClient;
 import android.webkit.WebResourceRequest;
 import android.webkit.WebView;
 import android.webkit.WebViewClient;
+import android.widget.Button;
+import android.widget.LinearLayout;
+import android.widget.ScrollView;
+import android.widget.TextView;
+
+import org.json.JSONArray;
+import org.json.JSONObject;
 
 import java.io.BufferedReader;
-import java.io.InputStream;
 import java.io.InputStreamReader;
 import java.net.HttpURLConnection;
 import java.net.URL;
-import java.net.URLEncoder;
+import java.text.SimpleDateFormat;
 import java.util.ArrayList;
+import java.util.Date;
+import java.util.Iterator;
+import java.util.Locale;
+import java.util.TimeZone;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
-import java.util.HashSet;
-import java.util.Set;
-
-import androidx.media3.common.MediaItem;
-import androidx.media3.exoplayer.ExoPlayer;
-import androidx.media3.ui.PlayerView;
 
 public class MainActivity extends Activity {
 
-    private ExoPlayer player;
-    private PlayerView playerView;
-    private WebView resolverWebView;
+    private final Handler handler = new Handler(Looper.getMainLooper());
+    private final ArrayList<Match> matches = new ArrayList<>();
 
-    // True while the Activity is showing the player/resolver screen.
-    // Match refreshes must never replace that screen.
+    private LinearLayout listContainer;
+    private TextView statusText;
+    private WebView playerWebView;
     private boolean playerScreen = false;
-
-    private final Handler handler =
-            new Handler(Looper.getMainLooper());
 
     private final int BG = Color.rgb(10, 12, 16);
     private final int PANEL = Color.rgb(20, 23, 29);
@@ -56,1765 +52,447 @@ public class MainActivity extends Activity {
     private final int ACCENT = Color.rgb(55, 125, 255);
     private final int LIVE = Color.rgb(90, 220, 140);
 
-    private static final String LIVE_TV_URL =
-            "https://livetv904.me/enx/allupcoming/";
-
-    private final ArrayList<Match> matches =
-            new ArrayList<>();
-
-    private LinearLayout listContainer;
-    private TextView statusText;
-
-    private final Runnable refreshRunnable =
-            new Runnable() {
-                @Override
-                public void run() {
-                    loadMatches();
-
-                    handler.postDelayed(
-                            this,
-                            5 * 60 * 1000
-                    );
-                }
-            };
+    private static final String API =
+            "https://api.sportsrc.org/?data=matches&category=football";
 
     @Override
-    protected void onCreate(Bundle savedInstanceState) {
-        super.onCreate(savedInstanceState);
-
+    protected void onCreate(Bundle state) {
+        super.onCreate(state);
         showLoading();
-
         loadMatches();
-
-        handler.postDelayed(
-                refreshRunnable,
-                5 * 60 * 1000
-        );
     }
 
-    private TextView label(
-            String text,
-            float size,
-            int color
-    ) {
+    private TextView label(String text, float size, int color) {
         TextView t = new TextView(this);
-
         t.setText(text);
         t.setTextColor(color);
         t.setTextSize(size);
         t.setGravity(Gravity.CENTER_VERTICAL);
-
         return t;
     }
 
-    private GradientDrawable bg(
-            int color,
-            float radius
-    ) {
-        GradientDrawable d =
-                new GradientDrawable();
-
+    private GradientDrawable bg(int color, float radius) {
+        GradientDrawable d = new GradientDrawable();
         d.setColor(color);
         d.setCornerRadius(radius);
-
         return d;
     }
 
-    private Button action(String caption) {
-
+    private Button action(String text) {
         Button b = new Button(this);
-
-        b.setText(caption);
+        b.setText(text);
         b.setTextColor(TEXT);
         b.setTextSize(14);
         b.setAllCaps(false);
-
-        b.setTypeface(
-                Typeface.DEFAULT,
-                Typeface.BOLD
-        );
-
+        b.setTypeface(Typeface.DEFAULT, Typeface.BOLD);
         b.setGravity(Gravity.CENTER);
-        b.setFocusable(true);
-
-        b.setBackground(
-                bg(ACCENT, 14)
-        );
-
-        b.setPadding(
-                18,
-                2,
-                18,
-                2
-        );
-
-        b.setOnFocusChangeListener(
-                (v, hasFocus) ->
-                        v.setAlpha(
-                                hasFocus ? 1f : 0.82f
-                        )
-        );
-
+        b.setBackground(bg(ACCENT, 14));
+        b.setPadding(18, 2, 18, 2);
         return b;
     }
 
     private void showLoading() {
-
         playerScreen = false;
-
-        LinearLayout root =
-                new LinearLayout(this);
-
-        root.setOrientation(
-                LinearLayout.VERTICAL
-        );
-
+        LinearLayout root = new LinearLayout(this);
+        root.setOrientation(LinearLayout.VERTICAL);
         root.setGravity(Gravity.CENTER);
         root.setBackgroundColor(BG);
 
-        TextView title =
-                label(
-                        "MAX FOOTBALL ONLINE",
-                        28,
-                        TEXT
-                );
-
-        title.setTypeface(
-                Typeface.DEFAULT,
-                Typeface.BOLD
-        );
-
+        TextView title = label("MAX FOOTBALL ONLINE", 28, TEXT);
+        title.setTypeface(Typeface.DEFAULT, Typeface.BOLD);
         title.setGravity(Gravity.CENTER);
+        root.addView(title, new LinearLayout.LayoutParams(-1, 70));
 
-        root.addView(
-                title,
-                new LinearLayout.LayoutParams(
-                        -1,
-                        70
-                )
-        );
-
-        TextView loading =
-                label(
-                        "Loading football matches...",
-                        18,
-                        MUTED
-                );
-
+        TextView loading = label("Loading football matches...", 18, MUTED);
         loading.setGravity(Gravity.CENTER);
-
-        root.addView(
-                loading,
-                new LinearLayout.LayoutParams(
-                        -1,
-                        60
-                )
-        );
+        root.addView(loading, new LinearLayout.LayoutParams(-1, 60));
 
         setContentView(root);
     }
 
     private void showMatches() {
-
         playerScreen = false;
 
-        LinearLayout root =
-                new LinearLayout(this);
-
-        root.setOrientation(
-                LinearLayout.VERTICAL
-        );
-
+        LinearLayout root = new LinearLayout(this);
+        root.setOrientation(LinearLayout.VERTICAL);
         root.setBackgroundColor(BG);
 
-        LinearLayout header =
-                new LinearLayout(this);
+        LinearLayout header = new LinearLayout(this);
+        header.setGravity(Gravity.CENTER_VERTICAL);
+        header.setPadding(42, 20, 42, 12);
 
-        header.setOrientation(
-                LinearLayout.HORIZONTAL
-        );
+        TextView logo = label("MAX FOOTBALL ONLINE", 27, TEXT);
+        logo.setTypeface(Typeface.DEFAULT, Typeface.BOLD);
+        header.addView(logo, new LinearLayout.LayoutParams(0, 65, 1));
 
-        header.setGravity(
-                Gravity.CENTER_VERTICAL
-        );
-
-        header.setPadding(
-                42,
-                20,
-                42,
-                12
-        );
-
-        TextView logo =
-                label(
-                        "MAX FOOTBALL ONLINE",
-                        27,
-                        TEXT
-                );
-
-        logo.setTypeface(
-                Typeface.DEFAULT,
-                Typeface.BOLD
-        );
-
-        header.addView(
-                logo,
-                new LinearLayout.LayoutParams(
-                        0,
-                        65,
-                        1
-                )
-        );
-
-        statusText =
-                label(
-                        matches.size()
-                                + " MATCHES",
-                        14,
-                        MUTED
-                );
-
-        statusText.setGravity(
-                Gravity.CENTER_VERTICAL |
-                        Gravity.RIGHT
-        );
-
-        header.addView(
-                statusText,
-                new LinearLayout.LayoutParams(
-                        -2,
-                        65
-                )
-        );
-
+        statusText = label(matches.size() + " MATCHES", 14, MUTED);
+        statusText.setGravity(Gravity.CENTER_VERTICAL | Gravity.RIGHT);
+        header.addView(statusText, new LinearLayout.LayoutParams(-2, 65));
         root.addView(header);
 
-        TextView title =
-                label(
-                        "LIVE & UPCOMING",
-                        24,
-                        TEXT
-                );
+        TextView title = label("LIVE & UPCOMING", 24, TEXT);
+        title.setTypeface(Typeface.DEFAULT, Typeface.BOLD);
+        title.setPadding(42, 4, 42, 12);
+        root.addView(title, new LinearLayout.LayoutParams(-1, 55));
 
-        title.setTypeface(
-                Typeface.DEFAULT,
-                Typeface.BOLD
-        );
-
-        title.setPadding(
-                42,
-                4,
-                42,
-                12
-        );
-
-        root.addView(
-                title,
-                new LinearLayout.LayoutParams(
-                        -1,
-                        55
-                )
-        );
-
-        ScrollView scroll =
-                new ScrollView(this);
-
+        ScrollView scroll = new ScrollView(this);
         scroll.setFillViewport(true);
-        scroll.setClipToPadding(false);
+        scroll.setPadding(34, 0, 34, 30);
 
-        scroll.setPadding(
-                34,
-                0,
-                34,
-                30
-        );
-
-        listContainer =
-                new LinearLayout(this);
-
-        listContainer.setOrientation(
-                LinearLayout.VERTICAL
-        );
-
+        listContainer = new LinearLayout(this);
+        listContainer.setOrientation(LinearLayout.VERTICAL);
         scroll.addView(listContainer);
-
-        root.addView(
-                scroll,
-                new LinearLayout.LayoutParams(
-                        -1,
-                        0,
-                        1
-                )
-        );
+        root.addView(scroll, new LinearLayout.LayoutParams(-1, 0, 1));
 
         setContentView(root);
-
         renderMatches();
     }
 
     private void renderMatches() {
-
-        if (listContainer == null) {
-            return;
-        }
-
+        if (listContainer == null) return;
         listContainer.removeAllViews();
 
         if (matches.isEmpty()) {
-
-            TextView empty =
-                    label(
-                            "No football matches found.",
-                            18,
-                            MUTED
-                    );
-
+            TextView empty = label("No football matches found.", 18, MUTED);
             empty.setGravity(Gravity.CENTER);
-
-            listContainer.addView(
-                    empty,
-                    new LinearLayout.LayoutParams(
-                            -1,
-                            100
-                    )
-            );
-
+            listContainer.addView(empty, new LinearLayout.LayoutParams(-1, 100));
             return;
         }
 
-        for (Match match : matches) {
-            addMatch(
-                    listContainer,
-                    match
-            );
-        }
-
-        if (statusText != null) {
-            statusText.setText(
-                    matches.size()
-                            + " MATCHES"
-            );
-        }
+        for (Match m : matches) addMatch(listContainer, m);
+        if (statusText != null) statusText.setText(matches.size() + " MATCHES");
     }
 
-    private void addMatch(
-            LinearLayout list,
-            Match match
-    ) {
+    private void addMatch(LinearLayout list, Match match) {
+        LinearLayout card = new LinearLayout(this);
+        card.setOrientation(LinearLayout.HORIZONTAL);
+        card.setGravity(Gravity.CENTER_VERTICAL);
+        card.setPadding(24, 14, 18, 14);
+        card.setBackground(bg(PANEL, 18));
 
-        LinearLayout card =
-                new LinearLayout(this);
+        LinearLayout.LayoutParams cp = new LinearLayout.LayoutParams(-1, 110);
+        cp.setMargins(8, 7, 8, 7);
+        list.addView(card, cp);
 
-        card.setOrientation(                LinearLayout.HORIZONTAL
-        );
+        LinearLayout info = new LinearLayout(this);
+        info.setOrientation(LinearLayout.VERTICAL);
+        info.setGravity(Gravity.CENTER_VERTICAL);
 
-        card.setGravity(
-                Gravity.CENTER_VERTICAL
-        );
+        TextView league = label(match.league, 12, MUTED);
+        info.addView(league, new LinearLayout.LayoutParams(-1, 25));
 
-        card.setPadding(
-                24,
-                14,
-                18,
-                14
-        );
+        TextView teams = label(match.home + "  —  " + match.away, 18, TEXT);
+        teams.setTypeface(Typeface.DEFAULT, Typeface.BOLD);
+        info.addView(teams, new LinearLayout.LayoutParams(-1, 38));
 
-        card.setBackground(
-                bg(PANEL, 18)
-        );
+        TextView time = label(match.time, 11, match.live ? LIVE : MUTED);
+        info.addView(time, new LinearLayout.LayoutParams(-1, 25));
 
-        LinearLayout.LayoutParams cardParams =
-                new LinearLayout.LayoutParams(
-                        -1,
-                        110
-                );
+        card.addView(info, new LinearLayout.LayoutParams(0, -1, 1));
 
-        cardParams.setMargins(
-                8,
-                7,
-                8,
-                7
-        );
-
-        list.addView(
-                card,
-                cardParams
-        );
-
-        LinearLayout info =
-                new LinearLayout(this);
-
-        info.setOrientation(
-                LinearLayout.VERTICAL
-        );
-
-        info.setGravity(
-                Gravity.CENTER_VERTICAL
-        );
-
-        TextView league =
-                label(
-                        match.league,
-                        12,
-                        MUTED
-                );
-
-        info.addView(
-                league,
-                new LinearLayout.LayoutParams(
-                        -1,
-                        25
-                )
-        );
-
-        TextView teams =
-                label(
-                        match.home
-                                + "  —  "
-                                + match.away,
-                        18,
-                        TEXT
-                );
-
-        teams.setTypeface(
-                Typeface.DEFAULT,
-                Typeface.BOLD
-        );
-
-        info.addView(
-                teams,
-                new LinearLayout.LayoutParams(
-                        -1,
-                        38
-                )
-        );
-
-        TextView time =
-                label(
-                        match.time,
-                        11,
-                        match.live
-                                ? LIVE
-                                : MUTED
-                );
-
-        info.addView(
-                time,
-                new LinearLayout.LayoutParams(
-                        -1,
-                        25
-                )
-        );
-
-        card.addView(
-                info,
-                new LinearLayout.LayoutParams(
-                        0,
-                        -1,
-                        1
-                )
-        );
-
-        Button watch =
-                action("WATCH");
-
-        watch.setOnClickListener(
-                v ->
-                        resolveAndPlay(
-                                match
-                        )
-        );
-
-        card.addView(
-                watch,
-                new LinearLayout.LayoutParams(
-                        130,
-                        58
-                )
-        );
+        Button watch = action("WATCH");
+        watch.setOnClickListener(v -> openMatch(match));
+        card.addView(watch, new LinearLayout.LayoutParams(130, 58));
     }
-
-    /*
-     * =========================================================
-     * LOAD MATCHES
-     * =========================================================
-     */
 
     private void loadMatches() {
+        new Thread(() -> {
+            String json = httpGet(API);
+            ArrayList<Match> result = parseMatches(json);
 
-        new Thread(
-                () -> {
-
-                    String html =
-                            downloadPage(
-                                    LIVE_TV_URL
-                            );
-
-                    ArrayList<Match> result =
-                            parseMatches(html);
-
-                    runOnUiThread(
-                            () -> {
-
-                                if (!result.isEmpty()) {
-
-                                    matches.clear();
-
-                                    matches.addAll(
-                                            result
-                                    );
-
-                                    // Refresh data in the background, but never
-                                    // replace the player/resolver Activity view.
-                                    if (!playerScreen) {
-                                        showMatches();
-                                    }
-
-                                } else {
-
-                                    if (matches.isEmpty()) {
-
-                                        showError(
-                                                "Could not load football matches."
-                                        );
-
-                                    } else if (
-                                            statusText != null
-                                    ) {
-
-                                        statusText.setText(
-                                                "UPDATE FAILED"
-                                        );
-                                    }
-                                }
-                            }
-                    );
-
+            runOnUiThread(() -> {
+                if (!result.isEmpty()) {
+                    matches.clear();
+                    matches.addAll(result);
+                    showMatches();
+                } else if (matches.isEmpty()) {
+                    showError("Could not load football matches.");
                 }
-        ).start();
+            });
+        }).start();
     }
 
-    private String downloadPage(
-            String address
-    ) {
+    private String httpGet(String address) {
+        HttpURLConnection c = null;
+        try {
+            c = (HttpURLConnection) new URL(address).openConnection();
+            c.setRequestMethod("GET");
+            c.setConnectTimeout(10000);
+            c.setReadTimeout(15000);
+            c.setRequestProperty("User-Agent", "Mozilla/5.0 (Android TV)");
+            c.setRequestProperty("Accept", "application/json,text/plain,*/*");
 
-        HttpURLConnection connection =
-                null;
+            int code = c.getResponseCode();
+            if (code < 200 || code >= 400) return "";
+
+            BufferedReader r = new BufferedReader(
+                    new InputStreamReader(c.getInputStream(), "UTF-8"));
+            StringBuilder out = new StringBuilder();
+            String line;
+            while ((line = r.readLine()) != null) out.append(line);
+            r.close();
+            return out.toString();
+        } catch (Exception e) {
+            return "";
+        } finally {
+            if (c != null) c.disconnect();
+        }
+    }
+
+    private ArrayList<Match> parseMatches(String json) {
+        ArrayList<Match> out = new ArrayList<>();
+        if (json == null || json.trim().isEmpty()) return out;
 
         try {
+            Object root = new JSONArray(json);
+            parseArray((JSONArray) root, out);
+            return out;
+        } catch (Exception ignored) {}
 
-            URL url =
-                    new URL(address);
+        try {
+            JSONObject root = new JSONObject(json);
+            JSONArray arr = firstArray(root, "matches", "events", "data", "results");
+            if (arr != null) parseArray(arr, out);
+        } catch (Exception ignored) {}
 
-            connection =
-                    (HttpURLConnection)
-                            url.openConnection();
-
-            connection.setRequestMethod(
-                    "GET"
-            );
-
-            connection.setConnectTimeout(
-                    8000
-            );
-
-            connection.setReadTimeout(
-                    10000
-            );
-
-            connection.setRequestProperty(
-                    "User-Agent",
-                    "Mozilla/5.0 (Linux; Android 11; Android TV) AppleWebKit/537.36 Chrome/124.0.0.0 Safari/537.36"
-            );
-
-            connection.setRequestProperty(
-                    "Accept",
-                    "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8"
-            );
-
-            connection.setRequestProperty(
-                    "Accept-Language",
-                    "en-US,en;q=0.9,ru;q=0.8"
-            );
-
-            if (address.startsWith("https://livetv904.me/")) {
-                connection.setRequestProperty(
-                        "Referer",
-                        "https://livetv904.me/"
-                );
-            }
-
-            int code =
-                    connection.getResponseCode();
-
-            if (
-                    code < 200 ||
-                    code >= 400
-            ) {
-                return "";
-            }
-
-            InputStream input =
-                    connection.getInputStream();
-
-            BufferedReader reader =
-                    new BufferedReader(
-                            new InputStreamReader(
-                                    input,
-                                    "UTF-8"
-                            )
-                    );
-
-            StringBuilder result =
-                    new StringBuilder();
-
-            String line;
-
-            while (
-                    (line = reader.readLine())
-                            != null
-            ) {
-
-                result.append(line)
-                        .append("\n");
-            }
-
-            reader.close();
-
-            return result.toString();
-
-        } catch (Exception e) {
-
-            e.printStackTrace();
-
-            return "";
-
-        } finally {
-
-            if (connection != null) {
-                connection.disconnect();
-            }
-        }
+        return out;
     }
 
-    /*
-     * =========================================================
-     * PARSER
-     * =========================================================
-     */
+    private void parseArray(JSONArray arr, ArrayList<Match> out) {
+        for (int i = 0; i < arr.length(); i++) {
+            try {
+                JSONObject o = arr.optJSONObject(i);
+                if (o == null) continue;
 
-    private ArrayList<Match> parseMatches(
-            String html
-    ) {
+                String id = getString(o, "id", "match_id", "event_id");
+                String home = getString(o, "home", "home_team", "homeTeam", "team_home");
+                String away = getString(o, "away", "away_team", "awayTeam", "team_away");
+                String title = getString(o, "title", "name", "event", "match");
+                String league = getString(o, "league", "competition", "tournament", "category");
+                String timeValue = getString(o, "date", "datetime", "time", "timestamp", "start");
 
-        ArrayList<Match> result =
-                new ArrayList<>();
-
-        if (html == null || html.isEmpty()) {
-            return result;
-        }
-
-        // LiveTV904 changes the exact HTML structure from time to time.
-        // Do not depend on a fixed distance between the sport image and
-        // the event link. Instead scan all eventinfo links and determine
-        // the sport from the nearest preceding Football image.
-        Pattern linkPattern =
-                Pattern.compile(
-                        "(?is)<a\\s+[^>]*href\\s*=\\s*[\\\"']"
-                                + "([^\\\"']*?/eventinfo/[^\\\"']+)"
-                                + "[\\\"'][^>]*>"
-                                + "(.*?)"
-                                + "</a>"
-                );
-
-        Matcher linkMatcher =
-                linkPattern.matcher(html);
-
-        while (linkMatcher.find()) {
-
-            String href = linkMatcher.group(1);
-            String anchorText = cleanText(linkMatcher.group(2));
-
-            if (href == null || href.isEmpty() || anchorText.isEmpty()) {
-                continue;
-            }
-
-            if (!anchorText.contains("–")
-                    && !anchorText.contains("—")
-                    && !anchorText.contains(" - ")) {
-                continue;
-            }
-
-            // Use the nearest preceding sport marker. The previous code
-        // searched 15,000 characters for any Football image, so a Hockey,
-        // Baseball or Tennis event could inherit a distant Football league.
-        String prefix =
-                html.substring(
-                        Math.max(0, linkMatcher.start() - 20000),
-                        linkMatcher.start()
-                );
-
-        Matcher sportMatcher =
-                Pattern.compile(
-                        "(?is)<img[^>]+alt\\s*=\\s*[\\\"']([^\\\"']+)[\\\"'][^>]*>"
-                ).matcher(prefix);
-
-        // Only the LAST marker belongs to the current event.
-        // Looking at every marker in the 20,000-character prefix made a
-        // football match disappear when a later hockey/volleyball marker
-        // happened to be closer to the link.
-        String lastAlt = "";
-
-        while (sportMatcher.find()) {
-            lastAlt = cleanText(sportMatcher.group(1));
-        }
-
-        String sport = "";
-        String league = "";
-
-        String lowerLastAlt = lastAlt.toLowerCase();
-
-        if (lowerLastAlt.startsWith("football.")
-                || lowerLastAlt.equals("football")) {
-            sport = "football";
-            league = lastAlt.length() > 9
-                    ? cleanText(lastAlt.substring(9))
-                    : "Football";
-        }
-
-        if (!"football".equals(sport) || league.isEmpty()) {
-            continue;
-        }
-
-        int afterStart = linkMatcher.end();
-            int afterEnd =
-                    Math.min(
-                            html.length(),
-                            afterStart + 1500
-                    );
-
-            String after =
-                    html.substring(afterStart, afterEnd);
-
-            Matcher timeMatcher =
-                    Pattern.compile(
-                            "\\b(\\d{1,2}:\\d{2})\\b"
-                    ).matcher(after);
-
-            String time = "";
-
-            if (timeMatcher.find()) {
-                time = timeMatcher.group(1);
-            }
-
-            boolean live =
-                    Pattern.compile(
-                            "(?is).*?\\b\\d+\\s*:\\s*\\d+\\b.*"
-                    ).matcher(anchorText).matches()
-                    || Pattern.compile(
-                            "(?is).*?\\b\\d+\\s*:\\s*\\d+\\b.*"
-                    ).matcher(after).matches();
-
-            if (time.isEmpty()) {
-                time = live ? "LIVE" : "UPCOMING";
-            }
-
-            String[] teams = splitTeams(anchorText);
-
-            if (teams == null || teams.length != 2) {
-                continue;
-            }
-
-            String home = cleanTeamName(teams[0]);
-            String away = cleanTeamName(teams[1]);
-
-            if (home.isEmpty() || away.isEmpty()) {
-                continue;
-            }
-
-            String eventUrl = normalizeUrl(href);
-
-            boolean duplicate = false;
-
-            for (Match existing : result) {
-                if (existing.eventUrl.equals(eventUrl)
-                        || (existing.home.equals(home)
-                        && existing.away.equals(away)
-                        && existing.time.equals(time))) {
-                    duplicate = true;
-                    break;
+                if ((home == null || home.isEmpty()) && title != null) {
+                    String[] pair = splitTeams(title);
+                    home = pair[0];
+                    away = pair[1];
                 }
-            }
 
-            if (!duplicate) {
-                result.add(
-                        new Match(
-                                league,
-                                home,
-                                away,
-                                time,
-                                live,
-                                eventUrl
-                        )
-                );
-            }
+                if (id == null || id.isEmpty() || home == null || away == null
+                        || home.isEmpty() || away.isEmpty()) continue;
+
+                if (league == null || league.isEmpty()) league = "Football";
+
+                String time = formatTime(timeValue);
+                boolean live = isLive(o, timeValue);
+
+                out.add(new Match(league, home, away, time, live, id));
+            } catch (Exception ignored) {}
         }
-
-        return result;
     }
 
-    private Match parseMatchFromArea(
-            String area,
-            String league
-    ) {
-
-        Pattern linkPattern =
-                Pattern.compile(
-                        "(?is)"                                + "<a\\s+[^>]*href\\s*=\\s*[\"']"
-                                + "([^\"']+)"
-                                + "[\"'][^>]*>"
-                                + "(.*?)"
-                                + "</a>"
-                );
-
-        Matcher linkMatcher =
-                linkPattern.matcher(area);
-
-        while (
-                linkMatcher.find()
-        ) {
-
-            String href =
-                    linkMatcher.group(1);
-
-            String anchorText =
-                    cleanText(
-                            linkMatcher.group(2)
-                    );
-
-            if (
-                    href == null ||
-                    href.isEmpty()
-            ) {
-                continue;
-            }
-
-            if (
-                    anchorText.isEmpty()
-            ) {
-                continue;
-            }
-
-            if (
-                    !anchorText.contains("–")
-                    &&
-                    !anchorText.contains("—")
-                    &&
-                    !anchorText.contains(" - ")
-            ) {
-                continue;
-            }
-
-            String lower =
-                    anchorText.toLowerCase();
-
-            if (
-                    lower.contains("basketball")
-                    ||
-                    lower.contains("hockey")
-                    ||
-                    lower.contains("tennis")
-                    ||
-                    lower.contains("volleyball")
-                    ||
-                    lower.contains("handball")
-                    ||
-                    lower.contains("darts")
-            ) {
-                continue;
-            }
-
-            int timeStart =
-                    linkMatcher.end();
-
-            int timeEnd =
-                    Math.min(
-                            area.length(),
-                            timeStart + 1200
-                    );
-
-            String after =
-                    area.substring(
-                            timeStart,
-                            timeEnd
-                    );
-
-            Pattern timePattern =
-                    Pattern.compile(
-                            "\\b(\\d{1,2}:\\d{2})\\b"
-                    );
-
-            Matcher timeMatcher =
-                    timePattern.matcher(after);
-
-            String time = "";
-
-            if (timeMatcher.find()) {
-                time =
-                        timeMatcher.group(1);
-            }
-
-            boolean live =
-                    after.matches(
-                            "(?is).*?\\b\\d+\\s*:\\s*\\d+\\b.*"
-                    );
-
-            if (time.isEmpty()) {
-
-                time =
-                        live
-                                ? "LIVE"
-                                : "UPCOMING";
-            }
-
-            String[] teams =
-                    splitTeams(
-                            anchorText
-                    );
-
-            if (
-                    teams == null ||
-                    teams.length != 2
-            ) {
-                continue;
-            }
-
-            String home =
-                    cleanTeamName(
-                            teams[0]
-                    );
-
-            String away =
-                    cleanTeamName(
-                            teams[1]
-                    );
-
-            if (
-                    home.isEmpty() ||
-                    away.isEmpty()
-            ) {
-                continue;
-            }
-
-            String eventUrl =
-                    normalizeUrl(href);
-
-            return new Match(
-                    league,
-                    home,
-                    away,
-                    time,
-                    live,
-                    eventUrl
-            );
+    private JSONArray firstArray(JSONObject o, String... keys) {
+        for (String k : keys) {
+            JSONArray a = o.optJSONArray(k);
+            if (a != null) return a;
         }
-
         return null;
     }
 
-    private String[] splitTeams(
-            String text
-    ) {
-
-        String separator = null;
-
-        if (text.contains("–")) {
-            separator = "–";
-        } else if (text.contains("—")) {
-            separator = "—";
-        } else if (text.contains(" - ")) {
-            separator = " - ";
-        }
-
-        if (separator == null) {
-            return null;
-        }
-
-        String[] parts =
-                text.split(
-                        Pattern.quote(separator),
-                        2
-                );
-
-        if (parts.length != 2) {
-            return null;
-        }
-
-        return parts;
-    }
-
-    private String cleanTeamName(
-            String value
-    ) {
-
-        value =
-                cleanText(value);
-
-        value =
-                value.replaceFirst(
-                        "\\s+[A-Z]{3}$",
-                        ""
-                );
-
-        return value.trim();
-    }
-
-    private String normalizeUrl(
-            String href
-    ) {
-
-        if (href == null) {
-            return "";
-        }
-
-        href = href.trim();
-
-        if (
-                href.startsWith(
-                        "https://"
-                )
-        ) {
-            return href;
-        }
-
-        if (
-                href.startsWith(
-                        "http://"
-                )
-        ) {
-            return href;
-        }
-
-        if (
-                href.startsWith("//")
-        ) {
-            return "https:" + href;
-        }
-
-        if (
-                href.startsWith("/")
-        ) {
-            return "https://livetv904.me" + href;
-        }
-
-        return "https://livetv904.me/" + href;
-    }
-
-    private String cleanText(
-            String value
-    ) {
-
-        if (value == null) {
-            return "";
-        }
-
-        value =
-                value.replaceAll(
-                        "(?is)<[^>]+>",
-                        " "
-                );
-
-        value =
-                value.replace(
-                        "&nbsp;",
-                        " "
-                );
-
-        value =
-                value.replace(
-                        "&amp;",
-                        "&"
-                );
-
-        value =
-                value.replace(
-                        "&ndash;",
-                        "–"
-                );
-
-        value =
-                value.replace(
-                        "&mdash;",
-                        "—"
-                );
-
-        value =
-                value.replace(
-                        "&#8211;",
-                        "–"
-                );
-
-        value =
-                value.replace(
-                        "&#8212;",
-                        "—"
-                );
-
-        value =
-                value.replaceAll(
-                        "\\s+",
-                        " "
-                );
-
-        return value.trim();
-    }
-
-    /*
-     * =========================================================
-     * MATCH PAGE INSIDE APP
-     * =========================================================
-     */
-
-    private void resolveAndPlay(Match match) {
-
-        if (match == null || match.eventUrl == null || match.eventUrl.isEmpty()) {
-            showError("Match page is unavailable.");
-            return;
-        }
-
-        // Resolve the public stream in the background first. LiveTV904 often
-        // exposes the final HLS URL in the event/player HTML, and this path
-        // is much faster and more reliable than waiting for WebView timers.
-        showPlayer(match, "Finding video stream...");
-
-        // Keep the known-good startup path. Stream resolving must not block
-        // or change Activity initialization on Android TV.
-        runOnUiThread(() -> resolveWithWebView(match));
-    }
-
-    private String resolvePublicHls(String eventUrl) {
-        String html = downloadPage(eventUrl);
-        if (html == null || html.isEmpty()) return "";
-
-        String hls = findHls(html);
-        if (!hls.isEmpty()) return hls;
-
-        ArrayList<String> candidates = findCandidatePages(html, eventUrl);
-
-        // LiveTV904 also exposes the stream links through the
-        // "player/links" page. The link is often generated by JavaScript
-        // and therefore is not necessarily present in href/src attributes.
-        addPlayerLinksCandidates(candidates, html, eventUrl);
-
-        // Some pages contain the webplayer URL only as a quoted JavaScript
-        // string. Scan the whole HTML for those URLs as a fallback.
-        addRawUrlCandidates(candidates, html, eventUrl);
-
-        Set<String> visited = new HashSet<>();
-
-        for (String page : candidates) {
-            if (!visited.add(page)) continue;
-
-            String pageHtml = downloadPage(page);
-            if (pageHtml.isEmpty()) continue;
-
-            hls = findHls(pageHtml);
-            if (!hls.isEmpty()) return hls;
-
-            ArrayList<String> nested = findCandidatePages(pageHtml, page);
-            addRawUrlCandidates(nested, pageHtml, page);
-
-            for (String child : nested) {
-                if (!visited.add(child)) continue;
-
-                String childHtml = downloadPage(child);
-                if (childHtml.isEmpty()) continue;
-
-                hls = findHls(childHtml);
-                if (!hls.isEmpty()) return hls;
-
-                // One additional level catches:
-                // event -> player/links -> webplayer2 -> embed -> HLS
-                ArrayList<String> deep = findCandidatePages(childHtml, child);
-                addRawUrlCandidates(deep, childHtml, child);
-
-                for (String third : deep) {
-                    if (!visited.add(third)) continue;
-
-                    String thirdHtml = downloadPage(third);
-                    if (thirdHtml.isEmpty()) continue;
-
-                    hls = findHls(thirdHtml);
-                    if (!hls.isEmpty()) return hls;
-                }
+    private String getString(JSONObject o, String... keys) {
+        for (String k : keys) {
+            Object v = o.opt(k);
+            if (v != null && v != JSONObject.NULL) {
+                String s = String.valueOf(v).trim();
+                if (!s.isEmpty()) return s;
             }
         }
-
         return "";
     }
 
-    private void addPlayerLinksCandidates(
-            ArrayList<String> candidates,
-            String html,
-            String eventUrl
-    ) {
-        String eid = extractFirst(html,
-                "(?i)(?:[?&]eid=|\\\\\"eid\\\\\"\\\\s*[:=]\\\\s*\\\\\"?)(\\\\d+)"
-        );
-
-        if (eid.isEmpty()) {
-            eid = extractFirst(eventUrl,
-                    "(?i)eventinfo/([0-9]+)"
-            );        }
-
-        String t = extractFirst(html,
-                "(?i)(?:[?&]t=|\\\\\"t\\\\\"\\\\s*[:=]\\\\s*\\\\\"?)(\\\\d+)"
-        );
-
-        if (!eid.isEmpty()) {
-            // The mobile links page used by LiveTV904/livetv.sx.
-            // If t is available, keep it because it selects the current source.
-            if (!t.isEmpty()) {
-                addCandidate(candidates,
-                        "https://livetv904.me/player/links/ru/"
-                                + eid + "?mob=1&t=" + t);
-                addCandidate(candidates,
-                        "https://livetv904.me/player/links/en/"
-                                + eid + "?mob=1&t=" + t);
-            }
-
-            // Also try the page without t. Some events expose the source
-            // list directly and do not require the extra parameter.
-            addCandidate(candidates,
-                    "https://livetv904.me/player/links/ru/"
-                            + eid + "?mob=1");
-            addCandidate(candidates,
-                    "https://livetv904.me/player/links/en/"
-                            + eid + "?mob=1");
-        }
+    private String[] splitTeams(String title) {
+        String s = title.replaceAll("\\s+", " ").trim();
+        String[] parts = s.split("\\s+(?:vs\\.?|v\\.?|—|–)\\s+", 2);
+        if (parts.length == 2) return parts;
+        parts = s.split("\\s+-\\s+", 2);
+        if (parts.length == 2) return parts;
+        return new String[] {"", ""};
     }
 
-    private void addRawUrlCandidates(
-            ArrayList<String> candidates,
-            String html,
-            String baseUrl
-    ) {
-        if (html == null || html.isEmpty()) return;
-
-        // LiveTV904 frequently puts player URLs inside JavaScript/onClick
-        // strings rather than normal href/src attributes. Extract both
-        // absolute and relative quoted URLs.
-        Pattern p = Pattern.compile(
-                "(?is)(?:https?:\\/\\/|//|/|\\b)([^\\\"'<>\\s]+)"
-        );
-
-        Matcher m = p.matcher(html);
-
-        while (m.find()) {
-            String raw = m.group(0);
-            if (raw == null || raw.isEmpty()) continue;
-
-            String url = decodeUrl(raw);
-
-            // Ignore ordinary text. Keep only strings that look like one
-            // of LiveTV904's player/source endpoints.
-            String lower = url.toLowerCase();
-
-            if (!lower.contains("webplayer")
-                    && !lower.contains("/player/")
-                    && !lower.contains("/export/")
-                    && !lower.contains("iframe")
-                    && !lower.contains("apl614")
-                    && !lower.contains("azplay")) {
-                continue;
-            }
-
-            String absolute = absoluteUrl(url, baseUrl);
-
-            if (!absolute.isEmpty()) {
-                addCandidate(candidates, absolute);
-            }
-        }
-
-        // Also catch protocol-relative URLs even when the generic expression
-        // above starts in the middle of a JavaScript string.
-        Pattern quoted = Pattern.compile(
-                "(?is)[\\\"']([^\\\"']*(?:webplayer|/player/|/export/|apl614|azplay)[^\\\"']*)[\\\"']"
-        );
-
-        Matcher qm = quoted.matcher(html);
-
-        while (qm.find()) {
-            String url = decodeUrl(qm.group(1));
-            if (url.isEmpty()) continue;
-
-            String absolute = absoluteUrl(url, baseUrl);
-
-            if (!absolute.isEmpty()) {
-                addCandidate(candidates, absolute);
-            }
-        }
-    }
-
-    private void addCandidate(
-            ArrayList<String> candidates,
-            String url
-    ) {
-        if (url == null || url.isEmpty()) return;
-
-        url = decodeUrl(url);
-
-        if ((url.startsWith("https://") || url.startsWith("http://"))
-                && !candidates.contains(url)) {
-            candidates.add(url);
-        }
-    }
-
-    private String extractFirst(
-            String text,
-            String regex
-    ) {
-        if (text == null || text.isEmpty()) return "";
-
-        Matcher m = Pattern.compile(regex).matcher(text);
-        return m.find() ? decodeUrl(m.group(1)) : "";
-    }
-
-    private String findHls(String html) {
-        if (html == null || html.isEmpty()) return "";
-
-        // Normal absolute URL.
-        Pattern p = Pattern.compile(
-                "(?i)(https?://[^\\\"'\\s<>]+\\.m3u8(?:\\?[^\\\"'\\s<>]*)?)"
-        );
-
-        Matcher m = p.matcher(html);
-        while (m.find()) {
-            String url = decodeUrl(m.group(1));
-            if (url.startsWith("https://") || url.startsWith("http://")) {
-                return url;
-            }
-        }
-
-        // JavaScript frequently escapes slashes as \/.
-        Pattern escaped = Pattern.compile(
-                "(?i)(https?:\\\\/\\\\/[^\\\"'\\s<>]+\\.m3u8(?:\\?[^\\\"'\\s<>]*)?)"
-        );
-
-        Matcher em = escaped.matcher(html);
-        while (em.find()) {
-            String url = decodeUrl(em.group(1));
-            if (url.startsWith("https://") || url.startsWith("http://")) {
-                return url;
-            }
-        }
-
-        return "";
-    }
-
-    private ArrayList<String> findCandidatePages(String html, String baseUrl) {
-        ArrayList<String> result = new ArrayList<>();
-        if (html == null || html.isEmpty()) return result;
-
-        Pattern p = Pattern.compile(
-                "(?is)(?:href|src|data-url|data-href|onclick)\\s*=\\s*[\\\"']([^\\\"']+)[\\\"']"
-        );
-
-        Matcher m = p.matcher(html);
-
-        while (m.find()) {
-            String href = decodeUrl(m.group(1));
-
-            String lower = href.toLowerCase();
-
-            if (!lower.contains("webplayer")
-                    && !lower.contains("/player/")
-                    && !lower.contains("/export/")
-                    && !lower.contains("iframe")
-                    && !lower.contains("apl614")
-                    && !lower.contains("azplay")) {
-                continue;
-            }
-
-            String absolute = absoluteUrl(href, baseUrl);
-
-            if (!absolute.isEmpty()
-                    && (absolute.startsWith("https://")
-                    || absolute.startsWith("http://"))) {
-                if (!result.contains(absolute)) result.add(absolute);
-            }
-        }
-
-        // Some source links are plain quoted JavaScript strings.
-        Pattern quoted = Pattern.compile(
-                "(?is)[\\\"']([^\\\"']*(?:webplayer|/player/|/export/|apl614|azplay)[^\\\"']*)[\\\"']"
-        );
-
-        Matcher qm = quoted.matcher(html);
-
-        while (qm.find()) {
-            String href = decodeUrl(qm.group(1));
-            String absolute = absoluteUrl(href, baseUrl);
-
-            if (!absolute.isEmpty()
-                    && (absolute.startsWith("https://")
-                    || absolute.startsWith("http://"))
-                    && !result.contains(absolute)) {
-                result.add(absolute);
-            }
-        }
-
-        return result;
-    }
-
-    private String decodeUrl(String value) {
-        if (value == null) return "";
-
-        String result = value.trim();
-
-        result = result.replace("&amp;", "&");
-        result = result.replace("\\/", "/");
-        result = result.replace("\\\"", "\"");
-        result = result.replace("&#x3D;", "=");
-        result = result.replace("&#61;", "=");
-
-        return result;
-    }
-
-    private String absoluteUrl(String href, String baseUrl) {
+    private String formatTime(String value) {
+        if (value == null || value.isEmpty()) return "";
         try {
-            URL base = new URL(baseUrl);
-            URL resolved = new URL(base, href);
-            return resolved.toString();
+            long n = Long.parseLong(value);
+            if (n < 100000000000L) n *= 1000L;
+            Date d = new Date(n);
+            SimpleDateFormat f = new SimpleDateFormat("dd MMM  HH:mm", Locale.US);
+            f.setTimeZone(TimeZone.getDefault());
+            return f.format(d);
+        } catch (Exception ignored) {
+            return value;
+        }
+    }
+
+    private boolean isLive(JSONObject o, String time) {
+        String status = getString(o, "status", "state", "match_status");
+        String s = status == null ? "" : status.toLowerCase(Locale.US);
+        return s.contains("live") || s.contains("inprogress") || s.contains("in progress");
+    }
+
+    private void openMatch(Match match) {
+        showPlayerLoading(match);
+
+        new Thread(() -> {
+            String url = "https://api.sportsrc.org/?data=detail&category=football&id="
+                    + encode(match.id);
+            String json = httpGet(url);
+            String embed = findEmbed(json);
+
+            runOnUiThread(() -> {
+                if (embed.isEmpty()) {
+                    showPlayerError(match, "No working stream was returned for this match.");
+                } else {
+                    showEmbedPlayer(match, embed);
+                }
+            });
+        }).start();
+    }
+
+    private String findEmbed(String json) {
+        if (json == null || json.isEmpty()) return "";
+        try {
+            JSONObject root = new JSONObject(json);
+            String found = findUrl(root);
+            if (!found.isEmpty()) return found;
+
+            String html = findHtml(root);
+            Matcher m = Pattern.compile(
+                    "(?i)<iframe[^>]+src\\s*=\\s*[\\\"']([^\\\"']+)")
+                    .matcher(html == null ? "" : html);
+            if (m.find()) return m.group(1);
+        } catch (Exception ignored) {}
+
+        Matcher m = Pattern.compile(
+                "(?i)https?://[^\\\"'\\s<>]+")
+                .matcher(json);
+        while (m.find()) {
+            String u = m.group();
+            String low = u.toLowerCase(Locale.US);
+            if (low.contains("embed") || low.contains("player") || low.contains("stream")
+                    || low.contains("iframe")) return u;
+        }
+        return "";
+    }
+
+    private String findUrl(JSONObject o) {
+        Iterator<String> it = o.keys();
+        while (it.hasNext()) {
+            String k = it.next();
+            Object v = o.opt(k);
+            String key = k.toLowerCase(Locale.US);
+
+            if (v instanceof String) {
+                String s = (String) v;
+                if (s.startsWith("http://") || s.startsWith("https://")) {
+                    if (key.contains("embed") || key.contains("stream")
+                            || key.contains("iframe") || key.contains("player")
+                            || key.contains("source") || key.contains("url")) return s;
+                }
+            } else if (v instanceof JSONObject) {
+                String r = findUrl((JSONObject) v);
+                if (!r.isEmpty()) return r;
+            } else if (v instanceof JSONArray) {
+                String r = findUrl((JSONArray) v);
+                if (!r.isEmpty()) return r;
+            }
+        }
+        return "";
+    }
+
+    private String findUrl(JSONArray a) {
+        for (int i = 0; i < a.length(); i++) {
+            Object v = a.opt(i);
+            if (v instanceof JSONObject) {
+                String r = findUrl((JSONObject) v);
+                if (!r.isEmpty()) return r;
+            } else if (v instanceof String) {
+                String s = (String) v;
+                if (s.startsWith("http://") || s.startsWith("https://")) return s;
+            }
+        }
+        return "";
+    }
+
+    private String findHtml(JSONObject o) {
+        Iterator<String> it = o.keys();
+        while (it.hasNext()) {
+            String k = it.next();
+            Object v = o.opt(k);
+            if (v instanceof String) {
+                String s = (String) v;
+                if (s.contains("<iframe") || s.contains("<video")) return s;
+            } else if (v instanceof JSONObject) {
+                String r = findHtml((JSONObject) v);
+                if (!r.isEmpty()) return r;
+            } else if (v instanceof JSONArray) {
+                for (int i = 0; i < v.length(); i++) {
+                    Object x = v.opt(i);
+                    if (x instanceof JSONObject) {
+                        String r = findHtml((JSONObject) x);
+                        if (!r.isEmpty()) return r;
+                    }
+                }
+            }
+        }
+        return "";
+    }
+
+    private String encode(String s) {
+        try {
+            return java.net.URLEncoder.encode(s, "UTF-8");
         } catch (Exception e) {
-            return "";
+            return s;
         }
     }
 
-    private void resolveWithWebView(Match match) {
-        if (match == null || match.eventUrl == null || match.eventUrl.isEmpty()) {
-            showPlayer(match, "Match page is unavailable.");
-            return;
-        }
-
-        if (resolverWebView != null) {
-            try {
-                resolverWebView.stopLoading();
-                resolverWebView.destroy();
-            } catch (Exception ignored) {}
-            resolverWebView = null;
-        }
-
-        WebView web = new WebView(this);
-        resolverWebView = web;
-
-        // Use a real WebView session because LiveTV904 builds some source
-        // links with JavaScript. We only observe public browser requests;
-        // we do not bypass login, DRM, or access controls.
-        web.setVisibility(View.VISIBLE);
-        web.setAlpha(0.01f);
-
-        web.getSettings().setJavaScriptEnabled(true);
-        web.getSettings().setDomStorageEnabled(true);
-        web.getSettings().setDatabaseEnabled(true);
-        web.getSettings().setMediaPlaybackRequiresUserGesture(false);
-        web.getSettings().setJavaScriptCanOpenWindowsAutomatically(true);
-        web.getSettings().setSupportMultipleWindows(false);
-        web.getSettings().setLoadsImagesAutomatically(true);
-        web.getSettings().setUserAgentString(
-                "Mozilla/5.0 (Linux; Android 11; Android TV) AppleWebKit/537.36 " +
-                "(KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36"
-        );
-
-        CookieManager.getInstance().setAcceptCookie(true);
-        CookieManager.getInstance().setAcceptThirdPartyCookies(web, true);
-
-        final String eventUrl = match.eventUrl;
-        final String eid = extractFirst(
-                eventUrl,
-                "(?i)eventinfo/([0-9]+)"
-        );
-
-        final ArrayList<String> pages = new ArrayList<>();
-        pages.add(eventUrl);
-
-        if (!eid.isEmpty()) {
-            // A match can have several Aliez/Web sources. Try each source
-            // separately instead of stopping at the first one.
-            for (int source = 0; source < 5; source++) {
-                pages.add(
-                        "https://livetv904.me/player/links/ru/"
-                                + eid + "?mob=1&src=" + source
-                );
-            }
-
-            for (int source = 0; source < 5; source++) {
-                pages.add(
-                        "https://livetv904.me/player/links/en/"
-                                + eid + "?mob=1&src=" + source
-                );
-            }
-        }
-
-        web.setWebChromeClient(new WebChromeClient() {
-            @Override
-            public boolean onCreateWindow(
-                    WebView view,
-                    boolean isDialog,
-                    boolean isUserGesture,
-                    android.os.Message resultMsg
-            ) {
-                // Many source buttons use target=_blank/window.open().
-                // Reuse the same resolver WebView instead of creating a
-                // separate window that we could not observe.
-                WebView.HitTestResult hit = view.getHitTestResult();
-                if (hit != null && hit.getExtra() != null) {
-                    String u = hit.getExtra();
-                    if (u.startsWith("http://")
-                            || u.startsWith("https://")) {
-                        view.loadUrl(u);
-                        return true;
-                    }
-                }
-
-                view.evaluateJavascript(
-                        "(function(){window.open=function(u){if(u)location.href=u;};return true;})()",
-                        null
-                );
-                return false;
-            }
-        });
-
-        web.setWebViewClient(new WebViewClient() {
-            private int pageIndex = 0;
-            private boolean finished = false;
-            private final Set<String> loadedPages = new HashSet<>();
-
-            private boolean isHls(String url) {
-                return url != null
-                        && url.toLowerCase().contains(".m3u8");
-            }
-
-            private void found(String url) {
-                if (!isHls(url) || finished) return;
-
-                finished = true;
-
-                runOnUiThread(() -> {
-                    if (resolverWebView != web) return;
-
-                    try {
-                        web.stopLoading();
-                        web.destroy();
-                    } catch (Exception ignored) {}
-
-                    resolverWebView = null;
-
-                    playHls(url);
-                });
-            }
-
-            private void inspectPage(WebView view, String currentUrl) {
-                if (finished) return;
-
-                // Important: do not only look at href/src. LiveTV904 source
-                // buttons can use onclick, data-url, JavaScript navigation,
-                // target=_blank, or a generated player link.
-                String js =
-                        "(function(){" +
-                        "try{" +
-                        "var e=performance.getEntriesByType('resource');" +
-                        "for(var i=0;i<e.length;i++){" +
-                        "var p=e[i].name||'';" +
-                        "if(p.toLowerCase().indexOf('.m3u8')>=0){location.href=p;return;}" +
-                        "}" +
-                        "window.open=function(u){if(u){location.href=new URL(u,location.href).href;}return null;};" +
-                        "var nodes=document.querySelectorAll('a,iframe,source,video,button');" +
-                        "var page=location.href.toLowerCase();" +
-                        "if(page.indexOf('/player/links/')>=0){" +
-                        "var mm=location.href.match(/[?&]src=(\\d+)/i);var wanted=mm?parseInt(mm[1],10):0;" +
-                        "var sources=[];" +
-                        "for(var s=0;s<nodes.length;s++){" +
-                        "var st=((nodes[s].innerText||nodes[s].textContent||'')+' '+(nodes[s].getAttribute('alt')||'')+' '+(nodes[s].getAttribute('title')||'')).trim().toLowerCase();" +
-                        "if(st.indexOf('aliez')>=0||st==='web'||st.indexOf('web ')===0||st.indexOf(' web')>=0){sources.push(nodes[s]);}" +
-                        "}" +
-                        "if(wanted>=0&&wanted<sources.length){" +
-                        "var src=sources[wanted];" +
-                        "try{src.target='_self';src.removeAttribute('target');}catch(x){}" +
-                        "try{src.click();return;}catch(x){}" +
-                        "}" +
-                        "}" +
-                        "for(var j=0;j<nodes.length;j++){" +
-                        "var u=nodes[j].href||nodes[j].src||'';" +
-                        "var d=nodes[j].getAttribute('data-url')||nodes[j].getAttribute('data-href')||'';" +
-                        "var oc=nodes[j].getAttribute('onclick')||'';" +
-                        "var all=(u+' '+d+' '+oc).toLowerCase();" +
-                        "if(all.indexOf('.m3u8')>=0){" +
-                        "var z=(u||d||oc);var q=z.toLowerCase().indexOf('http');" +
-                        "if(q>=0){location.href=z.substring(q);return;}" +
-                        "}" +
-                        "if(all.indexOf('webplayer')>=0||all.indexOf('/player/')>=0||all.indexOf('/export/')>=0||all.indexOf('apl614')>=0||all.indexOf('azplay')>=0){" +
-                        "var candidate=u||d||'';" +
-                        "if(candidate&&candidate.toLowerCase().indexOf('javascript:')!==0){" +
-                        "try{candidate=new URL(candidate,location.href).href;}catch(x){}" +
-                        "if(candidate.indexOf('http://')===0||candidate.indexOf('https://')===0){location.href=candidate;return;}" +
-                        "}" +
-                        "}" +
-                        "}" +
-                        "var raw=document.documentElement?document.documentElement.innerHTML:'';" +
-                        "var low=raw.toLowerCase();" +
-                        "var keys=['webplayer','/player/links/','/export/','apl614','azplay'];" +
-                        "for(var kk=0;kk<keys.length;kk++){" +
-                        "var pos=low.indexOf(keys[kk]);" +
-                        "if(pos>=0){" +
-                        "var left=pos;" +
-                        "while(left>0&&raw.charAt(left)!=='\\\"'&&raw.charAt(left)!=='\\\''&&raw.charAt(left)!=='<')left--;" +
-                        "var right=pos;" +
-                        "while(right<raw.length&&raw.charAt(right)!=='\\\"'&&raw.charAt(right)!=='\\\''&&raw.charAt(right)!=='>'&&raw.charAt(right)!==' '&&raw.charAt(right)!=='\\n')right++;" +
-                        "var candidate=raw.substring(left+1,right);" +
-                        "if(candidate.indexOf('http')===0){location.href=candidate;return;}" +
-                        "if(candidate.indexOf('/')===0){location.href=new URL(candidate,location.href).href;return;}" +
-                        "}" +
-                        "}" +
-                        "}catch(x){}" +
-                        "})()";
-
-                view.evaluateJavascript(js, null);
-
-                if (!finished) {
-                    handler.postDelayed(
-                            () -> inspectPage(view, currentUrl),
-                            600
-                    );
-                }
-            }
-
-            private void loadNextPage() {
-                if (finished) return;
-
-                while (pageIndex < pages.size()) {
-                    String next = pages.get(pageIndex++);
-
-                    if (loadedPages.add(next)) {
-                        web.loadUrl(next);
-                        return;
-                    }
-                }
-
-                // Give the last page a little time for delayed JS/player
-                // initialization before declaring failure.
-                handler.postDelayed(() -> {
-                    if (!finished && resolverWebView == web) {
-                        try {
-                            web.stopLoading();
-                            web.destroy();
-                        } catch (Exception ignored) {}
-
-                        resolverWebView = null;
-
-                        showEmbeddedSource(match);
-                    }
-                }, 8000);
-            }
-
-            @Override
-            public android.webkit.WebResourceResponse shouldInterceptRequest(
-                    WebView view,
-                    WebResourceRequest request
-            ) {
-                String url = request.getUrl().toString();
-
-                // WebView exposes resource requests here, including XHR/fetch
-                // resources used by browser video players.
-                if (isHls(url)) {
-                    found(url);
-                }
-
-                return super.shouldInterceptRequest(view, request);
-            }
-
-            @Override
-            public boolean shouldOverrideUrlLoading(
-                    WebView view,
-                    WebResourceRequest request
-            ) {
-                String url = request.getUrl().toString();
-
-                if (isHls(url)) {
-                    found(url);
-                    return true;
-                }
-
-                return false;
-            }
-
-            @Override
-            public void onPageFinished(
-                    WebView view,
-                    String url
-            ) {
-                super.onPageFinished(view, url);
-
-                if (finished) return;
-
-                inspectPage(view, url);
-
-                // Allow source-list JavaScript to finish, then move to the
-                // next known LiveTV904 page if no player was opened.
-                handler.postDelayed(() -> {
-                    if (!finished && resolverWebView == web) {
-                        loadNextPage();
-                    }
-                }, 5500);
-            }
-        });
-
-        if (playerView != null
-                && playerView.getParent() instanceof LinearLayout) {
-            LinearLayout parent =
-                    (LinearLayout) playerView.getParent();
-
-            parent.addView(
-                    web,
-                    new LinearLayout.LayoutParams(2, 2)
-            );
-        }
-
-        web.loadUrl(pages.get(0));
-
-        // Safety timeout. The resolver should normally finish much earlier.
-        handler.postDelayed(() -> {
-            if (resolverWebView == web) {
-                try {
-                    web.stopLoading();
-                    web.destroy();
-                } catch (Exception ignored) {}
-
-                resolverWebView = null;
-
-                showEmbeddedSource(match);
-            }
-        }, 80000);
-    }
-
-    private void showEmbeddedSource(Match match) {
-        releasePlayer();
+    private void showPlayerLoading(Match match) {
+        releaseWebView();
         playerScreen = true;
 
+        LinearLayout root = playerRoot(match);
+        TextView status = label("Finding video stream...", 17, MUTED);
+        status.setGravity(Gravity.CENTER);
+        root.addView(status, new LinearLayout.LayoutParams(-1, 0, 1));
+        setContentView(root);
+    }
+
+    private void showPlayerError(Match match, String message) {
+        releaseWebView();
+        playerScreen = true;
+
+        LinearLayout root = playerRoot(match);
+        TextView status = label(message, 17, MUTED);
+        status.setGravity(Gravity.CENTER);
+        root.addView(status, new LinearLayout.LayoutParams(-1, 0, 1));
+
+        Button back = action("BACK");
+        root.addView(back, new LinearLayout.LayoutParams(-1, 58));
+        back.setOnClickListener(v -> {
+            releaseWebView();
+            showMatches();
+        });
+        setContentView(root);
+    }
+
+    private LinearLayout playerRoot(Match match) {
         LinearLayout root = new LinearLayout(this);
         root.setOrientation(LinearLayout.VERTICAL);
         root.setBackgroundColor(Color.BLACK);
 
         LinearLayout top = new LinearLayout(this);
-        top.setOrientation(LinearLayout.HORIZONTAL);
         top.setGravity(Gravity.CENTER_VERTICAL);
         top.setPadding(20, 8, 20, 8);
 
-        TextView title = label(
-                match.home + " — " + match.away,
-                19,
-                TEXT
-        );
+        TextView title = label(match.home + " — " + match.away, 19, TEXT);
         title.setTypeface(Typeface.DEFAULT, Typeface.BOLD);
         top.addView(title, new LinearLayout.LayoutParams(0, 56, 1));
 
@@ -1822,384 +500,158 @@ public class MainActivity extends Activity {
         top.addView(back, new LinearLayout.LayoutParams(120, 52));
         root.addView(top);
 
-        WebView web = new WebView(this);
-        resolverWebView = web;
+        back.setOnClickListener(v -> {
+            releaseWebView();
+            showMatches();
+        });
 
+        return root;
+    }
+
+    private void showEmbedPlayer(Match match, String embed) {
+        releaseWebView();
+        playerScreen = true;
+
+        LinearLayout root = playerRoot(match);
+
+        WebView web = new WebView(this);
+        playerWebView = web;
         web.setBackgroundColor(Color.BLACK);
         web.setOverScrollMode(View.OVER_SCROLL_NEVER);
+
         web.getSettings().setJavaScriptEnabled(true);
         web.getSettings().setDomStorageEnabled(true);
         web.getSettings().setMediaPlaybackRequiresUserGesture(false);
-        web.getSettings().setJavaScriptCanOpenWindowsAutomatically(true);
+        web.getSettings().setJavaScriptCanOpenWindowsAutomatically(false);
         web.getSettings().setSupportMultipleWindows(false);
         web.getSettings().setLoadsImagesAutomatically(true);
         web.getSettings().setUserAgentString(
-                "Mozilla/5.0 (Linux; Android 11; Android TV) AppleWebKit/537.36 " +
-                "(KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36"
-        );
+                "Mozilla/5.0 (Linux; Android 11; Android TV) AppleWebKit/537.36 "
+                        + "(KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36");
 
         CookieManager.getInstance().setAcceptCookie(true);
         CookieManager.getInstance().setAcceptThirdPartyCookies(web, true);
-
         web.setWebChromeClient(new WebChromeClient());
 
         web.setWebViewClient(new WebViewClient() {
             @Override
-            public boolean shouldOverrideUrlLoading(
-                    WebView view,
-                    WebResourceRequest request
-            ) {
-                String url = request.getUrl().toString();
-
-                // Keep navigation inside the application. Never hand the
-                // match/source URL to the Android browser.
-                if (url.startsWith("intent:")
-                        || url.startsWith("market:")
-                        || url.startsWith("mailto:")
-                        || url.startsWith("tel:")) {
-                    return true;
+            public boolean shouldOverrideUrlLoading(WebView view, WebResourceRequest req) {
+                String u = req.getUrl().toString();
+                if (u.startsWith("http://") || u.startsWith("https://")) {
+                    view.loadUrl(u);
                 }
-
-                if (url.startsWith("http://")
-                        || url.startsWith("https://")) {
-                    view.loadUrl(url);
-                    return true;
-                }
-
                 return true;
             }
 
             @Override
-            public boolean shouldOverrideUrlLoading(
-                    WebView view,
-                    String url
-            ) {
-                if (url == null) return true;
-
-                if (url.startsWith("http://")
-                        || url.startsWith("https://")) {
-                    view.loadUrl(url);
+            public boolean shouldOverrideUrlLoading(WebView view, String u) {
+                if (u != null && (u.startsWith("http://") || u.startsWith("https://"))) {
+                    view.loadUrl(u);
                 }
-
                 return true;
             }
         });
 
-        root.addView(
-                web,
-                new LinearLayout.LayoutParams(-1, 0, 1)
-        );
-
-        back.setOnClickListener(v -> {
-            releasePlayer();
-            showMatches();
-        });
-
+        root.addView(web, new LinearLayout.LayoutParams(-1, 0, 1));
         setContentView(root);
 
-        web.loadUrl(match.eventUrl);
+        String html =
+                "<!doctype html><html><head><meta name='viewport' content='width=device-width,initial-scale=1'>"
+                + "<style>html,body{margin:0;background:#000;width:100%;height:100%;overflow:hidden}"
+                + "iframe{border:0;width:100%;height:100%;}</style></head><body>"
+                + "<iframe src='" + htmlEscape(embed)
+                + "' allow='autoplay; fullscreen; encrypted-media' allowfullscreen></iframe>"
+                + "</body></html>";
+
+        web.loadDataWithBaseURL(
+                "https://sportsrc.org/",
+                html,
+                "text/html",
+                "UTF-8",
+                null);
     }
 
-    private void showPlayer(Match match, String message) {
-        releasePlayer();
-        playerScreen = true;
+    private String htmlEscape(String s) {
+        return s.replace("&", "&amp;")
+                .replace("'", "&#39;")
+                .replace("<", "&lt;")
+                .replace(">", "&gt;");
+    }
 
+    private void releaseWebView() {
+        if (playerWebView != null) {
+            try {
+                playerWebView.stopLoading();
+                playerWebView.destroy();
+            } catch (Exception ignored) {}
+            playerWebView = null;
+        }
+    }
+
+    private void showError(String message) {
         LinearLayout root = new LinearLayout(this);
         root.setOrientation(LinearLayout.VERTICAL);
-        root.setBackgroundColor(Color.BLACK);
-
-        LinearLayout top = new LinearLayout(this);
-        top.setOrientation(LinearLayout.HORIZONTAL);
-        top.setGravity(Gravity.CENTER_VERTICAL);
-        top.setPadding(20, 8, 20, 8);
-
-        TextView title = label(
-                match.home + " — " + match.away,
-                19,
-                TEXT
-        );
-
-        title.setTypeface(Typeface.DEFAULT, Typeface.BOLD);
-
-        top.addView(
-                title,
-                new LinearLayout.LayoutParams(0, 56, 1)
-        );
-
-        Button back = action("BACK");
-
-        top.addView(
-                back,
-                new LinearLayout.LayoutParams(120, 52)
-        );
-
-        root.addView(top);
-
-        TextView status = label(
-                message,
-                16,
-                MUTED
-        );
-
-        status.setGravity(Gravity.CENTER);
-
-        root.addView(
-                status,
-                new LinearLayout.LayoutParams(-1, 55)
-        );
-
-        playerView = new PlayerView(this);
-        playerView.setBackgroundColor(Color.BLACK);
-        playerView.setKeepScreenOn(true);
-
-        root.addView(
-                playerView,
-                new LinearLayout.LayoutParams(-1, 0, 1)
-        );
-
-        back.setOnClickListener(v -> {
-            releasePlayer();
-            showMatches();
-        });
-
-        setContentView(root);
-    }
-
-    private void playHls(String hls) {
-        if (hls == null || hls.isEmpty()) return;
-
-        releasePlayer();
-        playerScreen = true;
-
-        playerView = new PlayerView(this);
-        playerView.setBackgroundColor(Color.BLACK);
-
-        LinearLayout root = new LinearLayout(this);
-        root.setOrientation(LinearLayout.VERTICAL);
-        root.setBackgroundColor(Color.BLACK);
-
-        LinearLayout top = new LinearLayout(this);
-        top.setOrientation(LinearLayout.HORIZONTAL);
-        top.setGravity(Gravity.CENTER_VERTICAL);
-        top.setPadding(20, 8, 20, 8);
-
-        TextView title = label("MAX FOOTBALL ONLINE", 19, TEXT);
-        title.setTypeface(Typeface.DEFAULT, Typeface.BOLD);
-
-        top.addView(title, new LinearLayout.LayoutParams(0, 56, 1));
-
-        Button back = action("BACK");
-        top.addView(back, new LinearLayout.LayoutParams(120, 52));
-
-        root.addView(top);
-
-        root.addView(
-                playerView,
-                new LinearLayout.LayoutParams(-1, 0, 1)
-        );
-
-        back.setOnClickListener(v -> {
-            releasePlayer();
-            showMatches();
-        });
-
-        setContentView(root);
-
-        player = new ExoPlayer.Builder(this).build();
-        playerView.setPlayer(player);
-
-        MediaItem item = new MediaItem.Builder()
-                .setUri(Uri.parse(hls))
-                .build();
-
-        player.setMediaItem(item);
-        player.prepare();
-        player.play();
-    }
-
-    private void releasePlayer() {
-        if (resolverWebView != null) {
-            try {
-                resolverWebView.stopLoading();
-                resolverWebView.destroy();
-            } catch (Exception ignored) {}
-            resolverWebView = null;
-        }
-
-        if (playerView != null) {
-            // Detach first, then release the player. This prevents a stale
-            // video surface from remaining attached while audio continues.
-            try {
-                playerView.setPlayer(null);
-            } catch (Exception ignored) {}
-        }
-
-        if (player != null) {
-            try {
-                player.stop();
-            } catch (Exception ignored) {}
-
-            try {
-                player.release();
-            } catch (Exception ignored) {}
-
-            player = null;
-        }
-
-        playerView = null;
-    }
-
-    private void showError(
-            String message
-    ) {
-
-        LinearLayout root =
-                new LinearLayout(this);
-
-        root.setOrientation(
-                LinearLayout.VERTICAL
-        );
-
-        root.setGravity(
-                Gravity.CENTER
-        );
-
+        root.setGravity(Gravity.CENTER);
         root.setBackgroundColor(BG);
 
-        TextView title =
-                label(
-                        "MAX FOOTBALL ONLINE",
-                        28,
-                        TEXT
-                );
-
-        title.setTypeface(
-                Typeface.DEFAULT,
-                Typeface.BOLD
-        );
-
+        TextView title = label("MAX FOOTBALL ONLINE", 28, TEXT);
+        title.setTypeface(Typeface.DEFAULT, Typeface.BOLD);
         title.setGravity(Gravity.CENTER);
+        root.addView(title, new LinearLayout.LayoutParams(-1, 70));
 
-        root.addView(
-                title,
-                new LinearLayout.LayoutParams(
-                        -1,
-                        70
-                )
-        );
-
-        TextView error =
-                label(
-                        message,
-                        18,
-                        MUTED
-                );
-
+        TextView error = label(message, 18, MUTED);
         error.setGravity(Gravity.CENTER);
+        root.addView(error, new LinearLayout.LayoutParams(-1, 70));
 
-        root.addView(
-                error,
-                new LinearLayout.LayoutParams(
-                        -1,
-                        70
-                )
-        );
-
-        Button retry =
-                action("RETRY");
-
-        retry.setOnClickListener(
-                v -> loadMatches()
-        );
-
-        root.addView(
-                retry,
-                new LinearLayout.LayoutParams(
-                        180,
-                        58
-                )
-        );
+        Button retry = action("RETRY");
+        retry.setOnClickListener(v -> loadMatches());
+        root.addView(retry, new LinearLayout.LayoutParams(180, 58));
 
         setContentView(root);
     }
 
     @Override
     protected void onStop() {
-
         super.onStop();
-
-        // Android recommends releasing an Activity-owned ExoPlayer from
-        // onStop(). Do it only when the player screen is actually active.
         if (playerScreen) {
-            releasePlayer();
+            releaseWebView();
             playerScreen = false;
-        }
-    }
-
-    @Override
-    protected void onStart() {
-
-        super.onStart();
-
-        // If the Activity was stopped while playing, return to the match list
-        // instead of leaving a PlayerView without a live ExoPlayer.
-        if (!playerScreen && player == null && !matches.isEmpty()) {
-            showMatches();
         }
     }
 
     @Override
     protected void onDestroy() {
-
-        handler.removeCallbacksAndMessages(
-                null
-        );
-
-        releasePlayer();
-
+        handler.removeCallbacksAndMessages(null);
+        releaseWebView();
         super.onDestroy();
     }
 
     @Override
     public void onBackPressed() {
-
-        if (player != null || playerView != null || playerScreen) {
-
-            releasePlayer();
+        if (playerScreen) {
+            releaseWebView();
             playerScreen = false;
-
             showMatches();
-
         } else {
-
             super.onBackPressed();
         }
     }
 
     private static class Match {
-
         String league;
         String home;
         String away;
         String time;
         boolean live;
-        String eventUrl;
+        String id;
 
-        Match(
-                String league,
-                String home,
-                String away,
-                String time,
-                boolean live,
-                String eventUrl
-        ) {
-
+        Match(String league, String home, String away, String time, boolean live, String id) {
             this.league = league;
             this.home = home;
             this.away = away;
             this.time = time;
             this.live = live;
-            this.eventUrl = eventUrl;
+            this.id = id;
         }
     }
 }
