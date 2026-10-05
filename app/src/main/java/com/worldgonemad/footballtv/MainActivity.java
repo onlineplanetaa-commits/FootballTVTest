@@ -1190,17 +1190,13 @@ public class MainActivity extends Activity {
         new Thread(() -> {
             ArrayList<String> streams = collectLiveTvStreams(match.eventUrl);
 
-            if (streams.isEmpty()) {
-                streams = collectAk47Streams(match);
-            }
-
             ArrayList<String> finalStreams = streams;
 
             runOnUiThread(() -> {
                 if (finalStreams.isEmpty()) {
-                    showPlayer(match, "No playable LiveTV904 or AK47 stream was found.");
+                    showPlayer(match, "No playable LiveTV904 stream was found.");
                 } else {
-                    playAk47Streams(match, finalStreams, 0);
+                    playStreamCandidates(match, finalStreams, 0);
                 }
             });
         }).start();
@@ -1314,141 +1310,13 @@ public class MainActivity extends Activity {
         }
     }
 
-    private ArrayList<String> collectAk47Streams(Match match) {
-        ArrayList<String> streams = new ArrayList<>();
-
-        try {
-            final String apiHost = "https://zerohazaarop.store/";
-            String body = downloadPage(apiHost + "events.txt");
-            JSONArray root = new JSONArray(body);
-
-            String wantedHome = normalizeTeam(match.home);
-            String wantedAway = normalizeTeam(match.away);
-
-            for (int i = 0; i < root.length(); i++) {
-                JSONObject row = root.optJSONObject(i);
-                if (row == null) continue;
-
-                String rawEvent = row.optString("event", "");
-                if (!rawEvent.trim().startsWith("{")) continue;
-
-                JSONObject event = new JSONObject(rawEvent);
-                if (!event.optBoolean("visible", true)) continue;
-
-                if (!normalizeTeam(event.optString("teamAName", ""))
-                        .equals(wantedHome)
-                        || !normalizeTeam(event.optString("teamBName", ""))
-                        .equals(wantedAway)) {
-                    continue;
-                }
-
-                String linksPath = event.optString("links", "").trim();
-                if (linksPath.isEmpty()) continue;
-
-                String linksUrl = linksPath;
-                if (!linksUrl.startsWith("http://")
-                        && !linksUrl.startsWith("https://")) {
-                    linksUrl = apiHost + linksUrl.replaceFirst("^/+", "");
-                }
-
-                streams.addAll(selectAk47Streams(downloadPage(linksUrl)));
-            }
-        } catch (Exception ignored) {
-        }
-
-        return streams;
-    }
-
-    private String normalizeTeam(String value) {
-        if (value == null) return "";
-        return value.toLowerCase(Locale.US)
-                .replaceAll("[^a-z0-9а-яёііїєґ]+", " ")
-                .replaceAll("\\s+", " ")
-                .trim();
-    }
-
-    // AK47 links are sometimes returned through the same custom alphabet
-    // encoding used by AK47Sports. Decode first, then keep ALL visible links.
-    private ArrayList<String> selectAk47Streams(String body) {
-        ArrayList<String> result = new ArrayList<>();
-        if (body == null || body.trim().isEmpty()) return result;
-
-        String decoded = decodeAk47(body);
-
-        try {
-            JSONArray links = new JSONArray(decoded);
-            Set<String> seen = new HashSet<>();
-
-            for (int i = 0; i < links.length(); i++) {
-                JSONObject link = links.optJSONObject(i);
-                if (link == null || !link.optBoolean("visible", true)) continue;
-
-                String url = link.optString("link", "").trim();
-                if (url.isEmpty()) continue;
-
-                // Keep URL plus optional AK47 request metadata. The player method
-                // below can apply the metadata when opening the candidate.
-                if (seen.add(url)) result.add(url);
-            }
-        } catch (Exception ignored) {
-            String s = decoded.trim();
-            if (s.startsWith("http://") || s.startsWith("https://")) {
-                result.add(s);
-            }
-        }
-
-        return result;
-    }
-
-    // Exact AK47Sports v1.6 custom alphabet -> Base64 -> UTF-8 decoder.
-    private String decodeAk47(String value) {
-        if (value == null) return "";
-        String s = value.trim();
-        if (s.isEmpty()) return "";
-        if (s.startsWith("[") || s.startsWith("{")) return s;
-
-        final char[] standard =
-                "aAbBcCdDeEfFgGhHiIjJkKlLmMnNoOpPqQrRsStTuUvVwWxXyYzZ"
-                        .toCharArray();
-        final char[] custom =
-                "fFgGjJkKaApPbBmMoOzZeEnNcCdDrRqQtTvVuUxXhHiIwWyYlLsS"
-                        .toCharArray();
-
-        char[] out = new char[s.length()];
-        for (int i = 0; i < s.length(); i++) {
-            char ch = s.charAt(i);
-            int pos = -1;
-            for (int j = 0; j < custom.length; j++) {
-                if (custom[j] == ch) {
-                    pos = j;
-                    break;
-                }
-            }
-            out[i] = pos >= 0 ? standard[pos] : ch;
-        }
-
-        try {
-            return new String(
-                    android.util.Base64.decode(
-                            new String(out),
-                            android.util.Base64.DEFAULT
-                    ),
-                    java.nio.charset.StandardCharsets.UTF_8
-            );
-        } catch (Exception e) {
-            return s;
-        }
-    }
-
-    // Try every AK47 candidate. If ExoPlayer rejects one, immediately move to
-    // the next candidate instead of stopping on the first dead stream.
-    private void playAk47Streams(
+    private void playStreamCandidates(
             Match match,
             ArrayList<String> streams,
             int index
     ) {
         if (streams == null || index >= streams.size()) {
-            showPlayer(match, "All AK47 streams failed.");
+            showPlayer(match, "All LiveTV904 streams failed.");
             return;
         }
 
@@ -1524,71 +1392,6 @@ public class MainActivity extends Activity {
                     }
                 }
         );
-
-        player.setMediaItem(
-                new MediaItem.Builder()
-                        .setUri(Uri.parse(url))
-                        .build()
-        );
-
-        player.prepare();
-        player.play();
-    }
-
-    private void playAk47Stream(Match match, String url) {
-        releasePlayer();
-        playerScreen = true;
-
-        LinearLayout root = new LinearLayout(this);
-        root.setOrientation(LinearLayout.VERTICAL);
-        root.setBackgroundColor(Color.BLACK);
-
-        LinearLayout top = new LinearLayout(this);
-        top.setOrientation(LinearLayout.HORIZONTAL);
-        top.setGravity(Gravity.CENTER_VERTICAL);
-        top.setPadding(20, 8, 20, 8);
-
-        TextView title = label(
-                match.home + " — " + match.away,
-                19,
-                TEXT
-        );
-        title.setTypeface(Typeface.DEFAULT, Typeface.BOLD);
-        top.addView(title, new LinearLayout.LayoutParams(0, 56, 1));
-
-        Button back = action("BACK");
-        top.addView(back, new LinearLayout.LayoutParams(120, 52));
-        root.addView(top);
-
-        playerView = new PlayerView(this);
-        playerView.setBackgroundColor(Color.BLACK);
-        playerView.setKeepScreenOn(true);
-
-        root.addView(
-                playerView,
-                new LinearLayout.LayoutParams(-1, 0, 1)
-        );
-
-        back.setOnClickListener(v -> {
-            releasePlayer();
-            showMatches();
-        });
-
-        setContentView(root);
-
-        DefaultHttpDataSource.Factory http =
-                new DefaultHttpDataSource.Factory()
-                        .setUserAgent(
-                                "Mozilla/5.0 (Linux; Android 11; Android TV) AppleWebKit/537.36 Chrome/124.0.0.0 Safari/537.36"
-                        );
-
-        player = new ExoPlayer.Builder(this)
-                .setMediaSourceFactory(
-                        new androidx.media3.exoplayer.source.DefaultMediaSourceFactory(http)
-                )
-                .build();
-
-        playerView.setPlayer(player);
 
         player.setMediaItem(
                 new MediaItem.Builder()
