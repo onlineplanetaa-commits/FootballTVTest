@@ -1324,14 +1324,14 @@ public class MainActivity extends Activity {
 
         String candidate = streams.get(index);
         if (candidate == null || candidate.trim().isEmpty()) {
-            playAk47Streams(match, streams, index + 1);
+            playStreamCandidates(match, streams, index + 1);
             return;
         }
 
         String[] parts = candidate.split("\\t", -1);
         String url = parts.length > 0 ? parts[0].trim() : "";
         if (url.isEmpty()) {
-            playAk47Streams(match, streams, index + 1);
+            playStreamCandidates(match, streams, index + 1);
             return;
         }
 
@@ -1415,7 +1415,7 @@ public class MainActivity extends Activity {
                         if (player != null) {
                             releasePlayer();
                         }
-                        playAk47Streams(match, streams, nextIndex);
+                        playStreamCandidates(match, streams, nextIndex);
                     }
                 }
         );
