@@ -1176,20 +1176,212 @@ public class MainActivity extends Activity {
      */
 
     private void resolveAndPlay(Match match) {
-
-        if (match == null || match.eventUrl == null || match.eventUrl.isEmpty()) {
-            showError("Match page is unavailable.");
+        if (match == null) {
+            showError("Match is unavailable.");
             return;
         }
 
-        // Resolve the public stream in the background first. LiveTV904 often
-        // exposes the final HLS URL in the event/player HTML, and this path
-        // is much faster and more reliable than waiting for WebView timers.
-        showPlayer(match, "Finding video stream...");
+        showPlayer(match, "Finding stream...");
 
-        // Keep the known-good startup path. Stream resolving must not block
-        // or change Activity initialization on Android TV.
-        runOnUiThread(() -> resolveWithWebView(match));
+        new Thread(() -> {
+            String stream = findSportSrcStream(match);
+
+            runOnUiThread(() -> {
+                if (stream.isEmpty()) {
+                    // Keep the old LiveTV904 resolver as a fallback.
+                    resolveWithWebView(match);
+                } else if (stream.toLowerCase(Locale.US).contains(".m3u8")) {
+                    playHls(stream);
+                } else {
+                    playEmbed(match, stream);
+                }
+            });
+        }).start();
+    }
+
+    private String findSportSrcStream(Match match) {
+        String json = downloadPage(
+                "https://api.sportsrc.org/?data=matches&category=football"
+        );
+        if (json.isEmpty()) return "";
+
+        String id = findSportSrcId(json, match.home, match.away);
+        if (id.isEmpty()) return "";
+
+        String detail = downloadPage(
+                "https://api.sportsrc.org/?data=detail&category=football&id="
+                        + encodeUrl(id)
+        );
+        if (detail.isEmpty()) return "";
+
+        return findStreamUrlText(detail);
+    }
+
+    private String findSportSrcId(String json, String home, String away) {
+        if (json == null || json.isEmpty()) return "";
+
+        Pattern objectPattern = Pattern.compile(
+                "(?is)\\{[^{}]{0,8000}\\}"
+        );
+        Matcher objects = objectPattern.matcher(json);
+
+        while (objects.find()) {
+            String obj = objects.group();
+
+            String h = firstJsonValue(obj,
+                    "home", "home_team", "homeTeam", "home_name");
+            String a = firstJsonValue(obj,
+                    "away", "away_team", "awayTeam", "away_name");
+
+            if (h.isEmpty() || a.isEmpty()) continue;
+
+            if ((teamsMatch(h, home) && teamsMatch(a, away))
+                    || (teamsMatch(h, away) && teamsMatch(a, home))) {
+                String id = firstJsonValue(obj,
+                        "id", "match_id", "matchId", "event_id", "eventId");
+                if (!id.isEmpty()) return id;
+            }
+        }
+
+        return "";
+    }
+
+    private String firstJsonValue(String json, String... keys) {
+        for (String key : keys) {
+            Matcher m = Pattern.compile(
+                    "(?is)[\\\"']" + Pattern.quote(key)
+                            + "[\\\"']\\s*:\\s*(?:[\\\"']([^\\\"']+)"
+                            + "[\\\"']|([0-9]+))"
+            ).matcher(json);
+
+            if (m.find()) {
+                String v = m.group(1) != null ? m.group(1) : m.group(2);
+                if (v != null && !v.trim().isEmpty()) return v.trim();
+            }
+        }
+        return "";
+    }
+
+    private boolean teamsMatch(String a, String b) {
+        String x = normalizeTeam(a);
+        String y = normalizeTeam(b);
+        if (x.isEmpty() || y.isEmpty()) return false;
+        return x.equals(y) || x.contains(y) || y.contains(x);
+    }
+
+    private String normalizeTeam(String s) {
+        if (s == null) return "";
+        return s.toLowerCase(Locale.US)
+                .replaceAll("[^a-z0-9]+", "")
+                .replace("fc", "")
+                .replace("club", "");
+    }
+
+    private String findStreamUrlText(String json) {
+        if (json == null || json.isEmpty()) return "";
+
+        // AK47Sports/SportSRC detail responses may expose the stream as
+        // stream, embed, iframe, player, url, src or nested source fields.
+        Pattern p = Pattern.compile(
+                "(?is)(?:stream|embed|iframe|player|source|url|src|link|href)"
+                + "[\\\"']?\\s*:\\s*[\\\"']([^\\\"']+)[\\\"']"
+        );
+
+        Matcher m = p.matcher(json);
+        while (m.find()) {
+            String u = decodeStreamUrl(m.group(1));
+            if (looksLikePlayableUrl(u)) return u;
+        }
+
+        Pattern urls = Pattern.compile(
+                "(?i)https?://[^\\\"'\\s<>]+"
+        );
+        Matcher um = urls.matcher(json);
+        while (um.find()) {
+            String u = decodeStreamUrl(um.group());
+            if (looksLikePlayableUrl(u)) return u;
+        }
+
+        return "";
+    }
+
+    private boolean looksLikePlayableUrl(String u) {
+        if (u == null) return false;
+        String x = u.toLowerCase(Locale.US);
+        return x.contains(".m3u8")
+                || x.contains(".mp4")
+                || x.contains("embed")
+                || x.contains("player")
+                || x.contains("stream")
+                || x.contains("iframe")
+                || x.contains("/watch")
+                || x.contains("/live");
+    }
+
+    private String decodeStreamUrl(String u) {
+        if (u == null) return "";
+        return u.trim()
+                .replace("\\\\/", "/")
+                .replace("&amp;", "&");
+    }
+
+    private String encodeUrl(String s) {
+        try {
+            return URLEncoder.encode(s, "UTF-8");
+        } catch (Exception e) {
+            return s;
+        }
+    }
+
+    private void playEmbed(Match match, String url) {
+        releasePlayer();
+        playerScreen = true;
+
+        LinearLayout root = new LinearLayout(this);
+        root.setOrientation(LinearLayout.VERTICAL);
+        root.setBackgroundColor(Color.BLACK);
+
+        LinearLayout top = new LinearLayout(this);
+        top.setOrientation(LinearLayout.HORIZONTAL);
+        top.setGravity(Gravity.CENTER_VERTICAL);
+        top.setPadding(20, 8, 20, 8);
+
+        TextView title = label(
+                match.home + " — " + match.away,
+                19,
+                TEXT
+        );
+        title.setTypeface(Typeface.DEFAULT, Typeface.BOLD);
+        top.addView(title, new LinearLayout.LayoutParams(0, 56, 1));
+
+        Button back = action("BACK");
+        top.addView(back, new LinearLayout.LayoutParams(120, 52));
+        root.addView(top);
+
+        WebView web = new WebView(this);
+        resolverWebView = web;
+        web.setBackgroundColor(Color.BLACK);
+        web.getSettings().setJavaScriptEnabled(true);
+        web.getSettings().setDomStorageEnabled(true);
+        web.getSettings().setMediaPlaybackRequiresUserGesture(false);
+        web.getSettings().setLoadsImagesAutomatically(true);
+        web.getSettings().setUserAgentString(
+                "Mozilla/5.0 (Linux; Android 11; Android TV) AppleWebKit/537.36 "
+                        + "Chrome/124.0.0.0 Safari/537.36"
+        );
+
+        root.addView(
+                web,
+                new LinearLayout.LayoutParams(-1, 0, 1)
+        );
+
+        back.setOnClickListener(v -> {
+            releasePlayer();
+            showMatches();
+        });
+
+        setContentView(root);
+        web.loadUrl(url);
     }
 
     private String resolvePublicHls(String eventUrl) {
