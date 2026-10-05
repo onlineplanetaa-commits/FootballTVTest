@@ -209,12 +209,15 @@ public class MainActivity extends Activity {
             String json = httpGet(SPORTSRC_API);
             ArrayList<Match> liveMatches = parseSportsrcLiveMatches(json);
 
-            if (liveMatches.isEmpty()) {
-                runOnUiThread(() -> showError("No live football matches found."));
+            if (!liveMatches.isEmpty()) {
+                publishLiveMatches(liveMatches);
                 return;
             }
 
-            publishLiveMatches(liveMatches);
+            // SportSRC V1 currently returns the full football schedule but no
+            // live_ IDs. Use the live-event source to discover active games,
+            // then attach the corresponding SportSRC match ID for detail/stream.
+            loadMatchesWithBrowser();
         }).start();
     }
 
