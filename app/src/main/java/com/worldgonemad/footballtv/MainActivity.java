@@ -19,10 +19,6 @@ import android.webkit.WebChromeClient;
 import android.webkit.WebResourceRequest;
 import android.webkit.WebView;
 import android.webkit.WebViewClient;
-import android.webkit.ValueCallback;
-import org.json.JSONArray;
-import org.json.JSONObject;
-import org.json.JSONTokener;
 
 import java.io.BufferedReader;
 import java.io.InputStream;
@@ -65,13 +61,6 @@ public class MainActivity extends Activity {
 
     private final ArrayList<Match> matches =
             new ArrayList<>();
-
-    private ArrayList<String> fallbackSourceUrls = new ArrayList<>();
-    private final Set<String> failedSourceUrls = new HashSet<>();
-    private Match fallbackMatch;
-    private String activeSourceUrl = "";
-    private boolean browserPlaybackDetected = false;
-    private int alternateSourceIndex = 0;
 
     private LinearLayout listContainer;
     private TextView statusText;
@@ -1193,116 +1182,15 @@ public class MainActivity extends Activity {
             return;
         }
 
-        alternateSourceIndex = 0;
-        fallbackSourceUrls.clear();
-        failedSourceUrls.clear();
-        fallbackMatch = match;
-        showPlayer(match, "Finding direct stream...");
+        // Resolve the public stream in the background first. LiveTV904 often
+        // exposes the final HLS URL in the event/player HTML, and this path
+        // is much faster and more reliable than waiting for WebView timers.
+        showPlayer(match, "Finding video stream...");
 
-        new Thread(() -> {
-            // SoccerStreams100 is the PRIMARY football source.
-            // It provides dedicated match pages with external WATCH players.
-            fallbackSourceUrls.addAll(findSoccerStreamsMatchUrls(match));
-
-            // LiveTV904 direct HLS is now only a fallback.
-            String hls = resolvePublicHls(match.eventUrl);
-            if (!hls.isEmpty()) {
-                fallbackSourceUrls.add(hls);
-            }
-
-            // Old LiveTV mirror is the last fallback.
-            fallbackSourceUrls.addAll(findAlternateSourceUrls(match));
-
-            runOnUiThread(() -> {
-                if (playerScreen) {
-                    resolveWithWebView(match);
-                }
-            });
-        }).start();
+        // Keep the known-good startup path. Stream resolving must not block
+        // or change Activity initialization on Android TV.
+        runOnUiThread(() -> resolveWithWebView(match));
     }
-
-    private ArrayList<String> findSoccerStreamsMatchUrls(Match match) {
-        ArrayList<String> result = new ArrayList<>();
-        if (match == null) return result;
-
-        String html = downloadPage("https://soccerstreams100.st/matches");
-        if (html == null || html.isEmpty()) return result;
-
-        String home = normalizeTeamForMatch(match.home);
-        String away = normalizeTeamForMatch(match.away);
-        if (home.isEmpty() || away.isEmpty()) return result;
-
-        Pattern p = Pattern.compile(
-                "(?is)<a\\s+[^>]*href\\s*=\\s*[\\\"']([^\\\"']*/match/[^\\\"']+)[\\\"'][^>]*>(.*?)</a>"
-        );
-        Matcher m = p.matcher(html);
-
-        while (m.find()) {
-            String text = cleanText(m.group(2));
-            if (text.isEmpty()) continue;
-
-            String norm = normalizeTeamForMatch(text);
-            if (!norm.contains(home) || !norm.contains(away)) continue;
-
-            String href = decodeUrl(m.group(1));
-            String absolute = absoluteUrl(
-                    href,
-                    "https://soccerstreams100.st/matches"
-            );
-
-            if (!absolute.isEmpty()) {
-                addCandidate(result, absolute);
-            }
-        }
-
-        return result;
-    }
-
-    private ArrayList<String> findAlternateSourceUrls(Match match) {
-        ArrayList<String> result = new ArrayList<>();
-        if (match == null) return result;
-
-        String html = downloadPage("https://livetv.li/soccer");
-        if (html == null || html.isEmpty()) return result;
-
-        String home = normalizeTeamForMatch(match.home);
-        String away = normalizeTeamForMatch(match.away);
-
-        Pattern p = Pattern.compile(
-                "(?is)<a\\s+[^>]*href\\s*=\\s*[\\\"']([^\\\"']+)[\\\"'][^>]*>(.*?)</a>"
-        );
-        Matcher m = p.matcher(html);
-
-        while (m.find()) {
-            String text = cleanText(m.group(2));
-            if (text.isEmpty()) continue;
-
-            String norm = normalizeTeamForMatch(text);
-            if (!norm.contains(home) || !norm.contains(away)) continue;
-
-            String href = decodeUrl(m.group(1));
-            if (href.isEmpty()) continue;
-
-            String absolute = absoluteUrl(href, "https://livetv.li/soccer");
-            if (absolute.isEmpty()) continue;
-            if (absolute.contains("livetv.li")) continue;
-
-            addCandidate(result, absolute);
-        }
-
-        return result;
-    }
-
-    private String normalizeTeamForMatch(String value) {
-        if (value == null) return "";
-        String s = cleanText(value).toLowerCase();
-        s = s.replaceAll("\\([^)]*\\)", " ");
-        s = s.replaceAll("[^a-z0-9а-яёііїєґ]+", " ");
-        s = s.replaceAll("\\b(fc|cf|sc|ac|club|calcio|sporting|deportivo)\\b", " ");
-        s = s.replaceAll("\\s+", " ").trim();
-        return s;
-    }
-
 
     private String resolvePublicHls(String eventUrl) {
         String html = downloadPage(eventUrl);
@@ -1380,7 +1268,7 @@ public class MainActivity extends Activity {
             );        }
 
         String t = extractFirst(html,
-                "(?i)(?:[?&]t=)([^&\"'\\s]+)"
+                "(?i)(?:[?&]t=|\\\\\"t\\\\\"\\\\s*[:=]\\\\s*\\\\\"?)(\\\\d+)"
         );
 
         if (!eid.isEmpty()) {
@@ -1494,16 +1382,6 @@ public class MainActivity extends Activity {
 
     private String findHls(String html) {
         if (html == null || html.isEmpty()) return "";
-
-        // Catch protocol-relative and escaped HLS URLs too.
-        Pattern proto = Pattern.compile(
-                "(?i)(//[^\\\\\"'\\\\s<>]+\\\\.m3u8(?:\\\\?[^\\\\\"'\\\\s<>]*)?)"
-        );
-        Matcher pm = proto.matcher(html);
-        while (pm.find()) {
-            String url = decodeUrl(pm.group(1));
-            if (url.startsWith("//")) return "https:" + url;
-        }
 
         // Normal absolute URL.
         Pattern p = Pattern.compile(
@@ -1627,25 +1505,22 @@ public class MainActivity extends Activity {
             resolverWebView = null;
         }
 
-        final WebView web = new WebView(this);
+        WebView web = new WebView(this);
         resolverWebView = web;
-        browserPlaybackDetected = false;
 
-        web.setVisibility(View.INVISIBLE);
-        web.setBackgroundColor(Color.BLACK);
+        // Use a real WebView session because LiveTV904 builds some source
+        // links with JavaScript. We only observe public browser requests;
+        // we do not bypass login, DRM, or access controls.
+        web.setVisibility(View.VISIBLE);
+        web.setAlpha(0.01f);
 
         web.getSettings().setJavaScriptEnabled(true);
         web.getSettings().setDomStorageEnabled(true);
         web.getSettings().setDatabaseEnabled(true);
         web.getSettings().setMediaPlaybackRequiresUserGesture(false);
         web.getSettings().setJavaScriptCanOpenWindowsAutomatically(true);
-        web.getSettings().setSupportMultipleWindows(true);
-        if (android.os.Build.VERSION.SDK_INT >= 21) {
-            web.getSettings().setMixedContentMode(android.webkit.WebSettings.MIXED_CONTENT_ALWAYS_ALLOW);
-        }
+        web.getSettings().setSupportMultipleWindows(false);
         web.getSettings().setLoadsImagesAutomatically(true);
-        web.getSettings().setAllowContentAccess(true);
-        web.getSettings().setAllowFileAccess(false);
         web.getSettings().setUserAgentString(
                 "Mozilla/5.0 (Linux; Android 11; Android TV) AppleWebKit/537.36 " +
                 "(KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36"
@@ -1654,16 +1529,31 @@ public class MainActivity extends Activity {
         CookieManager.getInstance().setAcceptCookie(true);
         CookieManager.getInstance().setAcceptThirdPartyCookies(web, true);
 
-        if (playerView != null && playerView.getParent() instanceof LinearLayout) {
-            LinearLayout parent = (LinearLayout) playerView.getParent();
-            int index = parent.indexOfChild(playerView);
-            parent.removeView(playerView);
-            playerView = null;
-            parent.addView(
-                    web,
-                    index,
-                    new LinearLayout.LayoutParams(-1, 0, 1)
-            );
+        final String eventUrl = match.eventUrl;
+        final String eid = extractFirst(
+                eventUrl,
+                "(?i)eventinfo/([0-9]+)"
+        );
+
+        final ArrayList<String> pages = new ArrayList<>();
+        pages.add(eventUrl);
+
+        if (!eid.isEmpty()) {
+            // A match can have several Aliez/Web sources. Try each source
+            // separately instead of stopping at the first one.
+            for (int source = 0; source < 5; source++) {
+                pages.add(
+                        "https://livetv904.me/player/links/ru/"
+                                + eid + "?mob=1&src=" + source
+                );
+            }
+
+            for (int source = 0; source < 5; source++) {
+                pages.add(
+                        "https://livetv904.me/player/links/en/"
+                                + eid + "?mob=1&src=" + source
+                );
+            }
         }
 
         web.setWebChromeClient(new WebChromeClient() {
@@ -1674,395 +1564,176 @@ public class MainActivity extends Activity {
                     boolean isUserGesture,
                     android.os.Message resultMsg
             ) {
-                // LiveTV904 sources can request a new window. Do not reject
-                // that request: give the popup a WebView backed by the same
-                // Activity and load its URL back into our player WebView.
-                final WebView popup = new WebView(MainActivity.this);
-                popup.getSettings().setJavaScriptEnabled(true);
-                popup.getSettings().setDomStorageEnabled(true);
-                popup.getSettings().setMediaPlaybackRequiresUserGesture(false);
-                popup.getSettings().setJavaScriptCanOpenWindowsAutomatically(true);
-                popup.getSettings().setSupportMultipleWindows(true);
-                if (android.os.Build.VERSION.SDK_INT >= 21) {
-                    popup.getSettings().setMixedContentMode(android.webkit.WebSettings.MIXED_CONTENT_ALWAYS_ALLOW);
-                }
-                popup.setWebChromeClient(this);
-                popup.getSettings().setUserAgentString(web.getSettings().getUserAgentString());
-                CookieManager.getInstance().setAcceptThirdPartyCookies(popup, true);
-                popup.setWebViewClient(new WebViewClient() {
-                    @Override
-                    public boolean shouldOverrideUrlLoading(WebView v, String url) {
-                        if (url != null && (url.startsWith("http://") || url.startsWith("https://"))) {
-                            web.loadUrl(url);
-                        }
+                // Many source buttons use target=_blank/window.open().
+                // Reuse the same resolver WebView instead of creating a
+                // separate window that we could not observe.
+                WebView.HitTestResult hit = view.getHitTestResult();
+                if (hit != null && hit.getExtra() != null) {
+                    String u = hit.getExtra();
+                    if (u.startsWith("http://")
+                            || u.startsWith("https://")) {
+                        view.loadUrl(u);
                         return true;
                     }
+                }
 
-                    @Override
-                    public void onPageFinished(WebView v, String url) {
-                        if (url != null && (url.startsWith("http://") || url.startsWith("https://"))) {
-                            web.loadUrl(url);
-                            handler.postDelayed(() -> {
-                                if (resolverWebView == web && web.getUrl() != null) {
-                                    web.evaluateJavascript(
-                                            "(function(){var e=document.querySelector('iframe');return e&&e.src?e.src:'';})()",
-                                            value -> {
-                                                if (value == null) return;
-                                                try {
-                                                    Object decoded = new JSONTokener(value).nextValue();
-                                                    if (decoded instanceof String) {
-                                                        String target=(String)decoded;
-                                                        if (target.startsWith("http://") || target.startsWith("https://")) {
-                                                            web.loadUrl(target);
-                                                        }
-                                                    }
-                                                } catch (Exception ignored) {}
-                                            }
-                                    );
-                                }
-                            }, 1200);
-                        }
-                    }
-                });
-
-                android.webkit.WebView.WebViewTransport transport =
-                        (android.webkit.WebView.WebViewTransport) resultMsg.obj;
-                transport.setWebView(popup);
-                resultMsg.sendToTarget();
-                return true;
+                view.evaluateJavascript(
+                        "(function(){window.open=function(u){if(u)location.href=u;};return true;})()",
+                        null
+                );
+                return false;
             }
         });
 
         web.setWebViewClient(new WebViewClient() {
+            private int pageIndex = 0;
+            private boolean finished = false;
+            private final Set<String> loadedPages = new HashSet<>();
 
-            private final ArrayList<String> sourceScripts =
-                    new ArrayList<>();
+            private boolean isHls(String url) {
+                return url != null
+                        && url.toLowerCase().contains(".m3u8");
+            }
 
-            private int sourceIndex = 0;
-            private int navigationToken = 0;
-            private boolean sourceListCollected = false;
-            private boolean playingDetected = false;
+            private void found(String url) {
+                if (!isHls(url) || finished) return;
 
-            private void status(String text) {
+                finished = true;
+
                 runOnUiThread(() -> {
-                    if (resolverWebView == web && web.getParent() instanceof LinearLayout) {
-                        LinearLayout p = (LinearLayout) web.getParent();
-                        for (int i = 0; i < p.getChildCount(); i++) {
-                            View child = p.getChildAt(i);
-                            if (child instanceof TextView
-                                    && child != web
-                                    && !(child instanceof Button)) {
-                                ((TextView) child).setText(text);
-                                break;
-                            }
-                        }
-                    }
-                });
-            }
-
-            private void showOnlyPlayerContent() {
-                String js =
-                        "(function(){" +
-                        "try{" +
-                        "var p=document.querySelector('video,iframe');" +
-                        "if(!p)return false;" +
-                        "var e=p;" +
-                        "while(e&&e!==document.body&&e.parentElement){" +
-                        "for(var i=0;i<e.parentElement.children.length;i++){" +
-                        "var s=e.parentElement.children[i];" +
-                        "if(s!==e)s.style.display='none';" +
-                        "}" +
-                        "e.style.display='block';" +
-                        "e.style.visibility='visible';" +
-                        "e=e.parentElement;" +
-                        "}" +
-                        "document.documentElement.style.background='#000';" +
-                        "document.body.style.background='#000';" +
-                        "document.body.style.margin='0';" +
-                        "p.style.width='100%';p.style.height='100%';" +
-                        "return true;" +
-                        "}catch(x){return false;}" +
-                        "})()";
-                web.evaluateJavascript(js, value -> {
-                    if (resolverWebView == web) {
-                        web.setVisibility(View.VISIBLE);
-                    }
-                });
-            }
-
-            private void showEmbeddedLiveTvPlayer() {
-                String js =
-                        "(function(){"+
-                        "try{"+
-                        "var f=document.querySelector('iframe[src*=\\\"/cache/ltvplayer/\\\"],iframe[src*=\\\"ltvplayer\\\"]');"+
-                        "if(!f)return 'NO';"+
-                        "document.documentElement.style.background='#000';"+
-                        "document.body.style.background='#000';"+
-                        "document.body.style.margin='0';"+
-                        "f.style.position='fixed';"+
-                        "f.style.left='0';"+
-                        "f.style.top='0';"+
-                        "f.style.width='100vw';"+
-                        "f.style.height='100vh';"+
-                        "f.style.minWidth='100%';"+
-                        "f.style.minHeight='100%';"+
-                        "f.style.display='block';"+
-                        "f.style.visibility='visible';"+
-                        "f.style.opacity='1';"+
-                        "f.style.zIndex='2147483647';"+
-                        "f.style.border='0';"+
-                        "return 'FOUND:'+f.src;"+
-                        "}catch(x){return 'ERR';}"+
-                        "})()";
-                web.evaluateJavascript(js, value -> {
-                    if (resolverWebView != web || value == null) return;
-                    String decoded = value;
-                    try {
-                        Object v = new JSONTokener(value).nextValue();
-                        if (v instanceof String) decoded = (String)v;
-                    } catch (Exception ignored) {}
-
-                    if (decoded.startsWith("FOUND:")) {
-                        web.setVisibility(View.VISIBLE);
-                        status("LiveTV904 player found — waiting for stream...");
-                    } else {
-                        handler.postDelayed(() -> {
-                            if (resolverWebView == web && !browserPlaybackDetected) {
-                                showEmbeddedLiveTvPlayer();
-                            }
-                        }, 500);
-                    }
-                });
-            }
-
-            private void markMediaRequest(String url) {
-                if (resolverWebView != web || playingDetected || url == null) return;
-
-                String u = url.toLowerCase();
-
-                // Segment/ad requests are not proof of playback. Only a manifest
-                // or playlist is strong enough to stop source rotation.
-                boolean manifest =
-                        u.contains(".m3u8")
-                                || u.contains(".mpd")
-                                || u.contains("/manifest")
-                                || u.contains("/playlist")
-                                || u.contains("/stream/");
-
-                if (!manifest) return;
-
-                playingDetected = true;
-                browserPlaybackDetected = true;
-                web.setVisibility(View.VISIBLE);
-                status("Football stream connected.");
-            }
-
-            private void inspectForPlayback() {
-                if (resolverWebView != web || playingDetected) return;
-
-                String js =
-                        "(function(){" +
-                        "try{" +
-                        "var v=document.querySelector('video');" +
-                        "if(v&&(!v.paused&&v.readyState>=3&&(v.currentTime||0)>0))return 'PLAYING';" +
-                        "if(v&&v.src&&/\\.(m3u8|mpd)(\\?|$)/i.test(v.src))return 'MEDIA:'+v.src;" +
-                        "var ss=document.querySelectorAll('video source,source');" +
-                        "for(var i=0;i<ss.length;i++){var s=ss[i].src||ss[i].getAttribute('src')||'';if(/\\.(m3u8|mpd)(\\?|$)/i.test(s))return 'MEDIA:'+s;}" +
-                        "var e=document.querySelector('iframe');" +
-                        "if(e&&e.src)return 'FRAME:'+e.src;" +
-                        "var o=document.querySelector('object,embed');" +
-                        "if(o&&(o.data||o.src))return 'EMBED:'+((o.data||o.src));" +
-                        "return '';" +
-                        "}catch(x){return '';}" +
-                        "})()";
-
-                web.evaluateJavascript(js, value -> {
-                    if (resolverWebView != web || value == null) return;
-
-                    String decoded = value;
-                    try {
-                        Object v = new JSONTokener(value).nextValue();
-                        if (v instanceof String) decoded = (String)v;
-                    } catch (Exception ignored) {}
-
-                    if (decoded.startsWith("PLAYING")) {
-                        playingDetected = true;
-                        browserPlaybackDetected = true;
-                        showOnlyPlayerContent();
-                        status("Playing");
-                        return;
-                    }
-
-                    if (decoded.startsWith("MEDIA:")) {
-                        playingDetected = true;
-                        browserPlaybackDetected = true;
-                        showOnlyPlayerContent();
-                        status("Football stream found.");
-                        return;
-                    }
-
-                    if (decoded.startsWith("FRAME:") || decoded.startsWith("EMBED:")) {
-                        String target = decoded.substring(decoded.indexOf(':') + 1).trim();
-                        if (target.startsWith("http://") || target.startsWith("https://")) {
-                            String current = web.getUrl();
-                            if (current == null || !current.equals(target)) {
-                                status("Opening actual stream player...");
-                                web.loadUrl(target);
-                                return;
-                            }
-                        }
-                    }
-                });
-            }
-
-            private void clickCurrentSource() {
-                if (resolverWebView != web || sourceIndex <= 0
-                        || sourceIndex > sourceScripts.size()) return;
-
-                status("Trying browser source " + sourceIndex + "...");
-
-                String script = sourceScripts.get(sourceIndex - 1);
-                navigationToken++;
-                final int token = navigationToken;
-
-                web.evaluateJavascript(script, value -> {
                     if (resolverWebView != web) return;
 
-                    handler.postDelayed(() -> {
-                        if (resolverWebView != web || playingDetected
-                                || token != navigationToken) return;
-                        inspectForPlayback();
+                    try {
+                        web.stopLoading();
+                        web.destroy();
+                    } catch (Exception ignored) {}
 
-                        handler.postDelayed(() -> {
-                            if (resolverWebView != web || playingDetected
-                                    || token != navigationToken) return;
-                            tryNextBrowserSource();
-                        }, 7000);
-                    }, 1500);
+                    resolverWebView = null;
+
+                    playHls(url);
                 });
             }
 
-            private void tryNextBrowserSource() {
-                if (resolverWebView != web || playingDetected) return;
+            private void inspectPage(WebView view, String currentUrl) {
+                if (finished) return;
 
-                if (sourceIndex >= sourceScripts.size()) {
-                    if (alternateSourceIndex < fallbackSourceUrls.size()) {
-                        alternateSourceIndex++;
-                        try {
-                            web.stopLoading();
-                            web.loadUrl(fallbackSourceUrls.get(alternateSourceIndex - 1));
-                        } catch (Exception ignored) {}
-                        status("Trying alternate football source " + alternateSourceIndex + "...");
-                        return;
-                    }
-                    status("No working stream found on available sources.");
-                    return;
-                }
-
-                sourceIndex++;
-
-                // If a failed source navigated away from the event page, return
-                // to the event page and click the next source there.
-                String current = web.getUrl();
-                if (current == null || !current.contains("/eventinfo/")) {
-                    status("Loading next browser source...");
-                    web.loadUrl(match.eventUrl);
-                } else {
-                    clickCurrentSource();
-                }
-            }
-
-            private void collectAndStartSources() {
-                if (resolverWebView != web || sourceListCollected) return;
-
+                // Important: do not only look at href/src. LiveTV904 source
+                // buttons can use onclick, data-url, JavaScript navigation,
+                // target=_blank, or a generated player link.
                 String js =
                         "(function(){" +
                         "try{" +
-                        "var out=[];var seen={};" +
-                        "var els=document.querySelectorAll('a,button,[role=button],[onclick],[data-href],[data-url],a[href*=\"/export/webplayer.iframe.php\"],a[href*=\"/player/\"]');" +
-                        "for(var i=0;i<els.length;i++){" +
-                        "var x=els[i];" +
-                        "var t=((x.innerText||x.textContent||'')+' '+(x.title||x.getAttribute('aria-label')||'')).trim();" +
-                        "var h=x.getAttribute('href')||x.getAttribute('src')||x.getAttribute('data-href')||x.getAttribute('data-url')||'';" +
-                        "var o=x.getAttribute('onclick')||'';" +
-                        "var z=(t+' '+h+' '+o).toLowerCase();" +
-                        "var ok=/webplayer|\\/player\\/|\\/export\\/|ltvplayer|apl614|azplay|aliez/.test(z)||/^(web|web\\s*\\d*|aliez)\\b/i.test(t);" +
-                        "if(!ok)continue;" +
-                        "var key=(h+'|'+o+'|'+t).trim();" +
-                        "if(!key||seen[key])continue;seen[key]=1;" +
-                        "var resolved='';" +
-                        "try{if(h)resolved=new URL(h,location.href).href;}catch(e){}" +
-                        "out.push({h:resolved,t:t,o:o});" +
+                        "var e=performance.getEntriesByType('resource');" +
+                        "for(var i=0;i<e.length;i++){" +
+                        "var p=e[i].name||'';" +
+                        "if(p.toLowerCase().indexOf('.m3u8')>=0){location.href=p;return;}" +
                         "}" +
-                        "return JSON.stringify(out);" +
-                        "}catch(e){return '[]';}" +
+                        "window.open=function(u){if(u){location.href=new URL(u,location.href).href;}return null;};" +
+                        "var nodes=document.querySelectorAll('a,iframe,source,video,button');" +
+                        "var page=location.href.toLowerCase();" +
+                        "if(page.indexOf('/player/links/')>=0){" +
+                        "var mm=location.href.match(/[?&]src=(\\d+)/i);var wanted=mm?parseInt(mm[1],10):0;" +
+                        "var sources=[];" +
+                        "for(var s=0;s<nodes.length;s++){" +
+                        "var st=((nodes[s].innerText||nodes[s].textContent||'')+' '+(nodes[s].getAttribute('alt')||'')+' '+(nodes[s].getAttribute('title')||'')).trim().toLowerCase();" +
+                        "if(st.indexOf('aliez')>=0||st==='web'||st.indexOf('web ')===0||st.indexOf(' web')>=0){sources.push(nodes[s]);}" +
+                        "}" +
+                        "if(wanted>=0&&wanted<sources.length){" +
+                        "var src=sources[wanted];" +
+                        "try{src.target='_self';src.removeAttribute('target');}catch(x){}" +
+                        "try{src.click();return;}catch(x){}" +
+                        "}" +
+                        "}" +
+                        "for(var j=0;j<nodes.length;j++){" +
+                        "var u=nodes[j].href||nodes[j].src||'';" +
+                        "var d=nodes[j].getAttribute('data-url')||nodes[j].getAttribute('data-href')||'';" +
+                        "var oc=nodes[j].getAttribute('onclick')||'';" +
+                        "var all=(u+' '+d+' '+oc).toLowerCase();" +
+                        "if(all.indexOf('.m3u8')>=0){" +
+                        "var z=(u||d||oc);var q=z.toLowerCase().indexOf('http');" +
+                        "if(q>=0){location.href=z.substring(q);return;}" +
+                        "}" +
+                        "if(all.indexOf('webplayer')>=0||all.indexOf('/player/')>=0||all.indexOf('/export/')>=0||all.indexOf('apl614')>=0||all.indexOf('azplay')>=0){" +
+                        "var candidate=u||d||'';" +
+                        "if(candidate&&candidate.toLowerCase().indexOf('javascript:')!==0){" +
+                        "try{candidate=new URL(candidate,location.href).href;}catch(x){}" +
+                        "if(candidate.indexOf('http://')===0||candidate.indexOf('https://')===0){location.href=candidate;return;}" +
+                        "}" +
+                        "}" +
+                        "}" +
+                        "var raw=document.documentElement?document.documentElement.innerHTML:'';" +
+                        "var low=raw.toLowerCase();" +
+                        "var keys=['webplayer','/player/links/','/export/','apl614','azplay'];" +
+                        "for(var kk=0;kk<keys.length;kk++){" +
+                        "var pos=low.indexOf(keys[kk]);" +
+                        "if(pos>=0){" +
+                        "var left=pos;" +
+                        "while(left>0&&raw.charAt(left)!=='\\\"'&&raw.charAt(left)!=='\\\''&&raw.charAt(left)!=='<')left--;" +
+                        "var right=pos;" +
+                        "while(right<raw.length&&raw.charAt(right)!=='\\\"'&&raw.charAt(right)!=='\\\''&&raw.charAt(right)!=='>'&&raw.charAt(right)!==' '&&raw.charAt(right)!=='\\n')right++;" +
+                        "var candidate=raw.substring(left+1,right);" +
+                        "if(candidate.indexOf('http')===0){location.href=candidate;return;}" +
+                        "if(candidate.indexOf('/')===0){location.href=new URL(candidate,location.href).href;return;}" +
+                        "}" +
+                        "}" +
+                        "}catch(x){}" +
                         "})()";
 
-                web.evaluateJavascript(js, value -> {
-                    if (resolverWebView != web || value == null) return;
+                view.evaluateJavascript(js, null);
 
-                    try {
-                        // evaluateJavascript() returns the result of JSON.stringify()
-                        // as a quoted JSON string. Decode that string before parsing
-                        // it as the JSONArray. Without this step Android WebView can
-                        // silently fail here and leave sourceScripts empty forever.
-                        Object decoded = new JSONTokener(value).nextValue();
-                        String json = decoded instanceof String
-                                ? (String) decoded
-                                : value;
-                        JSONArray arr = new JSONArray(json);
-                        sourceScripts.clear();
+                if (!finished) {
+                    handler.postDelayed(
+                            () -> inspectPage(view, currentUrl),
+                            600
+                    );
+                }
+            }
 
-                        for (int i = 0; i < arr.length(); i++) {
-                            JSONObject o = arr.optJSONObject(i);
-                            if (o == null) continue;
+            private void loadNextPage() {
+                if (finished) return;
 
-                            String href = o.optString("h", "");
-                            String text = o.optString("t", "");
-                            String onclick = o.optString("o", "");
+                while (pageIndex < pages.size()) {
+                    String next = pages.get(pageIndex++);
 
-                            String safeHref = JSONObject.quote(href);
-                            String safeText = JSONObject.quote(text);
-                            String safeOnclick = JSONObject.quote(onclick);
-
-                            String script =
-                                    "(function(){" +
-                                    "var href=" + safeHref + ",txt=" + safeText +
-                                    ",oc=" + safeOnclick + ";" +
-                                    "var els=document.querySelectorAll('a,button,iframe,[role=button],[onclick],[data-href],[data-url]');" +
-                                    "for(var i=0;i<els.length;i++){" +
-                                    "var x=els[i];" +
-                                    "var h=x.getAttribute('href')||x.getAttribute('src')||x.getAttribute('data-href')||x.getAttribute('data-url')||'';" +
-                                    "var t=((x.innerText||x.textContent||'')+' '+(x.title||x.getAttribute('aria-label')||'')).trim();" +
-                                    "var o=x.getAttribute('onclick')||'';" +
-                                    "var rh='';try{if(h)rh=new URL(h,location.href).href;}catch(e){}" +
-                                    "if((href&&rh===href)||(oc&&o===oc)||(!href&&!oc&&t===txt)||(!href&&oc&&t===txt)){" +
-                                    "try{x.setAttribute('target','_self');}catch(e){}" +
-                                    "try{x.scrollIntoView({block:'center'});}catch(e){}" +
-                                    "if(href&&rh===href){try{location.href=href;return 'NAV';}catch(e){}}" +
-                                    "try{x.click();}catch(e){}" +
-                                    "return 'OK';" +
-                                    "}" +
-                                    "}" +
-                                    "return 'NO';" +
-                                    "})()";
-
-                            sourceScripts.add(script);
-                        }
-                    } catch (Exception ignored) {}
-
-                    if (!sourceScripts.isEmpty()) {
-                        sourceListCollected = true;
-                        fallbackMatch = match;
-                        fallbackSourceUrls.clear();
-                        failedSourceUrls.clear();
-                        sourceIndex = 1;
-                        clickCurrentSource();
-                    } else {
-                        // The Browser Links block can be inserted dynamically.
-                        handler.postDelayed(this::collectAndStartSources, 500);
+                    if (loadedPages.add(next)) {
+                        web.loadUrl(next);
+                        return;
                     }
-                });
+                }
+
+                // Give the last page a little time for delayed JS/player
+                // initialization before declaring failure.
+                handler.postDelayed(() -> {
+                    if (!finished && resolverWebView == web) {
+                        try {
+                            web.stopLoading();
+                            web.destroy();
+                        } catch (Exception ignored) {}
+
+                        resolverWebView = null;
+
+                        showPlayer(
+                                match,
+                                "No public video stream was found for this match."
+                        );
+                    }
+                }, 8000);
+            }
+
+            @Override
+            public android.webkit.WebResourceResponse shouldInterceptRequest(
+                    WebView view,
+                    WebResourceRequest request
+            ) {
+                String url = request.getUrl().toString();
+
+                // WebView exposes resource requests here, including XHR/fetch
+                // resources used by browser video players.
+                if (isHls(url)) {
+                    found(url);
+                }
+
+                return super.shouldInterceptRequest(view, request);
             }
 
             @Override
@@ -2070,192 +1741,66 @@ public class MainActivity extends Activity {
                     WebView view,
                     WebResourceRequest request
             ) {
-                String u = request.getUrl().toString();
-                return !(u.startsWith("http://") || u.startsWith("https://"));
+                String url = request.getUrl().toString();
+
+                if (isHls(url)) {
+                    found(url);
+                    return true;
+                }
+
+                return false;
             }
 
             @Override
-            public boolean shouldOverrideUrlLoading(
+            public void onPageFinished(
                     WebView view,
                     String url
             ) {
-                return url != null
-                        && !(url.startsWith("http://") || url.startsWith("https://"));
-            }
-
-            @Override
-            public android.webkit.WebResourceResponse shouldInterceptRequest(
-                    WebView view, WebResourceRequest request
-            ) {
-                if (request != null && request.getUrl() != null) {
-                    markMediaRequest(request.getUrl().toString());
-                }
-                return super.shouldInterceptRequest(view, request);
-            }
-
-            @Override
-            public android.webkit.WebResourceResponse shouldInterceptRequest(
-                    WebView view, String url
-            ) {
-                markMediaRequest(url);
-                return super.shouldInterceptRequest(view, url);
-            }
-
-            private void openSoccerStreamsWatch() {
-                if (resolverWebView != web || playingDetected) return;
-
-                String js =
-                        "(function(){" +
-                        "try{" +
-                        "var els=document.querySelectorAll('a[href],button,[role=button],[onclick]');" +
-                        "for(var i=0;i<els.length;i++){" +
-                        "var x=els[i];" +
-                        "var t=((x.innerText||x.textContent||'')+' '+(x.title||x.getAttribute('aria-label')||'')).trim();" +
-                        "var h=x.getAttribute('href')||x.getAttribute('data-href')||x.getAttribute('data-url')||'';" +
-                        "var o=x.getAttribute('onclick')||'';" +
-                        "if(/\\bwatch\\b/i.test(t)&&h){" +
-                        "try{return new URL(h,location.href).href;}catch(e){}" +
-                        "}" +
-                        "if(/\\bwatch\\b/i.test(t)&&o){" +
-                        "var m=o.match(/https?:\\/\\/[^\\\"'\\s]+/i);" +
-                        "if(m)return m[0];" +
-                        "}" +
-                        "}" +
-                        "return '';" +
-                        "}catch(e){return '';}" +
-                        "})()";
-
-                web.evaluateJavascript(js, value -> {
-                    if (resolverWebView != web || value == null) return;
-
-                    String target = "";
-                    try {
-                        Object decoded = new JSONTokener(value).nextValue();
-                        if (decoded instanceof String) {
-                            target = (String) decoded;
-                        }
-                    } catch (Exception ignored) {}
-
-                    if (target.startsWith("http://") || target.startsWith("https://")) {
-                        status("Opening SoccerStreams player...");
-                        web.loadUrl(target);
-                    } else {
-                        handler.postDelayed(this::openSoccerStreamsWatch, 700);
-                    }
-                });
-            }
-
-            @Override
-            public void onPageFinished(WebView view, String url) {
                 super.onPageFinished(view, url);
-                if (resolverWebView != web) return;
 
-                if (playingDetected) return;
+                if (finished) return;
 
-                if (url.contains("soccerstreams100.st")) {
-                    status("Finding SoccerStreams player...");
-                    handler.postDelayed(this::openSoccerStreamsWatch, 300);
-                    handler.postDelayed(this::inspectForPlayback, 1200);
-                    return;
-                }
+                inspectPage(view, url);
 
-                if (url.contains("/cache/ltvplayer/")) {
-                    // The iframe itself is not proof that video is playing.
-                    web.setVisibility(View.VISIBLE);
-                    status("LiveTV904 player loaded — waiting for stream...");
-                    handler.postDelayed(this::inspectForPlayback, 500);
-                    handler.postDelayed(this::inspectForPlayback, 1500);
-                    handler.postDelayed(this::inspectForPlayback, 3000);
-                } else if (url.contains("/export/webplayer.iframe.php")
-                        || url.contains("/player/")) {
-                    // Reaching the browser-player URL is not proof of playback.
-                    // First expose the actual nested player/stream URL.
-                    web.setVisibility(View.VISIBLE);
-                    status("LiveTV904 player loaded — opening stream...");
-                    handler.postDelayed(this::inspectForPlayback, 800);
-                    handler.postDelayed(this::inspectForPlayback, 2000);
-                    handler.postDelayed(this::inspectForPlayback, 5000);
-                } else if (url.contains("/eventinfo/")) {
-                    // Keep LiveTV904's /cache/ltvplayer iframe inside the event page.
-                    // Navigating the WebView to that iframe directly loses the parent
-                    // page context, referrer and cookies and causes the black player.
-                    status("Loading embedded LiveTV904 player...");
-                    handler.postDelayed(() -> {
-                        if (resolverWebView == web && !playingDetected) {
-                            showEmbeddedLiveTvPlayer();
-                        }
-                    }, 500);
-                } else {
-                    handler.postDelayed(
-                            this::inspectForPlayback,
-                            500
-                    );
-                }
-            }
-
-            @Override
-            public void onReceivedError(
-                    WebView view,
-                    WebResourceRequest request,
-                    android.webkit.WebResourceError error
-            ) {
-                super.onReceivedError(view, request, error);
-                if (resolverWebView != web || playingDetected) return;
-                if (request.isForMainFrame()) {
-                    status("Browser source failed — trying next...");
-                    handler.postDelayed(this::tryNextBrowserSource, 500);
-                }
+                // Allow source-list JavaScript to finish, then move to the
+                // next known LiveTV904 page if no player was opened.
+                handler.postDelayed(() -> {
+                    if (!finished && resolverWebView == web) {
+                        loadNextPage();
+                    }
+                }, 5500);
             }
         });
 
-        String startUrl = match.eventUrl;
-        String startLabel = "Finding LiveTV904 player...";
-        if (alternateSourceIndex > 0
-                && alternateSourceIndex <= fallbackSourceUrls.size()) {
-            startUrl = fallbackSourceUrls.get(alternateSourceIndex - 1);
-            startLabel = "Trying alternate source " + alternateSourceIndex + "...";
+        if (playerView != null
+                && playerView.getParent() instanceof LinearLayout) {
+            LinearLayout parent =
+                    (LinearLayout) playerView.getParent();
+
+            parent.addView(
+                    web,
+                    new LinearLayout.LayoutParams(2, 2)
+            );
         }
 
-        statusForBrowserPlayer(web, startLabel);
-        web.loadUrl(startUrl);
+        web.loadUrl(pages.get(0));
 
-        // Do not leave the user stuck for a minute. Source discovery should
-        // either start playback or fail in about 30 seconds.
+        // Safety timeout. The resolver should normally finish much earlier.
         handler.postDelayed(() -> {
-            if (resolverWebView == web && !browserPlaybackDetected) {
+            if (resolverWebView == web) {
                 try {
                     web.stopLoading();
-                    if (web.getParent() instanceof android.view.ViewGroup) {
-                        ((android.view.ViewGroup) web.getParent()).removeView(web);
-                    }
                     web.destroy();
                 } catch (Exception ignored) {}
+
                 resolverWebView = null;
-                if (alternateSourceIndex < fallbackSourceUrls.size()) {
-                    alternateSourceIndex++;
-                    showPlayer(match, "Trying alternate football source...");
-                    handler.postDelayed(() -> resolveWithWebView(match), 300);
-                } else {
-                    showPlayer(match, "No working stream found on available sources.");
-                }
+
+                showPlayer(
+                        match,
+                        "No public video stream was found for this match."
+                );
             }
-        }, 30000);
-    }
-
-    private void statusForBrowserPlayer(WebView web, String text) {
-        if (web == null || !(web.getParent() instanceof LinearLayout)) return;
-
-        LinearLayout parent = (LinearLayout) web.getParent();
-
-        for (int i = 0; i < parent.getChildCount(); i++) {
-            View child = parent.getChildAt(i);
-            if (child instanceof TextView
-                    && child != web
-                    && !(child instanceof Button)) {
-                ((TextView) child).setText(text);
-                return;
-            }
-        }
+        }, 80000);
     }
 
     private void showPlayer(Match match, String message) {
@@ -2366,13 +1911,6 @@ public class MainActivity extends Activity {
         player = new ExoPlayer.Builder(this).build();
         playerView.setPlayer(player);
 
-        player.addListener(new androidx.media3.common.Player.Listener() {
-            @Override
-            public void onPlayerError(androidx.media3.common.PlaybackException error) {
-                switchToNextSourceAfterFailure();
-            }
-        });
-
         MediaItem item = new MediaItem.Builder()
                 .setUri(Uri.parse(hls))
                 .build();
@@ -2380,22 +1918,6 @@ public class MainActivity extends Activity {
         player.setMediaItem(item);
         player.prepare();
         player.play();
-    }
-
-    private void switchToNextSourceAfterFailure() {
-        if (!playerScreen || fallbackMatch == null) return;
-
-        if (activeSourceUrl != null && !activeSourceUrl.isEmpty()) {
-            failedSourceUrls.add(activeSourceUrl);
-        }
-
-        releasePlayer();
-
-        handler.postDelayed(() -> {
-            if (playerScreen || fallbackMatch != null) {
-                resolveWithWebView(fallbackMatch);
-            }
-        }, 300);
     }
 
     private void releasePlayer() {
@@ -2460,6 +1982,7 @@ public class MainActivity extends Activity {
         );
 
         title.setGravity(Gravity.CENTER);
+
         root.addView(
                 title,
                 new LinearLayout.LayoutParams(
