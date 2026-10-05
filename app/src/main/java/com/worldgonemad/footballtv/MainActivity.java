@@ -285,7 +285,7 @@ public class MainActivity extends Activity {
             // Extract the actual event anchor text from this context.
             String anchorText = "";
             Pattern exactLink = Pattern.compile(
-                    "(?is)<a\\\\s+[^>]*href\\\\s*=\\\\s*[\\\"']"
+                    "(?is)<a\\s+[^>]*href\\s*=\\s*[\\\"']"
                     + Pattern.quote(href)
                     + "[\\\"'][^>]*>(.*?)</a>");
             Matcher am = exactLink.matcher(context);
