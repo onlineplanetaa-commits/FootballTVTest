@@ -113,6 +113,31 @@ jobs:
             xargs -0 strings -a 2>/dev/null |
             grep -Ei 'api_url|google_app_id|google_api_key|project_id|gcm_defaultSenderId' |
             sort -u >> analysis.txt || true
+
+          echo >> analysis.txt
+          echo "=== LIVE FIREBASE REMOTE CONFIG FETCH ===" >> analysis.txt
+          API_KEY="AIzaSyCOhPo6X5o8517oC_tFtH_L8ka3ElacTu0"
+          APP_ID="1:987682933046:android:b0d2f52255416b34cb0b97"
+          INSTALL_JSON=$(curl -sS --fail \
+            -X POST \
+            -H "Content-Type: application/json" \
+            -H "X-Goog-Api-Key: $API_KEY" \
+            -d "{\"appId\":\"$APP_ID\",\"sdkVersion\":\"21.0.0\"}" \
+            "https://firebaseinstallations.googleapis.com/v1/projects/-/installations")
+          echo "$INSTALL_JSON" | sed -E 's/(refreshToken|token|authToken)[^,]*/REDACTED/g' >> analysis.txt
+          FID=$(printf '%s' "$INSTALL_JSON" | python3 -c 'import json,sys; print(json.load(sys.stdin)["fid"])')
+          AUTH=$(printf '%s' "$INSTALL_JSON" | python3 -c 'import json,sys; print(json.load(sys.stdin)["authToken"]["token"])')
+          RC_JSON=$(curl -sS --fail \
+            -X POST \
+            -H "Content-Type: application/json" \
+            -H "X-Goog-Api-Key: $API_KEY" \
+            -H "X-Goog-Firebase-Installations-Auth: $AUTH" \
+            -d "{\"sdk_version\":\"21.0.0\",\"app_instance_id\":\"$FID\",\"app_instance_id_token\":\"$AUTH\",\"app_id\":\"$APP_ID\",\"language_code\":\"en-US\"}" \
+            "https://firebaseremoteconfig.googleapis.com/v1/projects/ak47-sports/namespaces/firebase:fetch?key=$API_KEY")
+          echo "Remote Config response:" >> analysis.txt
+          printf '%s\n' "$RC_JSON" | python3 -c 'import json,sys; x=json.load(sys.stdin); print(json.dumps({"state":x.get("state"),"entries":x.get("entries",{})},indent=2,ensure_ascii=False))' >> analysis.txt || printf '%s\n' "$RC_JSON" >> analysis.txt
+          echo "=== API_URL ONLY ===" >> analysis.txt
+          printf '%s\n' "$RC_JSON" | python3 -c 'import json,sys; print(json.load(sys.stdin).get("entries",{}).get("api_url","<not found>"))' >> analysis.txt || true
           echo >> analysis.txt
           echo "=== MANIFEST STRINGS ===" >> analysis.txt
           unzip -p AK47Sports_V1.6.apk AndroidManifest.xml 2>/dev/null | strings -a >> analysis.txt || true
