@@ -1,0 +1,45 @@
+name: Test SportSRC LIVE detail
+
+on:
+  push:
+    paths:
+      - ".github/workflows/test-sportsrc-live.yml"
+  workflow_dispatch:
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Query LIVE football matches
+        shell: bash
+        run: |
+          set -e
+          MATCHES_URL='https://api.sportsrc.org/?data=matches&category=football'
+          curl -L --fail --silent --show-error -A 'Mozilla/5.0' "$MATCHES_URL" -o matches.json
+          python3 - <<'PY'
+          import json, urllib.parse, urllib.request
+          data=json.load(open("matches.json"))
+          arr=data if isinstance(data,list) else next((data[k] for k in ("data","matches","events","results") if isinstance(data.get(k),list)),[])
+          live=[]
+          for x in arr:
+              if not isinstance(x,dict): continue
+              cat=str(x.get("category",x.get("sport",x.get("type",""))))
+              mid=str(x.get("id",x.get("match_id",x.get("event_id",""))))
+              if cat.lower()=="football" and mid.lower().startswith("live_"):
+                  live.append(x)
+          print("LIVE FOOTBALL COUNT:",len(live))
+          for i,x in enumerate(live[:5]):
+              print("\n--- LIVE",i+1,"---")
+              print(json.dumps(x,ensure_ascii=False))
+              mid=str(x.get("id",x.get("match_id",x.get("event_id",""))))
+              u="https://api.sportsrc.org/?data=detail&category=football&id="+urllib.parse.quote(mid,safe="")
+              print("DETAIL URL:",u)
+              req=urllib.request.Request(u,headers={"User-Agent":"Mozilla/5.0","Accept":"application/json,text/plain,*/*"})
+              try:
+                  with urllib.request.urlopen(req,timeout=20) as r:
+                      raw=r.read().decode("utf-8","replace")
+                  print("DETAIL HTTP: 200")
+                  print("DETAIL BODY:",raw[:20000])
+              except Exception as e:
+                  print("DETAIL ERROR:",repr(e))
+          PY
