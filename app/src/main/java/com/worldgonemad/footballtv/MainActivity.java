@@ -1188,14 +1188,15 @@ public class MainActivity extends Activity {
             return;
         }
 
-        showPlayer(match, "Finding AK47 stream...");
+        showPlayer(match, "Finding AK47 streams...");
 
         new Thread(() -> {
             final String apiHost = "https://zerohazaarop.store/";
             String eventsUrl = apiHost + "events.txt";
             String body = downloadPage(eventsUrl);
 
-            String stream = "";
+            final ArrayList<String> streams = new ArrayList<>();
+
             try {
                 JSONArray root = new JSONArray(body);
 
@@ -1230,19 +1231,18 @@ public class MainActivity extends Activity {
                     }
 
                     String linksBody = downloadPage(linksUrl);
-                    stream = selectAk47Stream(linksBody);
+                    streams.addAll(selectAk47Streams(linksBody));
 
-                    if (!stream.isEmpty()) break;
+                    // Keep searching other matching AK47 event rows too.
                 }
             } catch (Exception ignored) {
             }
 
-            final String result = stream;
             runOnUiThread(() -> {
-                if (result.isEmpty()) {
-                    showPlayer(match, "AK47 returned no playable stream.");
+                if (streams.isEmpty()) {
+                    showPlayer(match, "AK47 returned no playable streams.");
                 } else {
-                    playAk47Stream(match, result);
+                    playAk47Streams(match, streams, 0);
                 }
             });
         }).start();
@@ -1256,13 +1256,18 @@ public class MainActivity extends Activity {
                 .trim();
     }
 
-    private String selectAk47Stream(String body) {
-        if (body == null || body.trim().isEmpty()) return "";
+    // AK47 links are sometimes returned through the same custom alphabet
+    // encoding used by AK47Sports. Decode first, then keep ALL visible links.
+    private ArrayList<String> selectAk47Streams(String body) {
+        ArrayList<String> result = new ArrayList<>();
+        if (body == null || body.trim().isEmpty()) return result;
+
+        String decoded = decodeAk47(body);
 
         try {
-            JSONArray links = new JSONArray(body);
+            JSONArray links = new JSONArray(decoded);
+            Set<String> seen = new HashSet<>();
 
-            String first = "";
             for (int i = 0; i < links.length(); i++) {
                 JSONObject link = links.optJSONObject(i);
                 if (link == null || !link.optBoolean("visible", true)) continue;
@@ -1270,18 +1275,154 @@ public class MainActivity extends Activity {
                 String url = link.optString("link", "").trim();
                 if (url.isEmpty()) continue;
 
-                if (url.toLowerCase(Locale.US).contains(".m3u8")) {
-                    return url;
-                }
-
-                if (first.isEmpty()) first = url;
+                // Keep URL plus optional AK47 request metadata. The player method
+                // below can apply the metadata when opening the candidate.
+                if (seen.add(url)) result.add(url);
             }
-
-            return first;
         } catch (Exception ignored) {
-            String s = body.trim();
-            return (s.startsWith("http://") || s.startsWith("https://")) ? s : "";
+            String s = decoded.trim();
+            if (s.startsWith("http://") || s.startsWith("https://")) {
+                result.add(s);
+            }
         }
+
+        return result;
+    }
+
+    // Exact AK47Sports v1.6 custom alphabet -> Base64 -> UTF-8 decoder.
+    private String decodeAk47(String value) {
+        if (value == null) return "";
+        String s = value.trim();
+        if (s.isEmpty()) return "";
+        if (s.startsWith("[") || s.startsWith("{")) return s;
+
+        final char[] standard =
+                "aAbBcCdDeEfFgGhHiIjJkKlLmMnNoOpPqQrRsStTuUvVwWxXyYzZ"
+                        .toCharArray();
+        final char[] custom =
+                "fFgGjJkKaApPbBmMoOzZeEnNcCdDrRqQtTvVuUxXhHiIwWyYlLsS"
+                        .toCharArray();
+
+        char[] out = new char[s.length()];
+        for (int i = 0; i < s.length(); i++) {
+            char ch = s.charAt(i);
+            int pos = -1;
+            for (int j = 0; j < custom.length; j++) {
+                if (custom[j] == ch) {
+                    pos = j;
+                    break;
+                }
+            }
+            out[i] = pos >= 0 ? standard[pos] : ch;
+        }
+
+        try {
+            return new String(
+                    android.util.Base64.decode(
+                            new String(out),
+                            android.util.Base64.DEFAULT
+                    ),
+                    java.nio.charset.StandardCharsets.UTF_8
+            );
+        } catch (Exception e) {
+            return s;
+        }
+    }
+
+    // Try every AK47 candidate. If ExoPlayer rejects one, immediately move to
+    // the next candidate instead of stopping on the first dead stream.
+    private void playAk47Streams(
+            Match match,
+            ArrayList<String> streams,
+            int index
+    ) {
+        if (streams == null || index >= streams.size()) {
+            showPlayer(match, "All AK47 streams failed.");
+            return;
+        }
+
+        String url = streams.get(index);
+        if (url == null || url.trim().isEmpty()) {
+            playAk47Streams(match, streams, index + 1);
+            return;
+        }
+
+        releasePlayer();
+        playerScreen = true;
+
+        LinearLayout root = new LinearLayout(this);
+        root.setOrientation(LinearLayout.VERTICAL);
+        root.setBackgroundColor(Color.BLACK);
+
+        LinearLayout top = new LinearLayout(this);
+        top.setOrientation(LinearLayout.HORIZONTAL);
+        top.setGravity(Gravity.CENTER_VERTICAL);
+        top.setPadding(20, 8, 20, 8);
+
+        TextView title = label(
+                match.home + " — " + match.away,
+                19,
+                TEXT
+        );
+        title.setTypeface(Typeface.DEFAULT, Typeface.BOLD);
+        top.addView(title, new LinearLayout.LayoutParams(0, 56, 1));
+
+        Button back = action("BACK");
+        top.addView(back, new LinearLayout.LayoutParams(120, 52));
+        root.addView(top);
+
+        playerView = new PlayerView(this);
+        playerView.setBackgroundColor(Color.BLACK);
+        playerView.setKeepScreenOn(true);
+        root.addView(
+                playerView,
+                new LinearLayout.LayoutParams(-1, 0, 1)
+        );
+
+        back.setOnClickListener(v -> {
+            releasePlayer();
+            showMatches();
+        });
+
+        setContentView(root);
+
+        DefaultHttpDataSource.Factory http =
+                new DefaultHttpDataSource.Factory()
+                        .setUserAgent(
+                                "Mozilla/5.0 (Linux; Android 11; Android TV) AppleWebKit/537.36 Chrome/124.0.0.0 Safari/537.36"
+                        );
+
+        player = new ExoPlayer.Builder(this)
+                .setMediaSourceFactory(
+                        new androidx.media3.exoplayer.source.DefaultMediaSourceFactory(http)
+                )
+                .build();
+
+        playerView.setPlayer(player);
+
+        final int nextIndex = index + 1;
+        player.addListener(
+                new androidx.media3.common.Player.Listener() {
+                    @Override
+                    public void onPlayerError(
+                            androidx.media3.common.PlaybackException error
+                    ) {
+                        if (player != null) {
+                            releasePlayer();
+                        }
+                        playAk47Streams(match, streams, nextIndex);
+                    }
+                }
+        );
+
+        player.setMediaItem(
+                new MediaItem.Builder()
+                        .setUri(Uri.parse(url))
+                        .build()
+        );
+
+        player.prepare();
+        player.play();
     }
 
     private void playAk47Stream(Match match, String url) {
