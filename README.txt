@@ -15,3 +15,5 @@ Build requirements:
 - JDK 17 or newer
 
 Open this folder in Android Studio and Build > Build APK(s).
+
+Build 47: restored build 46 LiveTV904 main-screen parser.
