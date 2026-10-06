@@ -1532,45 +1532,42 @@ public class MainActivity extends Activity {
         setContentView(root);
 
         // IMPORTANT:
-        // Do not look for ltvplayer iframes. LiveTV904's event page has
-        // "Browser Links" and "AceStream Links". We need those actual
-        // broadcast-provider URLs, then resolve browser links to a real
-        // HLS/MP4 URL for our Media3 player.
+        // LiveTV904 has two separate sections:
+        //   Browser Links  -> normal browser providers
+        //   AceStream Links -> AceStream-only sources
+        // We use ONLY Browser Links. Do not scan ordinary hrefs or raw URLs
+        // from the page: those include navigation, images and scripts.
         new Thread(() -> {
             String html = downloadPage(match.eventUrl);
             ArrayList<String> found = new ArrayList<>();
 
             if (html != null && !html.isEmpty()) {
                 String decoded = html
-                        .replace("\\/", "/")
-                        .replace("\\u002F", "/")
-                        .replace("&amp;", "&")
-                        .replace("&quot;", "\"")
-                        .replace("&#39;", "'");
+                        .replace("\\/","/")
+                        .replace("\\u002F","/")
+                        .replace("&amp;","&")
+                        .replace("&quot;","\\"")
+                        .replace("&#39;","'");
 
-                // Browser Links section.
                 int browserStart = indexOfIgnoreCase(decoded, "Browser Links");
                 int aceStart = indexOfIgnoreCase(decoded, "AceStream Links");
-                int end = aceStart > browserStart && aceStart >= 0
+                int end = (aceStart > browserStart && aceStart >= 0)
                         ? aceStart : decoded.length();
 
-                String browserPart = browserStart >= 0
-                        ? decoded.substring(browserStart, end)
-                        : decoded;
+                if (browserStart >= 0) {
+                    String browserPart = decoded.substring(browserStart, end);
 
-                collectHrefUrls(browserPart, found);
-
-                // AceStream section too. HTTP/HTTPS links can still be
-                // resolved in the browser resolver; acestream:// links are
-                // retained only as a last-resort identifier and skipped by
-                // Media3 if no browser source works.
-                if (aceStart >= 0) {
-                    String acePart = decoded.substring(aceStart);
-                    collectHrefUrls(acePart, found);
-                    collectRawStreamUrls(acePart, found);
+                    // The Browser Links are represented by #webplayer_*
+                    // selectors. Extract only those selectors. This should
+                    // produce exactly the provider count shown by LiveTV904.
+                    collectWebplayerFragments(browserPart, found);
                 }
+            }
 
-                collectRawStreamUrls(browserPart, found);
+            // Hard safety limit. A normal event page has only a handful of
+            // Browser Links; never let unrelated page URLs become candidates.
+            if (found.size() > 12) {
+                found.subList(12, found.size()).clear();
             }
 
             runOnUiThread(() -> {
@@ -1578,7 +1575,7 @@ public class MainActivity extends Activity {
 
                 if (found.isEmpty()) {
                     resolved[0] = true;
-                    status.setText("No LiveTV904 broadcast links were found.");
+                    status.setText("No LiveTV904 Browser Links were found.");
                     return;
                 }
 
@@ -1588,7 +1585,7 @@ public class MainActivity extends Activity {
 
                 status.setText(
                         "Found " + sourceCandidates.size() +
-                        " broadcast links. Resolving..."
+                        " Browser Links. Resolving..."
                 );
 
                 tryNext[0].run();
@@ -1607,7 +1604,7 @@ public class MainActivity extends Activity {
         if (html == null) return;
 
         Pattern p = Pattern.compile(
-                "(?i)#webplayer_[^\\\"'<>\\s]+"
+                "(?i)#webplayer_[A-Za-z0-9_]+(?:\\|[A-Za-z0-9._:-]+)*"
         );
         Matcher m = p.matcher(html);
 
