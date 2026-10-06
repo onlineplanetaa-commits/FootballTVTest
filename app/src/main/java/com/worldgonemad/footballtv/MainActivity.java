@@ -2199,3 +2199,120 @@ public class MainActivity extends Activity {
                         -1,
                         70
                 )
+        );
+
+        TextView error =
+                label(
+                        message,
+                        18,
+                        MUTED
+                );
+
+        error.setGravity(Gravity.CENTER);
+
+        root.addView(
+                error,
+                new LinearLayout.LayoutParams(
+                        -1,
+                        70
+                )
+        );
+
+        Button retry =
+                action("RETRY");
+
+        retry.setOnClickListener(
+                v -> loadMatches()
+        );
+
+        root.addView(
+                retry,
+                new LinearLayout.LayoutParams(
+                        180,
+                        58
+                )
+        );
+
+        setContentView(root);
+    }
+
+    @Override
+    protected void onStop() {
+
+        super.onStop();
+
+        // Android recommends releasing an Activity-owned ExoPlayer from
+        // onStop(). Do it only when the player screen is actually active.
+        if (playerScreen) {
+            releasePlayer();
+            playerScreen = false;
+        }
+    }
+
+    @Override
+    protected void onStart() {
+
+        super.onStart();
+
+        // If the Activity was stopped while playing, return to the match list
+        // instead of leaving a PlayerView without a live ExoPlayer.
+        if (!playerScreen && player == null && !matches.isEmpty()) {
+            showMatches();
+        }
+    }
+
+    @Override
+    protected void onDestroy() {
+
+        handler.removeCallbacksAndMessages(
+                null
+        );
+
+        releasePlayer();
+
+        super.onDestroy();
+    }
+
+    @Override
+    public void onBackPressed() {
+
+        if (player != null || playerView != null || playerScreen) {
+
+            releasePlayer();
+            playerScreen = false;
+
+            showMatches();
+
+        } else {
+
+            super.onBackPressed();
+        }
+    }
+
+    private static class Match {
+
+        String league;
+        String home;
+        String away;
+        String time;
+        boolean live;
+        String eventUrl;
+
+        Match(
+                String league,
+                String home,
+                String away,
+                String time,
+                boolean live,
+                String eventUrl
+        ) {
+
+            this.league = league;
+            this.home = home;
+            this.away = away;
+            this.time = time;
+            this.live = live;
+            this.eventUrl = eventUrl;
+        }
+    }
+}
