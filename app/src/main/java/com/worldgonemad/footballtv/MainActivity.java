@@ -1332,6 +1332,17 @@ public class MainActivity extends Activity {
             public void onPageFinished(WebView view, String url) {
                 super.onPageFinished(view, url);
 
+                // If a candidate redirects back to the normal LiveTV904
+                // website, never display that page. Immediately try the next
+                // broadcast candidate instead.
+                if (!collecting[0] && !resolved[0]
+                        && url != null
+                        && url.startsWith("https://livetv904.me/")
+                        && !url.contains("/ltvplayer")) {
+                    tryNext.run();
+                    return;
+                }
+
                 if (!collecting[0] || resolved[0]) return;
 
                 // Collect every broadcast/player URL, not only iframe src.
