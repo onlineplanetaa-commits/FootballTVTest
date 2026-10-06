@@ -65,7 +65,7 @@ public class MainActivity extends Activity {
     private final int LIVE = Color.rgb(90, 220, 140);
 
     private static final String LIVE_TV_URL =
-            "https://livetv904.me/enx/allupcoming/";
+            "https://livetv904.me/allupcomingsports/1/";
 
     private final ArrayList<Match> matches =
             new ArrayList<>();
