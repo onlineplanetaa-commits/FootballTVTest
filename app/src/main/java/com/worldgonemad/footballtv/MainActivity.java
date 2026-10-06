@@ -1571,10 +1571,8 @@ public class MainActivity extends Activity {
                                                                     pd = pd.substring(1, pd.length()-1);
                                                                     pd = pd.replace("\\\"", "\"");
                                                                     pd = pd.replace("\\\\", "\\");
+                                                                }
                                                                 JSONArray pa = new JSONArray(pd);
-                                                                for(int i=0;i<pa.length();i++){
-                                                                    String candidate=pa.optString(i,"").trim();
-                                                                    if(candidate.toLowerCase(Locale.US).startsWith("#webplayer_") && !retry.contains(candidate)) retry.add(candidate);
                                                                 }
                                                             } catch(Exception ignored) {}
                                                             if (!retry.isEmpty()) {
@@ -2304,6 +2302,3 @@ public class MainActivity extends Activity {
             this.eventUrl = eventUrl;
         }
     }
-                                                                    pd = pd.substring(1, pd.length()-1);
-                                                                    pd = pd.replace("\\\"", "\"");
-                                                                    pd = pd.replace("\\\\", "\\");
