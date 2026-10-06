@@ -1531,69 +1531,40 @@ public class MainActivity extends Activity {
 
         setContentView(root);
 
-        // IMPORTANT:
-        // LiveTV904 has two separate sections:
-        //   Browser Links  -> normal browser providers
-        //   AceStream Links -> AceStream-only sources
-        // We use ONLY Browser Links. Do not scan ordinary hrefs or raw URLs
-        // from the page: those include navigation, images and scripts.
-        new Thread(() -> {
-            String html = downloadPage(match.eventUrl);
-            ArrayList<String> found = new ArrayList<>();
+        // Discover Browser Links through the rendered LiveTV904 event page.
+        // Do not use HttpURLConnection here: the site can encode/inject the
+        // selectors differently from the raw response.
+        web.loadUrl(match.eventUrl, new HashMap<String, String>() {{
+            put("Referer", "https://livetv904.me/");
+            put("User-Agent", "Mozilla/5.0 (Linux; Android 11; Android TV) AppleWebKit/537.36 Chrome/124.0.0.0 Safari/537.36");
+        }});
+    }
 
-            if (html != null && !html.isEmpty()) {
-                String decoded = html
-                        .replace("\\/","/")
-                        .replace("\\u002F","/")
-                        .replace("&amp;","&")
-                        .replace("&quot;","\"")
-                        .replace("&#39;","'");
+    private void startCandidates(
+            ArrayList<String> found,
+            TextView status,
+            ArrayList<String> sourceCandidates,
+            int[] current,
+            boolean[] resolved,
+            Runnable[] tryNext
+    ) {
+        if (resolved[0]) return;
 
-                // LiveTV904 can change the visible "Browser Links" heading
-                // and its HTML wrapper. The reliable identifier is the
-                // #webplayer_* selector itself. Scan the event HTML for those
-                // selectors only; never collect ordinary page URLs.
-                decoded = decoded
-                        .replace("\\u0023", "#")
-                        .replace("&#35;", "#")
-                        .replace("&#x23;", "#")
-                        .replace("%23", "#")
-                        .replace("%7C", "|")
-                        .replace("%7c", "|")
-                        .replace("&#124;", "|")
-                        .replace("&#x7c;", "|")
-                        .replace("&#x7C;", "|");
+        if (found.size() > 12) {
+            found.subList(12, found.size()).clear();
+        }
 
-                collectWebplayerFragments(decoded, found);
-            }
+        if (found.isEmpty()) {
+            resolved[0] = true;
+            status.setText("No LiveTV904 Browser Links were found.");
+            return;
+        }
 
-            // Hard safety limit. A normal event page has only a handful of
-            // Browser Links; never let unrelated page URLs become candidates.
-            if (found.size() > 12) {
-                found.subList(12, found.size()).clear();
-            }
-
-            runOnUiThread(() -> {
-                if (resolved[0] || resolverWebView != web) return;
-
-                if (found.isEmpty()) {
-                    resolved[0] = true;
-                    status.setText("No LiveTV904 Browser Links were found.");
-                    return;
-                }
-
-                sourceCandidates.clear();
-                sourceCandidates.addAll(found);
-                current[0] = 0;
-
-                status.setText(
-                        "Found " + sourceCandidates.size() +
-                        " Browser Links. Resolving..."
-                );
-
-                tryNext[0].run();
-            });
-        }).start();
+        sourceCandidates.clear();
+        sourceCandidates.addAll(found);
+        current[0] = 0;
+        status.setText("Found " + sourceCandidates.size() + " Browser Links. Resolving...");
+        tryNext[0].run();
     }
 
     private int indexOfIgnoreCase(String text, String needle) {
