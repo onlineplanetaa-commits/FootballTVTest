@@ -1567,10 +1567,9 @@ public class MainActivity extends Activity {
                                                             String pd = probeResult == null ? "" : probeResult;
                                                             try {
                                                                 if (pd.length() >= 2 && pd.startsWith("\"") && pd.endsWith("\"")) {
-                                                                            .replace("\\\"", "\"")
-                                                                            .replace("\\"", """)
-                                                                            .replace("\\\\", "\\");
-                                                                }
+                                                                    pd = pd.substring(1, pd.length()-1);
+                                                                    pd = pd.replace("\\\"", "\"");
+                                                                    pd = pd.replace("\\\\", "\\");
                                                                 JSONArray pa = new JSONArray(pd);
                                                                 for(int i=0;i<pa.length();i++){
                                                                     String candidate=pa.optString(i,"").trim();
