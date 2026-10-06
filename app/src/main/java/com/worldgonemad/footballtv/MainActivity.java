@@ -1393,7 +1393,14 @@ public class MainActivity extends Activity {
                         "Mozilla/5.0 (Linux; Android 11; Android TV) AppleWebKit/537.36 Chrome/124.0.0.0 Safari/537.36"
                 );
 
-                web.loadUrl(url, headers);
+                if (url.startsWith("#webplayer_")) {
+                    // LiveTV904 encodes Browser Links in the event-page
+                    // fragment. Load the event page with that exact fragment
+                    // so its JavaScript activates the selected provider.
+                    web.loadUrl(match.eventUrl + url, headers);
+                } else {
+                    web.loadUrl(url, headers);
+                }
 
                 handler.postDelayed(() -> {
                     if (resolved[0] || resolverWebView != web) return;
@@ -1612,6 +1619,19 @@ public class MainActivity extends Activity {
 
         while (m.find()) {
             addBroadcastUrl(m.group(0), found);
+        }
+
+        // LiveTV904 Browser Links can also be encoded as fragments such as:
+        // #webplayer_alieztv|232729|452611141|3023558|2088|1|ua
+        Pattern fragment = Pattern.compile(
+                "(?i)#webplayer_[^\\\"'<>\\s]+"
+        );
+        Matcher fm = fragment.matcher(html);
+        while (fm.find()) {
+            String fragmentUrl = fm.group(0).replace("&amp;", "&");
+            if (!found.contains(fragmentUrl)) {
+                found.add(fragmentUrl);
+            }
         }
     }
 
