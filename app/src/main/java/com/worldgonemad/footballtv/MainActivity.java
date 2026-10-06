@@ -1603,6 +1603,24 @@ public class MainActivity extends Activity {
         );
     }
 
+    private void collectWebplayerFragments(String html, ArrayList<String> found) {
+        if (html == null) return;
+
+        Pattern p = Pattern.compile(
+                "(?i)#webplayer_[^\\\"'<>\\s]+"
+        );
+        Matcher m = p.matcher(html);
+
+        while (m.find()) {
+            String u = m.group(0)
+                    .replace("&amp;", "&")
+                    .trim();
+            if (!found.contains(u)) {
+                found.add(u);
+            }
+        }
+    }
+
     private void collectHrefUrls(String html, ArrayList<String> found) {
         if (html == null) return;
 
