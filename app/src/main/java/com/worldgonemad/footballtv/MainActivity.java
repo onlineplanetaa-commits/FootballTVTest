@@ -49,6 +49,7 @@ public class MainActivity extends Activity {
     private ExoPlayer player;
     private PlayerView playerView;
     private WebView resolverWebView;
+    private WebView matchLoaderWebView;
 
     // True while the Activity is showing the player/resolver screen.
     // Match refreshes must never replace that screen.
@@ -549,57 +550,158 @@ public class MainActivity extends Activity {
 
     private void loadMatches() {
 
-        new Thread(
-                () -> {
+        new Thread(() -> {
+            String html = downloadPage(LIVE_TV_URL);
+            ArrayList<Match> result = parseMatches(html);
 
-                    String html =
-                            downloadPage(
-                                    LIVE_TV_URL
-                            );
+            if (!result.isEmpty()) {
+                runOnUiThread(() -> {
+                    matches.clear();
+                    matches.addAll(result);
+                    if (!playerScreen) showMatches();
+                });
+                return;
+            }
 
-                    ArrayList<Match> result =
-                            parseMatches(html);
+            // LiveTV904 can return a browser page to WebView while rejecting
+            // the same request made by HttpURLConnection. Use WebView as a
+            // fallback parser so the match list still loads on Android TV.
+            runOnUiThread(this::loadMatchesViaWebView);
+        }).start();
+    }
 
-                    runOnUiThread(
-                            () -> {
+    private void loadMatchesViaWebView() {
+        if (isFinishing() || isDestroyed()) return;
+
+        if (matchLoaderWebView != null) {
+            try { matchLoaderWebView.destroy(); } catch (Exception ignored) {}
+        }
+
+        WebView web = new WebView(this);
+        matchLoaderWebView = web;
+
+        web.getSettings().setJavaScriptEnabled(true);
+        web.getSettings().setDomStorageEnabled(true);
+        web.getSettings().setUserAgentString(
+                "Mozilla/5.0 (Linux; Android 11; Android TV) AppleWebKit/537.36 Chrome/124.0.0.0 Safari/537.36"
+        );
+
+        web.setVisibility(View.GONE);
+        web.setWebViewClient(new WebViewClient() {
+            private boolean done = false;
+
+            @Override
+            public void onPageFinished(WebView view, String url) {
+                super.onPageFinished(view, url);
+                if (done) return;
+
+                view.evaluateJavascript(
+                        "(function(){return document.documentElement.outerHTML;})()",
+                        value -> {
+                            if (done) return;
+
+                            try {
+                                String html = value;
+                                if (html != null && html.length() >= 2
+                                        && html.startsWith("\"")
+                                        && html.endsWith("\"")) {
+                                    html = html.substring(1, html.length() - 1)
+                                            .replace("\\\"", "\"")
+                                            .replace("\\\\", "\\")
+                                            .replace("\\n", "\n")
+                                            .replace("\\r", "\r");
+                                }
+
+                                ArrayList<Match> result = parseMatches(html);
 
                                 if (!result.isEmpty()) {
+                                    done = true;
+                                    if (matchLoaderWebView == web) {
+                                        matchLoaderWebView = null;
+                                    }
+                                    web.stopLoading();
+                                    web.destroy();
 
                                     matches.clear();
+                                    matches.addAll(result);
 
-                                    matches.addAll(
-                                            result
-                                    );
-
-                                    // Refresh data in the background, but never
-                                    // replace the player/resolver Activity view.
-                                    if (!playerScreen) {
-                                        showMatches();
-                                    }
-
+                                    if (!playerScreen) showMatches();
                                 } else {
+                                    // Give dynamically inserted event rows one
+                                    // extra chance before reporting failure.
+                                    handler.postDelayed(() -> {
+                                        if (done || matchLoaderWebView != web) return;
+                                        view.evaluateJavascript(
+                                                "(function(){return document.documentElement.outerHTML;})()",
+                                                value2 -> {
+                                                    if (done) return;
+                                                    String html2 = value2;
+                                                    try {
+                                                        if (html2 != null && html2.length() >= 2
+                                                                && html2.startsWith("\"")
+                                                                && html2.endsWith("\"")) {
+                                                            html2 = html2.substring(1, html2.length() - 1)
+                                                                    .replace("\\\"", "\"")
+                                                                    .replace("\\\\", "\\")
+                                                                    .replace("\\n", "\n")
+                                                                    .replace("\\r", "\r");
+                                                        }
 
-                                    if (matches.isEmpty()) {
-
-                                        showError(
-                                                "Could not load football matches."
+                                                        ArrayList<Match> result2 = parseMatches(html2);
+                                                        if (!result2.isEmpty()) {
+                                                            done = true;
+                                                            matchLoaderWebView = null;
+                                                            view.stopLoading();
+                                                            view.destroy();
+                                                            matches.clear();
+                                                            matches.addAll(result2);
+                                                            if (!playerScreen) showMatches();
+                                                        } else if (!playerScreen) {
+                                                            done = true;
+                                                            matchLoaderWebView = null;
+                                                            view.destroy();
+                                                            showError("Could not load football matches.");
+                                                        }
+                                                    } catch (Exception ignored) {
+                                                        if (!playerScreen) {
+                                                            done = true;
+                                                            matchLoaderWebView = null;
+                                                            view.destroy();
+                                                            showError("Could not load football matches.");
+                                                        }
+                                                    }
+                                                }
                                         );
-
-                                    } else if (
-                                            statusText != null
-                                    ) {
-
-                                        statusText.setText(
-                                                "UPDATE FAILED"
-                                        );
-                                    }
+                                    }, 1800);
+                                }
+                            } catch (Exception ignored) {
+                                if (!playerScreen) {
+                                    done = true;
+                                    matchLoaderWebView = null;
+                                    web.destroy();
+                                    showError("Could not load football matches.");
                                 }
                             }
-                    );
+                        }
+                );
+            }
 
+            @Override
+            public void onReceivedError(WebView view, WebResourceRequest request,
+                                        android.webkit.WebResourceError error) {
+                super.onReceivedError(view, request, error);
+                if (request != null && request.isForMainFrame() && !done && !playerScreen) {
+                    done = true;
+                    matchLoaderWebView = null;
+                    view.destroy();
+                    showError("Could not load football matches.");
                 }
-        ).start();
+            }
+        });
+
+        web.loadUrl(LIVE_TV_URL);
     }
+
 
     private String downloadPage(
             String address
@@ -1742,6 +1844,14 @@ public class MainActivity extends Activity {
     }
 
     private void releasePlayer() {
+        if (matchLoaderWebView != null) {
+            try {
+                matchLoaderWebView.stopLoading();
+                matchLoaderWebView.destroy();
+            } catch (Exception ignored) {}
+            matchLoaderWebView = null;
+        }
+
         if (resolverWebView != null) {
             try {
                 resolverWebView.stopLoading();
