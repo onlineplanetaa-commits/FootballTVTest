@@ -1410,11 +1410,11 @@ public class MainActivity extends Activity {
 
                                 String decoded = value == null ? "" : value;
                                 if (decoded.length() >= 2
-                                        && decoded.startsWith(""")
-                                        && decoded.endsWith(""")) {
+                                        && decoded.startsWith("\"")
+                                        && decoded.endsWith("\"")) {
                                     decoded = decoded.substring(1, decoded.length() - 1)
-                                            .replace("\"", """)
-                                            .replace("\\", "\");
+                                            .replace("\\"", "\"")
+                                            .replace("\\\\", "\\");
                                 }
 
                                 Matcher mm = Pattern.compile(
@@ -1531,7 +1531,7 @@ public class MainActivity extends Activity {
                         .replace("\\/", "/")
                         .replace("\\u002F", "/")
                         .replace("&amp;", "&")
-                        .replace("&quot;", """)
+                        .replace("&quot;", "\"")
                         .replace("&#39;", "'");
 
                 // Browser Links section.
@@ -1619,7 +1619,7 @@ public class MainActivity extends Activity {
         if (raw == null) return;
 
         String u = raw.trim()
-                .replace("\"", """)
+                .replace("\\"", "\"")
                 .replace("\\", "")
                 .replace("&amp;", "&");
 
