@@ -1189,36 +1189,157 @@ public class MainActivity extends Activity {
 
         showPlayer(match, "Finding LiveTV904 streams...");
 
-        new Thread(() -> {
-            ArrayList<String> streams = collectLiveTvStreams(match.eventUrl);
-
-            ArrayList<String> finalStreams = streams;
-
-            runOnUiThread(() -> {
-                if (finalStreams.isEmpty()) {
-                    showPlayer(match, "No playable LiveTV904 stream was found.");
-                } else {
-                    playStreamCandidates(match, finalStreams, 0);
-                }
-            });
-        }).start();
+        // Resolve the event page in WebView. LiveTV904 can expose several
+        // ltvplayer iframes; collect ALL of them and try them in order.
+        startLiveTvResolver(match);
     }
 
-    // LiveTV904 loads the actual broadcast player inside the event page.
-    // Watch all page/iframe network requests and collect every media URL.
-    private ArrayList<String> collectLiveTvStreams(String eventUrl) {
-        final ArrayList<String> result = new ArrayList<>();
+    private void startLiveTvResolver(Match match) {
+        releasePlayer();
+        playerScreen = true;
 
-        // Do not fetch/parse the event page with HttpURLConnection here.
-        // LiveTV904 serves the actual ltvplayer as an embedded iframe and
-        // may return different HTML to non-browser HTTP clients. Opening
-        // the event page in WebView lets LiveTV904 load its own iframe,
-        // cookies, JavaScript and player exactly as in a browser.
-        if (eventUrl != null && eventUrl.startsWith("http")) {
-            result.add("WEBVIEW\\t" + eventUrl);
-        }
+        LinearLayout root = new LinearLayout(this);
+        root.setOrientation(LinearLayout.VERTICAL);
+        root.setBackgroundColor(Color.BLACK);
 
-        return result;
+        LinearLayout top = new LinearLayout(this);
+        top.setOrientation(LinearLayout.HORIZONTAL);
+        top.setGravity(Gravity.CENTER_VERTICAL);
+        top.setPadding(20, 8, 20, 8);
+
+        TextView title = label(match.home + " — " + match.away, 19, TEXT);
+        title.setTypeface(Typeface.DEFAULT, Typeface.BOLD);
+        top.addView(title, new LinearLayout.LayoutParams(0, 56, 1));
+
+        Button back = action("BACK");
+        top.addView(back, new LinearLayout.LayoutParams(120, 52));
+        root.addView(top);
+
+        WebView web = new WebView(this);
+        resolverWebView = web;
+        web.setBackgroundColor(Color.BLACK);
+        web.getSettings().setJavaScriptEnabled(true);
+        web.getSettings().setDomStorageEnabled(true);
+        web.getSettings().setMediaPlaybackRequiresUserGesture(false);
+        web.getSettings().setAllowFileAccess(true);
+        web.getSettings().setAllowContentAccess(true);
+        web.getSettings().setMixedContentMode(
+                android.webkit.WebSettings.MIXED_CONTENT_COMPATIBILITY_MODE
+        );
+
+        CookieManager.getInstance().setAcceptCookie(true);
+        CookieManager.getInstance().setAcceptThirdPartyCookies(web, true);
+        web.setWebChromeClient(new WebChromeClient());
+
+        final ArrayList<String> candidates = new ArrayList<>();
+        final int[] current = {0};
+        final boolean[] resolved = {false};
+
+        Runnable tryNext = new Runnable() {
+            @Override
+            public void run() {
+                if (resolved[0]) return;
+
+                if (current[0] >= candidates.size()) {
+                    resolved[0] = true;
+                    showPlayer(match, "No playable LiveTV904 stream was found.");
+                    return;
+                }
+
+                String url = candidates.get(current[0]++);
+                if (url == null || url.isEmpty()) {
+                    run();
+                    return;
+                }
+
+                web.stopLoading();
+                web.loadUrl(url);
+
+                // Give this player a chance to initialise. If no video element
+                // appears, move to the next candidate automatically.
+                handler.postDelayed(() -> {
+                    if (resolved[0] || resolverWebView != web) return;
+                    web.evaluateJavascript(
+                            "(function(){return !!document.querySelector('video');})()",
+                            value -> {
+                                if (!resolved[0] && "false".equals(value)) {
+                                    run();
+                                } else if (!resolved[0]) {
+                                    resolved[0] = true;
+                                }
+                            }
+                    );
+                }, 9000);
+            }
+        };
+
+        web.setWebViewClient(new WebViewClient() {
+            @Override
+            public void onPageFinished(WebView view, String url) {
+                super.onPageFinished(view, url);
+
+                if (!resolved[0] && candidates.isEmpty()) {
+                    // Extract every ltvplayer iframe from the event page.
+                    view.evaluateJavascript(
+                            "(function(){var a=[],f=document.getElementsByTagName('iframe');" +
+                            "for(var i=0;i<f.length;i++){var s=f[i].src||f[i].getAttribute('data-src')||'';" +
+                            "if(s && s.indexOf('ltvplayer')>=0 && a.indexOf(s)<0)a.push(s);}" +
+                            "return JSON.stringify(a);})()",
+                            value -> {
+                                if (resolved[0]) return;
+
+                                String json = value;
+                                if (json != null && json.length() >= 2) {
+                                    try {
+                                        if (json.startsWith("\"") && json.endsWith("\"")) {
+                                            json = json.substring(1, json.length() - 1)
+                                                    .replace("\\\"", "\"");
+                                        }
+                                        JSONArray arr = new JSONArray(json);
+                                        for (int i = 0; i < arr.length(); i++) {
+                                            String u = arr.optString(i, "");
+                                            if (!u.isEmpty() && !candidates.contains(u)) {
+                                                candidates.add(u);
+                                            }
+                                        }
+                                    } catch (Exception ignored) {}
+                                }
+
+                                if (candidates.isEmpty()) {
+                                    resolved[0] = true;
+                                    showPlayer(match, "No playable LiveTV904 stream was found.");
+                                } else {
+                                    current[0] = 0;
+                                    tryNext.run();
+                                }
+                            }
+                    );
+                }
+            }
+
+            @Override
+            public void onReceivedError(
+                    WebView view,
+                    WebResourceRequest request,
+                    android.webkit.WebResourceError error
+            ) {
+                super.onReceivedError(view, request, error);
+                if (request != null && request.isForMainFrame() && !resolved[0]) {
+                    tryNext.run();
+                }
+            }
+        });
+
+        root.addView(web, new LinearLayout.LayoutParams(-1, 0, 1));
+
+        back.setOnClickListener(v -> {
+            releasePlayer();
+            showMatches();
+        });
+
+        setContentView(root);
+
+        web.loadUrl(match.eventUrl);
     }
 
     private void playStreamCandidates(
