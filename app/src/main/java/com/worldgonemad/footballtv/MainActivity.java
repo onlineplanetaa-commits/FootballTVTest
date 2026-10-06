@@ -1420,7 +1420,7 @@ public class MainActivity extends Activity {
                                         && decoded.startsWith("\"")
                                         && decoded.endsWith("\"")) {
                                     decoded = decoded.substring(1, decoded.length() - 1)
-                                            .replace("\\"", "\"")
+                                            .replace("\\\"", "\"")
                                             .replace("\\\\", "\\");
                                 }
 
@@ -1639,7 +1639,7 @@ public class MainActivity extends Activity {
         if (raw == null) return;
 
         String u = raw.trim()
-                .replace("\\"", "\"")
+                .replace("\\\"", "\"")
                 .replace("\\", "")
                 .replace("&amp;", "&");
 
