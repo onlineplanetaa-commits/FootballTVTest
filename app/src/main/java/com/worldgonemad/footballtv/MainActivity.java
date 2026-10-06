@@ -1512,6 +1512,8 @@ public class MainActivity extends Activity {
                                 }
 
                                 ArrayList<String> media = new ArrayList<>();
+                                ArrayList<String> frames = new ArrayList<>();
+
                                 Matcher mm = Pattern.compile(
                                         "(?i)https?://[^\\\"'<>\\s]+(?:\\.m3u8(?:\\?[^\\\"'<>\\s]*)?|\\.mp4(?:\\?[^\\\"'<>\\s]*)?)"
                                 ).matcher(decoded);
@@ -1520,16 +1522,13 @@ public class MainActivity extends Activity {
                                     if (!media.contains(mediaUrl)) media.add(mediaUrl);
                                 }
 
-                                ArrayList<String> frames = new ArrayList<>();
-                                for (String item : media) {
-                                    if (item.startsWith("FRAME:")) {
-                                        String frameUrl = item.substring("FRAME:".length()).trim();
-                                        if (frameUrl.startsWith("http://") || frameUrl.startsWith("https://")) {
-                                            frames.add(frameUrl);
-                                        }
-                                    }
+                                Matcher fm = Pattern.compile(
+                                        "(?i)FRAME:https?://[^\\\"'<>\\s]+"
+                                ).matcher(decoded);
+                                while (fm.find()) {
+                                    String frameUrl = fm.group(0).substring("FRAME:".length()).trim();
+                                    if (!frames.contains(frameUrl)) frames.add(frameUrl);
                                 }
-                                media.removeIf(item -> item.startsWith("FRAME:"));
 
                                 if (!media.isEmpty()) {
                                     resolved[0] = true;
@@ -1557,55 +1556,66 @@ public class MainActivity extends Activity {
                 // webplayer.php Browser Links. No click simulation and no
                 // arbitrary site URLs.
                 if (sourceCandidates.isEmpty() && url != null && !url.toLowerCase(Locale.US).contains("webplayer.php")) {
-                    view.evaluateJavascript(
-                            "(function(){return document.documentElement ? document.documentElement.outerHTML : '';})()",
-                            value -> {
-                                if (resolved[0] || resolverWebView != web) return;
+                    // LiveTV inserts Browser Links dynamically. Collect them
+                    // over several passes before opening the first provider.
+                    final ArrayList<String> allFound = new ArrayList<>();
+                    final int[] scans = {0};
 
-                                String decoded = value == null ? "" : value;
-                                if (decoded.length() >= 2
-                                        && decoded.startsWith("\"")
-                                        && decoded.endsWith("\"")) {
-                                    decoded = decoded.substring(1, decoded.length() - 1)
-                                            .replace("\\\"", "\"")
-                                            .replace("\\\\", "\\")
-                                            .replace("\\n", "\n")
-                                            .replace("\\r", "\r");
-                                }
+                    Runnable scanBrowserLinks = new Runnable() {
+                        @Override
+                        public void run() {
+                            if (resolved[0] || resolverWebView != web || !sourceCandidates.isEmpty()) return;
 
-                                ArrayList<String> found = new ArrayList<>();
-                                collectWebPlayerUrls(decoded, match.eventUrl, found);
+                            view.evaluateJavascript(
+                                    "(function(){"
+                                    + "var h=document.documentElement?document.documentElement.outerHTML:'';"
+                                    + "var a=[];"
+                                    + "document.querySelectorAll('[href],[onclick],[data-href],[data-url],[data-link],[data-player]').forEach(function(e){"
+                                    + "['href','onclick','data-href','data-url','data-link','data-player'].forEach(function(n){"
+                                    + "var v=e.getAttribute(n);if(v&&(v.indexOf('webplayer')>=0||v.indexOf('#webplayer_')>=0))a.push(v);"
+                                    + "});});"
+                                    + "return JSON.stringify({h:h,a:a});"
+                                    + "})()",
+                                    value -> {
+                                        if (resolved[0] || resolverWebView != web || !sourceCandidates.isEmpty()) return;
 
-                                if (!found.isEmpty()) {
-                                    startCandidates(found, status, sourceCandidates, current, resolved, tryNext);
-                                } else {
-                                    // Some LiveTV pages insert the player links
-                                    // after the initial DOM is ready.
-                                    handler.postDelayed(() -> {
-                                        if (resolved[0] || resolverWebView != web) return;
-                                        view.evaluateJavascript(
-                                                "(function(){return document.documentElement ? document.documentElement.outerHTML : '';})()",
-                                                value2 -> {
-                                                    String d2 = value2 == null ? "" : value2;
-                                                    if (d2.length() >= 2
-                                                            && d2.startsWith("\"")
-                                                            && d2.endsWith("\"")) {
-                                                        d2 = d2.substring(1, d2.length() - 1)
-                                                                .replace("\\\"", "\"")
-                                                                .replace("\\\\", "\\")
-                                                                .replace("\\n", "\n")
-                                                                .replace("\\r", "\r");
-                                                    }
+                                        String decoded = value == null ? "" : value;
+                                        if (decoded.length() >= 2
+                                                && decoded.startsWith("\"")
+                                                && decoded.endsWith("\"")) {
+                                            decoded = decoded.substring(1, decoded.length() - 1)
+                                                    .replace("\\\"", "\"")
+                                                    .replace("\\\\", "\\")
+                                                    .replace("\\n", "\n")
+                                                    .replace("\\r", "\r");
+                                        }
 
-                                                    ArrayList<String> found2 = new ArrayList<>();
-                                                    collectWebPlayerUrls(d2, match.eventUrl, found2);
-                                                    startCandidates(found2, status, sourceCandidates, current, resolved, tryNext);
+                                        try {
+                                            JSONObject obj = new JSONObject(decoded);
+                                            collectWebPlayerUrls(obj.optString("h", ""), match.eventUrl, allFound);
+                                            JSONArray attrs = obj.optJSONArray("a");
+                                            if (attrs != null) {
+                                                for (int i = 0; i < attrs.length(); i++) {
+                                                    collectWebPlayerUrls(attrs.optString(i, ""), match.eventUrl, allFound);
                                                 }
-                                        );
-                                    }, 1800);
-                                }
-                            }
-                    );
+                                            }
+                                        } catch (Exception ignored) {
+                                            collectWebPlayerUrls(decoded, match.eventUrl, allFound);
+                                        }
+
+                                        scans[0]++;
+                                        status.setText("Found " + allFound.size() + " Browser Links. Scanning...");
+                                        if (scans[0] < 3) {
+                                            handler.postDelayed(this, 1200);
+                                        } else {
+                                            startCandidates(new ArrayList<>(allFound), status, sourceCandidates, current, resolved, tryNext);
+                                        }
+                                    }
+                            );
+                        }
+                    };
+
+                    scanBrowserLinks.run();
                 }
             }
 
@@ -1622,7 +1632,14 @@ public class MainActivity extends Activity {
                         || lower.contains("manifest")) {
                     resolved[0] = true;
                     ArrayList<String> media = new ArrayList<>();
-                    media.add(url);
+                    String cookie = CookieManager.getInstance().getCookie(url);
+                    String candidate = url
+                            + "\\tREFERER=" + match.eventUrl
+                            + "\\tUA=Mozilla/5.0 (Linux; Android 11; Android TV) AppleWebKit/537.36 Chrome/124.0.0.0 Safari/537.36";
+                    if (cookie != null && !cookie.isEmpty()) {
+                        candidate += "\\tCOOKIE=" + cookie;
+                    }
+                    media.add(candidate);
                     playStreamCandidates(match, media, 0);
                 }
             }
@@ -1814,16 +1831,16 @@ public class MainActivity extends Activity {
         }
 
         String candidate = streams.get(index);
+        if (candidate == null || candidate.trim().isEmpty()) {
+            playStreamCandidates(match, streams, index + 1);
+            return;
+        }
         if (candidate.startsWith("WEBVIEW\\t")) {
             String playerUrl = candidate.substring("WEBVIEW\\t".length()).trim();
             showLiveTvWebPlayer(match, playerUrl);
             return;
         }
 
-        if (candidate == null || candidate.trim().isEmpty()) {
-            playStreamCandidates(match, streams, index + 1);
-            return;
-        }
 
         String[] parts = candidate.split("\\t", -1);
         String url = parts.length > 0 ? parts[0].trim() : "";
