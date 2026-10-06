@@ -65,7 +65,7 @@ public class MainActivity extends Activity {
     private final int ACCENT = Color.rgb(55, 125, 255);
     private final int LIVE = Color.rgb(90, 220, 140);
 
-    private static final String PRIMARY_PRIMARY_LIVE_TV_URL =
+    private static final String PRIMARY_LIVE_TV_URL =
             "https://livetv.sx/allupcomingsports/1/";
 
     private static final String BACKUP_LIVE_TV_URL =
