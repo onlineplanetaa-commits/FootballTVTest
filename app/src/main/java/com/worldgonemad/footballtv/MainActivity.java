@@ -1487,6 +1487,15 @@ public class MainActivity extends Activity {
                                 + ".replace(/\\\\\\\"/g,'\\\"');"
                                 + "var out=[],re=/#webplayer_[A-Za-z0-9_-]+(?:\\|[A-Za-z0-9._:%+~-]+)*/gi,m;"
                                 + "while((m=re.exec(text))!==null){if(out.indexOf(m[0])<0)out.push(m[0]);}"
+                                + "if(!out.length){"
+                                + "try{document.querySelectorAll('[onclick]').forEach(function(e){"
+                                + "var a=e.getAttribute('onclick')||'';"
+                                + "if(/webplayer|alieztv|player/i.test(a)){parts.push(a);}"
+                                + "});}catch(e){}"
+                                + "text=parts.join('\\n');"
+                                + "re=/#webplayer_[A-Za-z0-9_-]+(?:\\|[A-Za-z0-9._:%+~-]+)*/gi;"
+                                + "while((m=re.exec(text))!==null){if(out.indexOf(m[0])<0)out.push(m[0]);}"
+                                + "}"
                                 + "return JSON.stringify(out);"
                                 + "})()";
 
