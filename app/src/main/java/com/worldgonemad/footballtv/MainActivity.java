@@ -1253,7 +1253,10 @@ public class MainActivity extends Activity {
                 }
 
                 web.stopLoading();
-                web.loadUrl(url);
+                Map<String, String> headers = new HashMap<>();
+                headers.put("Referer", match.eventUrl);
+                headers.put("User-Agent", "Mozilla/5.0 (Linux; Android 11; Android TV) AppleWebKit/537.36 Chrome/124.0.0.0 Safari/537.36");
+                web.loadUrl(url, headers);
 
                 // Give this player a chance to initialise. If no video element
                 // appears, move to the next candidate automatically.
@@ -1315,6 +1318,22 @@ public class MainActivity extends Activity {
                             }
                     );
                 }
+            }
+
+            @Override
+            public boolean shouldOverrideUrlLoading(WebView view, WebResourceRequest request) {
+                String u = request != null && request.getUrl() != null
+                        ? request.getUrl().toString() : "";
+                // A failed ltvplayer commonly redirects back to LiveTV904.
+                // Do not leave the app on the site: immediately try the next
+                // collected broadcast candidate.
+                if (!u.isEmpty()
+                        && u.startsWith("https://livetv904.me/")
+                        && !u.contains("/ltvplayer")) {
+                    tryNext.run();
+                    return true;
+                }
+                return false;
             }
 
             @Override
