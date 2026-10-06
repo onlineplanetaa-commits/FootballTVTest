@@ -1208,34 +1208,16 @@ public class MainActivity extends Activity {
     // Watch all page/iframe network requests and collect every media URL.
     private ArrayList<String> collectLiveTvStreams(String eventUrl) {
         final ArrayList<String> result = new ArrayList<>();
-        try {
-            String html = downloadPage(eventUrl);
-            if (html == null || html.isEmpty()) return result;
 
-            Pattern iframePattern = Pattern.compile(
-                    "(?is)<iframe[^>]+src\\s*=\\s*[\\\"']([^\\\"']+)[\\\"']"
-            );
-            Matcher m = iframePattern.matcher(html);
-
-            while (m.find()) {
-                String src = m.group(1);
-                if (src == null || src.trim().isEmpty()) continue;
-                src = src.trim();
-
-                if (src.startsWith("//")) {
-                    src = "https:" + src;
-                } else if (src.startsWith("/")) {
-                    src = "https://livetv904.me" + src;
-                }
-
-                String lower = src.toLowerCase(Locale.US);
-                if (lower.contains("ltvplayer") && src.startsWith("http")) {
-                    result.add("WEBVIEW\\t" + src);
-                    break;
-                }
-            }
-        } catch (Exception ignored) {
+        // Do not fetch/parse the event page with HttpURLConnection here.
+        // LiveTV904 serves the actual ltvplayer as an embedded iframe and
+        // may return different HTML to non-browser HTTP clients. Opening
+        // the event page in WebView lets LiveTV904 load its own iframe,
+        // cookies, JavaScript and player exactly as in a browser.
+        if (eventUrl != null && eventUrl.startsWith("http")) {
+            result.add("WEBVIEW\\t" + eventUrl);
         }
+
         return result;
     }
 
