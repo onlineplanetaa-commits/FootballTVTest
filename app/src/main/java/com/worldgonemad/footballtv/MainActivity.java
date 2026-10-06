@@ -1325,7 +1325,7 @@ public class MainActivity extends Activity {
         top.addView(back, new LinearLayout.LayoutParams(120, 52));
         root.addView(top);
 
-        TextView status = label("Finding LiveTV904 stream...", 16, MUTED);
+        TextView status = label("Finding LiveTV904 stream links...", 16, MUTED);
         status.setGravity(Gravity.CENTER);
         root.addView(status, new LinearLayout.LayoutParams(-1, 55));
 
@@ -1344,28 +1344,47 @@ public class MainActivity extends Activity {
         CookieManager.getInstance().setAcceptThirdPartyCookies(web, true);
         web.setWebChromeClient(new WebChromeClient());
 
-        final ArrayList<String> candidates = new ArrayList<>();
+        final ArrayList<String> sourceCandidates = new ArrayList<>();
         final int[] current = {0};
         final boolean[] resolved = {false};
+
+        Runnable finishNoStream = () -> {
+            if (!resolved[0]) {
+                resolved[0] = true;
+                status.setText("No playable LiveTV904 stream was found.");
+            }
+        };
 
         Runnable tryNext = new Runnable() {
             @Override
             public void run() {
                 if (resolved[0] || resolverWebView != web) return;
 
-                if (current[0] >= candidates.size()) {
-                    resolved[0] = true;
-                    status.setText("No playable LiveTV904 stream was found.");
+                if (current[0] >= sourceCandidates.size()) {
+                    finishNoStream.run();
                     return;
                 }
 
-                String url = candidates.get(current[0]++);
+                String url = sourceCandidates.get(current[0]++);
+                if (url == null || url.trim().isEmpty()) {
+                    run();
+                    return;
+                }
+
                 status.setText(
-                        "Trying LiveTV904 stream " + current[0] +
-                        " of " + candidates.size() + "..."
+                        "Trying stream " + current[0] +
+                        " of " + sourceCandidates.size() + "..."
                 );
 
                 web.stopLoading();
+
+                if (url.startsWith("acestream://") || url.startsWith("acestream:")) {
+                    // AceStream IDs need an AceStream engine. Do not send an
+                    // acestream:// URI to ExoPlayer because it cannot decode it.
+                    // Browser Links are preferred for the built-in player.
+                    run();
+                    return;
+                }
 
                 Map<String, String> headers = new HashMap<>();
                 headers.put("Referer", match.eventUrl);
@@ -1380,22 +1399,69 @@ public class MainActivity extends Activity {
                     if (resolved[0] || resolverWebView != web) return;
 
                     web.evaluateJavascript(
-                            "(function(){return !!document.querySelector('video');})()",
+                            "(function(){"
+                            + "var a=[];"
+                            + "document.querySelectorAll('video,video source,audio source').forEach(function(e){if(e.src)a.push(e.src);});"
+                            + "try{performance.getEntriesByType('resource').forEach(function(e){if(e.name)a.push(e.name);});}catch(x){}"
+                            + "return JSON.stringify(a);"
+                            + "})()",
                             value -> {
                                 if (resolved[0]) return;
-                                if ("true".equals(value)) {
+
+                                String decoded = value == null ? "" : value;
+                                if (decoded.length() >= 2
+                                        && decoded.startsWith(""")
+                                        && decoded.endsWith(""")) {
+                                    decoded = decoded.substring(1, decoded.length() - 1)
+                                            .replace("\"", """)
+                                            .replace("\\", "\");
+                                }
+
+                                Matcher mm = Pattern.compile(
+                                        "(?i)(https?://[^\\\"'<>\\s]+(?:\\.m3u8(?:\\?[^\\\"'<>\\s]*)?|\\.mp4(?:\\?[^\\\"'<>\\s]*)?))"
+                                ).matcher(decoded);
+
+                                ArrayList<String> media = new ArrayList<>();
+                                while (mm.find()) {
+                                    String mediaUrl = mm.group(1);
+                                    if (!media.contains(mediaUrl)) media.add(mediaUrl);
+                                }
+
+                                if (!media.isEmpty()) {
                                     resolved[0] = true;
-                                    status.setText("LiveTV904 stream found.");
+                                    ArrayList<String> streams = new ArrayList<>(media);
+                                    releasePlayer();
+                                    playerScreen = true;
+                                    playStreamCandidates(match, streams, 0);
                                 } else {
-                                    run();
+                                    tryNext.run();
                                 }
                             }
                     );
-                }, 9000);
+                }, 7000);
             }
         };
 
         web.setWebViewClient(new WebViewClient() {
+            @Override
+            public void onLoadResource(WebView view, String url) {
+                super.onLoadResource(view, url);
+
+                if (resolved[0] || url == null) return;
+
+                String lower = url.toLowerCase(Locale.US);
+                if (lower.contains(".m3u8")
+                        || lower.contains(".mp4")
+                        || lower.contains("/hls/")
+                        || lower.contains("manifest")) {
+                    if (!sourceCandidates.contains(url)) {
+                        // Put discovered media URLs at the front. They are the
+                        // real streams that our Media3 player can consume.
+                        sourceCandidates.add(0, url);
+                    }
+                }
+            }
+
             @Override
             public boolean shouldOverrideUrlLoading(
                     WebView view,
@@ -1404,11 +1470,15 @@ public class MainActivity extends Activity {
                 String u = request != null && request.getUrl() != null
                         ? request.getUrl().toString() : "";
 
-                // A candidate that redirects to the ordinary LiveTV904 page
-                // is a failed candidate. Keep the normal site out of the app.
-                if (!u.isEmpty()
-                        && u.startsWith("https://livetv904.me/")
-                        && !u.contains("/ltvplayer")) {
+                if (u.startsWith("acestream://") || u.startsWith("acestream:")) {
+                    return true;
+                }
+
+                // Never show the ordinary LiveTV904 site inside the app.
+                if (u.startsWith("https://livetv904.me/")
+                        && !u.contains("/eventinfo/")
+                        && !u.contains("/broadcast/")
+                        && !u.contains("/player/")) {
                     tryNext.run();
                     return true;
                 }
@@ -1419,28 +1489,10 @@ public class MainActivity extends Activity {
             @Override
             public boolean shouldOverrideUrlLoading(WebView view, String url) {
                 if (url == null || url.isEmpty()) return true;
-
-                if (url.startsWith("https://livetv904.me/")
-                        && !url.contains("/ltvplayer")) {
-                    tryNext.run();
+                if (url.startsWith("acestream://") || url.startsWith("acestream:")) {
                     return true;
                 }
-
                 return false;
-            }
-
-            @Override
-            public void onPageFinished(WebView view, String url) {
-                super.onPageFinished(view, url);
-
-                // Never let the event page or a redirect to the normal site
-                // become the visible player. Candidate URLs are loaded only
-                // after the event HTML has been downloaded and parsed below.
-                if (url != null
-                        && url.startsWith("https://livetv904.me/")
-                        && !url.contains("/ltvplayer")) {
-                    tryNext.run();
-                }
             }
 
             @Override
@@ -1465,71 +1517,137 @@ public class MainActivity extends Activity {
 
         setContentView(root);
 
-        // IMPORTANT: do not load match.eventUrl in the WebView.
-        // LiveTV904 can redirect that page to the public site before the
-        // player links are collected. Fetch the event HTML directly, extract
-        // every ltvplayer URL, then open only those URLs in the in-app WebView.
+        // IMPORTANT:
+        // Do not look for ltvplayer iframes. LiveTV904's event page has
+        // "Browser Links" and "AceStream Links". We need those actual
+        // broadcast-provider URLs, then resolve browser links to a real
+        // HLS/MP4 URL for our Media3 player.
         new Thread(() -> {
             String html = downloadPage(match.eventUrl);
             ArrayList<String> found = new ArrayList<>();
 
             if (html != null && !html.isEmpty()) {
                 String decoded = html
-                        .replace("\\/","/")
-                        .replace("\\u002F","/")
-                        .replace("&amp;","&");
+                        .replace("\\/", "/")
+                        .replace("\\u002F", "/")
+                        .replace("&amp;", "&")
+                        .replace("&quot;", """)
+                        .replace("&#39;", "'");
 
-                Pattern p = Pattern.compile(
-                        "(?i)(https?://[^\\\"'<>\\s]+ltvplayer[^\\\"'<>\\s]*)"
-                );
-                Matcher m = p.matcher(decoded);
+                // Browser Links section.
+                int browserStart = indexOfIgnoreCase(decoded, "Browser Links");
+                int aceStart = indexOfIgnoreCase(decoded, "AceStream Links");
+                int end = aceStart > browserStart && aceStart >= 0
+                        ? aceStart : decoded.length();
 
-                while (m.find()) {
-                    String u = m.group(1);
-                    if (u != null && !found.contains(u)) {
-                        found.add(u);
-                    }
+                String browserPart = browserStart >= 0
+                        ? decoded.substring(browserStart, end)
+                        : decoded;
+
+                collectHrefUrls(browserPart, found);
+
+                // AceStream section too. HTTP/HTTPS links can still be
+                // resolved in the browser resolver; acestream:// links are
+                // retained only as a last-resort identifier and skipped by
+                // Media3 if no browser source works.
+                if (aceStart >= 0) {
+                    String acePart = decoded.substring(aceStart);
+                    collectHrefUrls(acePart, found);
+                    collectRawStreamUrls(acePart, found);
                 }
 
-                // Also accept relative ltvplayer URLs.
-                Pattern rel = Pattern.compile(
-                        "(?i)(/[^\\\"'<>\\s]*ltvplayer[^\\\"'<>\\s]*)"
-                );
-                Matcher rm = rel.matcher(decoded);
-                while (rm.find()) {
-                    String u = rm.group(1);
-                    if (u != null && !u.isEmpty()) {
-                        if (u.startsWith("//")) {
-                            u = "https:" + u;
-                        } else if (u.startsWith("/")) {
-                            u = "https://livetv904.me" + u;
-                        }
-                        if (!found.contains(u)) found.add(u);
-                    }
-                }
+                collectRawStreamUrls(browserPart, found);
             }
-
-            final ArrayList<String> result = found;
 
             runOnUiThread(() -> {
                 if (resolved[0] || resolverWebView != web) return;
 
-                if (result.isEmpty()) {
+                if (found.isEmpty()) {
                     resolved[0] = true;
                     status.setText("No LiveTV904 broadcast links were found.");
                     return;
                 }
 
-                candidates.clear();
-                candidates.addAll(result);
+                sourceCandidates.clear();
+                sourceCandidates.addAll(found);
                 current[0] = 0;
+
                 status.setText(
-                        "Found " + candidates.size() +
-                        " LiveTV904 streams."
+                        "Found " + sourceCandidates.size() +
+                        " broadcast links. Resolving..."
                 );
+
                 tryNext.run();
             });
         }).start();
+    }
+
+    private int indexOfIgnoreCase(String text, String needle) {
+        if (text == null || needle == null) return -1;
+        return text.toLowerCase(Locale.US).indexOf(
+                needle.toLowerCase(Locale.US)
+        );
+    }
+
+    private void collectHrefUrls(String html, ArrayList<String> found) {
+        if (html == null) return;
+
+        Pattern p = Pattern.compile(
+                "(?i)(?:href|data-href|data-url|data-link|data-player)\\s*=\\s*[\\\"']([^\\\"']+)[\\\"']"
+        );
+        Matcher m = p.matcher(html);
+
+        while (m.find()) {
+            addBroadcastUrl(m.group(1), found);
+        }
+    }
+
+    private void collectRawStreamUrls(String html, ArrayList<String> found) {
+        if (html == null) return;
+
+        Pattern p = Pattern.compile(
+                "(?i)(?:https?://|acestream://|acestream:)[^\\\"'<>\\s]+"
+        );
+        Matcher m = p.matcher(html);
+
+        while (m.find()) {
+            addBroadcastUrl(m.group(0), found);
+        }
+    }
+
+    private void addBroadcastUrl(String raw, ArrayList<String> found) {
+        if (raw == null) return;
+
+        String u = raw.trim()
+                .replace("\"", """)
+                .replace("\\", "")
+                .replace("&amp;", "&");
+
+        if (u.isEmpty()) return;
+
+        if (u.startsWith("//")) {
+            u = "https:" + u;
+        } else if (u.startsWith("/")) {
+            u = "https://livetv904.me" + u;
+        }
+
+        // Skip normal LiveTV navigation and the event page itself.
+        if (u.startsWith("https://livetv904.me/")
+                && (u.contains("/eventinfo/")
+                    || u.contains("/allupcomingsports/")
+                    || u.equals("https://livetv904.me/"))) {
+            return;
+        }
+
+        // Keep real provider/browser links and direct media URLs.
+        if (u.startsWith("http://")
+                || u.startsWith("https://")
+                || u.startsWith("acestream://")
+                || u.startsWith("acestream:")) {
+            if (!found.contains(u)) {
+                found.add(u);
+            }
+        }
     }
 
     private void playStreamCandidates(
