@@ -1549,19 +1549,22 @@ public class MainActivity extends Activity {
                         .replace("&quot;","\"")
                         .replace("&#39;","'");
 
-                int browserStart = indexOfIgnoreCase(decoded, "Browser Links");
-                int aceStart = indexOfIgnoreCase(decoded, "AceStream Links");
-                int end = (aceStart > browserStart && aceStart >= 0)
-                        ? aceStart : decoded.length();
+                // LiveTV904 can change the visible "Browser Links" heading
+                // and its HTML wrapper. The reliable identifier is the
+                // #webplayer_* selector itself. Scan the event HTML for those
+                // selectors only; never collect ordinary page URLs.
+                decoded = decoded
+                        .replace("\\u0023", "#")
+                        .replace("&#35;", "#")
+                        .replace("&#x23;", "#")
+                        .replace("%23", "#")
+                        .replace("%7C", "|")
+                        .replace("%7c", "|")
+                        .replace("&#124;", "|")
+                        .replace("&#x7c;", "|")
+                        .replace("&#x7C;", "|");
 
-                if (browserStart >= 0) {
-                    String browserPart = decoded.substring(browserStart, end);
-
-                    // The Browser Links are represented by #webplayer_*
-                    // selectors. Extract only those selectors. This should
-                    // produce exactly the provider count shown by LiveTV904.
-                    collectWebplayerFragments(browserPart, found);
-                }
+                collectWebplayerFragments(decoded, found);
             }
 
             // Hard safety limit. A normal event page has only a handful of
@@ -1604,7 +1607,7 @@ public class MainActivity extends Activity {
         if (html == null) return;
 
         Pattern p = Pattern.compile(
-                "(?i)#webplayer_[A-Za-z0-9_]+(?:\\|[A-Za-z0-9._:-]+)*"
+                "(?i)#webplayer_[A-Za-z0-9_-]+(?:\\|[A-Za-z0-9._:%+~-]+)*"
         );
         Matcher m = p.matcher(html);
 
