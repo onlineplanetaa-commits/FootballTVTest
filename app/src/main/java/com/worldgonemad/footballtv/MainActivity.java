@@ -883,11 +883,19 @@ public class MainActivity extends Activity {
 
         String lowerLastAlt = lastAlt.toLowerCase();
 
+        // LiveTV904 may return the schedule in Russian even when the
+        // app requests the same English-capable domain. Accept both forms.
         if (lowerLastAlt.startsWith("football.")
                 || lowerLastAlt.equals("football")) {
             sport = "football";
             league = lastAlt.length() > 9
                     ? cleanText(lastAlt.substring(9))
+                    : "Football";
+        } else if (lowerLastAlt.startsWith("футбол.")
+                || lowerLastAlt.equals("футбол")) {
+            sport = "football";
+            league = lastAlt.length() > 7
+                    ? cleanText(lastAlt.substring(7))
                     : "Football";
         }
 
