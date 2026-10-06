@@ -1355,7 +1355,9 @@ public class MainActivity extends Activity {
             }
         };
 
-        Runnable tryNext = new Runnable() {
+        final Runnable[] tryNext = new Runnable[1];
+
+        tryNext[0] = new Runnable() {
             @Override
             public void run() {
                 if (resolved[0] || resolverWebView != web) return;
@@ -1441,7 +1443,7 @@ public class MainActivity extends Activity {
                                     playerScreen = true;
                                     playStreamCandidates(match, streams, 0);
                                 } else {
-                                    tryNext.run();
+                                    tryNext[0].run();
                                 }
                             }
                     );
@@ -1486,7 +1488,7 @@ public class MainActivity extends Activity {
                         && !u.contains("/eventinfo/")
                         && !u.contains("/broadcast/")
                         && !u.contains("/player/")) {
-                    tryNext.run();
+                    tryNext[0].run();
                     return true;
                 }
 
@@ -1510,7 +1512,7 @@ public class MainActivity extends Activity {
             ) {
                 super.onReceivedError(view, request, error);
                 if (request != null && request.isForMainFrame() && !resolved[0]) {
-                    tryNext.run();
+                    tryNext[0].run();
                 }
             }
         });
@@ -1584,7 +1586,7 @@ public class MainActivity extends Activity {
                         " broadcast links. Resolving..."
                 );
 
-                tryNext.run();
+                tryNext[0].run();
             });
         }).start();
     }
@@ -1898,270 +1900,3 @@ public class MainActivity extends Activity {
         status.setGravity(Gravity.CENTER);
 
         root.addView(
-                status,
-                new LinearLayout.LayoutParams(-1, 55)
-        );
-
-        playerView = new PlayerView(this);
-        playerView.setBackgroundColor(Color.BLACK);
-        playerView.setKeepScreenOn(true);
-
-        root.addView(
-                playerView,
-                new LinearLayout.LayoutParams(-1, 0, 1)
-        );
-
-        back.setOnClickListener(v -> {
-            releasePlayer();
-            showMatches();
-        });
-
-        setContentView(root);
-    }
-
-    private void playHls(String hls) {
-        if (hls == null || hls.isEmpty()) return;
-
-        releasePlayer();
-        playerScreen = true;
-
-        playerView = new PlayerView(this);
-        playerView.setBackgroundColor(Color.BLACK);
-
-        LinearLayout root = new LinearLayout(this);
-        root.setOrientation(LinearLayout.VERTICAL);
-        root.setBackgroundColor(Color.BLACK);
-
-        LinearLayout top = new LinearLayout(this);
-        top.setOrientation(LinearLayout.HORIZONTAL);
-        top.setGravity(Gravity.CENTER_VERTICAL);
-        top.setPadding(20, 8, 20, 8);
-
-        TextView title = label("MAX FOOTBALL ONLINE", 19, TEXT);
-        title.setTypeface(Typeface.DEFAULT, Typeface.BOLD);
-
-        top.addView(title, new LinearLayout.LayoutParams(0, 56, 1));
-
-        Button back = action("BACK");
-        top.addView(back, new LinearLayout.LayoutParams(120, 52));
-
-        root.addView(top);
-
-        root.addView(
-                playerView,
-                new LinearLayout.LayoutParams(-1, 0, 1)
-        );
-
-        back.setOnClickListener(v -> {
-            releasePlayer();
-            showMatches();
-        });
-
-        setContentView(root);
-
-        player = new ExoPlayer.Builder(this).build();
-        playerView.setPlayer(player);
-
-        MediaItem item = new MediaItem.Builder()
-                .setUri(Uri.parse(hls))
-                .build();
-
-        player.setMediaItem(item);
-        player.prepare();
-        player.play();
-    }
-
-    private void releasePlayer() {
-        if (matchLoaderWebView != null) {
-            try {
-                matchLoaderWebView.stopLoading();
-                matchLoaderWebView.destroy();
-            } catch (Exception ignored) {}
-            matchLoaderWebView = null;
-        }
-
-        if (resolverWebView != null) {
-            try {
-                resolverWebView.stopLoading();
-                resolverWebView.destroy();
-            } catch (Exception ignored) {}
-            resolverWebView = null;
-        }
-
-        if (playerView != null) {
-            // Detach first, then release the player. This prevents a stale
-            // video surface from remaining attached while audio continues.
-            try {
-                playerView.setPlayer(null);
-            } catch (Exception ignored) {}
-        }
-
-        if (player != null) {
-            try {
-                player.stop();
-            } catch (Exception ignored) {}
-
-            try {
-                player.release();
-            } catch (Exception ignored) {}
-
-            player = null;
-        }
-
-        playerView = null;
-    }
-
-    private void showError(
-            String message
-    ) {
-
-        LinearLayout root =
-                new LinearLayout(this);
-
-        root.setOrientation(
-                LinearLayout.VERTICAL
-        );
-
-        root.setGravity(
-                Gravity.CENTER
-        );
-
-        root.setBackgroundColor(BG);
-
-        TextView title =
-                label(
-                        "MAX FOOTBALL ONLINE",
-                        28,
-                        TEXT
-                );
-
-        title.setTypeface(
-                Typeface.DEFAULT,
-                Typeface.BOLD
-        );
-
-        title.setGravity(Gravity.CENTER);
-
-        root.addView(
-                title,
-                new LinearLayout.LayoutParams(
-                        -1,
-                        70
-                )
-        );
-
-        TextView error =
-                label(
-                        message,
-                        18,
-                        MUTED
-                );
-
-        error.setGravity(Gravity.CENTER);
-
-        root.addView(
-                error,
-                new LinearLayout.LayoutParams(
-                        -1,
-                        70
-                )
-        );
-
-        Button retry =
-                action("RETRY");
-
-        retry.setOnClickListener(
-                v -> loadMatches()
-        );
-
-        root.addView(
-                retry,
-                new LinearLayout.LayoutParams(
-                        180,
-                        58
-                )
-        );
-
-        setContentView(root);
-    }
-
-    @Override
-    protected void onStop() {
-
-        super.onStop();
-
-        // Android recommends releasing an Activity-owned ExoPlayer from
-        // onStop(). Do it only when the player screen is actually active.
-        if (playerScreen) {
-            releasePlayer();
-            playerScreen = false;
-        }
-    }
-
-    @Override
-    protected void onStart() {
-
-        super.onStart();
-
-        // If the Activity was stopped while playing, return to the match list
-        // instead of leaving a PlayerView without a live ExoPlayer.
-        if (!playerScreen && player == null && !matches.isEmpty()) {
-            showMatches();
-        }
-    }
-
-    @Override
-    protected void onDestroy() {
-
-        handler.removeCallbacksAndMessages(
-                null
-        );
-
-        releasePlayer();
-
-        super.onDestroy();
-    }
-
-    @Override
-    public void onBackPressed() {
-
-        if (player != null || playerView != null || playerScreen) {
-
-            releasePlayer();
-            playerScreen = false;
-
-            showMatches();
-
-        } else {
-
-            super.onBackPressed();
-        }
-    }
-
-    private static class Match {
-
-        String league;
-        String home;
-        String away;
-        String time;
-        boolean live;
-        String eventUrl;
-
-        Match(
-                String league,
-                String home,
-                String away,
-                String time,
-                boolean live,
-                String eventUrl
-        ) {
-
-            this.league = league;
-            this.home = home;
-            this.away = away;
-            this.time = time;
-            this.live = live;
-            this.eventUrl = eventUrl;
-        }
-    }
-}
