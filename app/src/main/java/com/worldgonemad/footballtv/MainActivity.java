@@ -1546,7 +1546,7 @@ public class MainActivity extends Activity {
                         .replace("\\/","/")
                         .replace("\\u002F","/")
                         .replace("&amp;","&")
-                        .replace("&quot;","\\"")
+                        .replace("&quot;","\"")
                         .replace("&#39;","'");
 
                 int browserStart = indexOfIgnoreCase(decoded, "Browser Links");
