@@ -1325,7 +1325,7 @@ public class MainActivity extends Activity {
         top.addView(back, new LinearLayout.LayoutParams(120, 52));
         root.addView(top);
 
-        TextView status = label("Finding LiveTV904 streams...", 16, MUTED);
+        TextView status = label("Finding LiveTV904 stream...", 16, MUTED);
         status.setGravity(Gravity.CENTER);
         root.addView(status, new LinearLayout.LayoutParams(-1, 55));
 
@@ -1340,7 +1340,6 @@ public class MainActivity extends Activity {
         web.getSettings().setMixedContentMode(
                 android.webkit.WebSettings.MIXED_CONTENT_COMPATIBILITY_MODE
         );
-
         CookieManager.getInstance().setAcceptCookie(true);
         CookieManager.getInstance().setAcceptThirdPartyCookies(web, true);
         web.setWebChromeClient(new WebChromeClient());
@@ -1348,12 +1347,11 @@ public class MainActivity extends Activity {
         final ArrayList<String> candidates = new ArrayList<>();
         final int[] current = {0};
         final boolean[] resolved = {false};
-        final boolean[] collecting = {true};
 
         Runnable tryNext = new Runnable() {
             @Override
             public void run() {
-                if (resolved[0]) return;
+                if (resolved[0] || resolverWebView != web) return;
 
                 if (current[0] >= candidates.size()) {
                     resolved[0] = true;
@@ -1362,12 +1360,11 @@ public class MainActivity extends Activity {
                 }
 
                 String url = candidates.get(current[0]++);
-                if (url == null || url.isEmpty()) {
-                    run();
-                    return;
-                }
+                status.setText(
+                        "Trying LiveTV904 stream " + current[0] +
+                        " of " + candidates.size() + "..."
+                );
 
-                status.setText("Trying LiveTV904 stream " + current[0] + " of " + candidates.size() + "...");
                 web.stopLoading();
 
                 Map<String, String> headers = new HashMap<>();
@@ -1376,18 +1373,21 @@ public class MainActivity extends Activity {
                         "User-Agent",
                         "Mozilla/5.0 (Linux; Android 11; Android TV) AppleWebKit/537.36 Chrome/124.0.0.0 Safari/537.36"
                 );
+
                 web.loadUrl(url, headers);
 
                 handler.postDelayed(() -> {
                     if (resolved[0] || resolverWebView != web) return;
+
                     web.evaluateJavascript(
                             "(function(){return !!document.querySelector('video');})()",
                             value -> {
-                                if (!resolved[0] && "false".equals(value)) {
-                                    run();
-                                } else if (!resolved[0]) {
+                                if (resolved[0]) return;
+                                if ("true".equals(value)) {
                                     resolved[0] = true;
                                     status.setText("LiveTV904 stream found.");
+                                } else {
+                                    run();
                                 }
                             }
                     );
@@ -1397,121 +1397,50 @@ public class MainActivity extends Activity {
 
         web.setWebViewClient(new WebViewClient() {
             @Override
-            public boolean shouldOverrideUrlLoading(WebView view, WebResourceRequest request) {
+            public boolean shouldOverrideUrlLoading(
+                    WebView view,
+                    WebResourceRequest request
+            ) {
                 String u = request != null && request.getUrl() != null
                         ? request.getUrl().toString() : "";
 
-                if (u.isEmpty()) return true;
-
-                // Never allow the resolver to leave the app for the normal
-                // LiveTV904 site or another external page.
-                if (collecting[0]) {
-                    if (u.startsWith("https://livetv904.me/") && u.equals(match.eventUrl)) {
-                        return false;
-                    }
-                    return false;
+                // A candidate that redirects to the ordinary LiveTV904 page
+                // is a failed candidate. Keep the normal site out of the app.
+                if (!u.isEmpty()
+                        && u.startsWith("https://livetv904.me/")
+                        && !u.contains("/ltvplayer")) {
+                    tryNext.run();
+                    return true;
                 }
 
-                if (u.contains("ltvplayer")) {
-                    return false;
-                }
-
-                // A player failure often redirects to the ordinary LiveTV904
-                // page. Stop that navigation and immediately try the next link.
-                tryNext.run();
-                return true;
+                return false;
             }
 
             @Override
             public boolean shouldOverrideUrlLoading(WebView view, String url) {
                 if (url == null || url.isEmpty()) return true;
 
-                if (collecting[0]) {
-                    return false;
+                if (url.startsWith("https://livetv904.me/")
+                        && !url.contains("/ltvplayer")) {
+                    tryNext.run();
+                    return true;
                 }
 
-                if (url.contains("ltvplayer")) {
-                    return false;
-                }
-
-                tryNext.run();
-                return true;
+                return false;
             }
 
             @Override
             public void onPageFinished(WebView view, String url) {
                 super.onPageFinished(view, url);
 
-                // If a candidate redirects back to the normal LiveTV904
-                // website, never display that page. Immediately try the next
-                // broadcast candidate instead.
-                if (!collecting[0] && !resolved[0]
-                        && url != null
+                // Never let the event page or a redirect to the normal site
+                // become the visible player. Candidate URLs are loaded only
+                // after the event HTML has been downloaded and parsed below.
+                if (url != null
                         && url.startsWith("https://livetv904.me/")
                         && !url.contains("/ltvplayer")) {
                     tryNext.run();
-                    return;
                 }
-
-                if (!collecting[0] || resolved[0]) return;
-
-                // Collect every broadcast/player URL, not only iframe src.
-                // LiveTV904 can place players in iframe src, data-src, href,
-                // data-url, data-link or nested HTML attributes.
-                view.evaluateJavascript(
-                        "(function(){" +
-                        "var a=[],e=document.getElementsByTagName('*');" +
-                        "function add(s){" +
-                        "if(!s)return;" +
-                        "s=String(s);" +
-                        "if(s.indexOf('ltvplayer')<0)return;" +
-                        "if(a.indexOf(s)<0)a.push(s);" +
-                        "}" +
-                        "for(var i=0;i<e.length;i++){" +
-                        "add(e[i].getAttribute('src'));" +
-                        "add(e[i].getAttribute('data-src'));" +
-                        "add(e[i].getAttribute('href'));" +
-                        "add(e[i].getAttribute('data-url'));" +
-                        "add(e[i].getAttribute('data-link'));" +
-                        "add(e[i].getAttribute('data-player'));" +
-                        "add(e[i].getAttribute('data-iframe'));" +
-                        "}" +
-                        "return JSON.stringify(a);" +
-                        "})()",
-                        value -> {
-                            if (resolved[0]) return;
-
-                            String json = value;
-                            if (json != null && json.length() >= 2) {
-                                try {
-                                    if (json.startsWith("\"") && json.endsWith("\"")) {
-                                        json = json.substring(1, json.length() - 1)
-                                                .replace("\\\"", "\"")
-                                                .replace("\\\\", "\\");
-                                    }
-
-                                    JSONArray arr = new JSONArray(json);
-                                    for (int i = 0; i < arr.length(); i++) {
-                                        String u = arr.optString(i, "");
-                                        if (!u.isEmpty() && !candidates.contains(u)) {
-                                            candidates.add(u);
-                                        }
-                                    }
-                                } catch (Exception ignored) {}
-                            }
-
-                            collecting[0] = false;
-
-                            if (candidates.isEmpty()) {
-                                resolved[0] = true;
-                                status.setText("No LiveTV904 broadcast links were found.");
-                            } else {
-                                current[0] = 0;
-                                status.setText("Found " + candidates.size() + " LiveTV904 streams.");
-                                tryNext.run();
-                            }
-                        }
-                );
             }
 
             @Override
@@ -1522,12 +1451,7 @@ public class MainActivity extends Activity {
             ) {
                 super.onReceivedError(view, request, error);
                 if (request != null && request.isForMainFrame() && !resolved[0]) {
-                    if (collecting[0]) {
-                        resolved[0] = true;
-                        status.setText("Could not load LiveTV904 event.");
-                    } else {
-                        tryNext.run();
-                    }
+                    tryNext.run();
                 }
             }
         });
@@ -1541,13 +1465,71 @@ public class MainActivity extends Activity {
 
         setContentView(root);
 
-        Map<String, String> initialHeaders = new HashMap<>();
-        initialHeaders.put(
-                "User-Agent",
-                "Mozilla/5.0 (Linux; Android 11; Android TV) AppleWebKit/537.36 Chrome/124.0.0.0 Safari/537.36"
-        );
-        initialHeaders.put("Referer", "https://livetv904.me/");
-        web.loadUrl(match.eventUrl, initialHeaders);
+        // IMPORTANT: do not load match.eventUrl in the WebView.
+        // LiveTV904 can redirect that page to the public site before the
+        // player links are collected. Fetch the event HTML directly, extract
+        // every ltvplayer URL, then open only those URLs in the in-app WebView.
+        new Thread(() -> {
+            String html = downloadPage(match.eventUrl);
+            ArrayList<String> found = new ArrayList<>();
+
+            if (html != null && !html.isEmpty()) {
+                String decoded = html
+                        .replace("\\/","/")
+                        .replace("\\u002F","/")
+                        .replace("&amp;","&");
+
+                Pattern p = Pattern.compile(
+                        "(?i)(https?://[^\\\"'<>\\s]+ltvplayer[^\\\"'<>\\s]*)"
+                );
+                Matcher m = p.matcher(decoded);
+
+                while (m.find()) {
+                    String u = m.group(1);
+                    if (u != null && !found.contains(u)) {
+                        found.add(u);
+                    }
+                }
+
+                // Also accept relative ltvplayer URLs.
+                Pattern rel = Pattern.compile(
+                        "(?i)(/[^\\\"'<>\\s]*ltvplayer[^\\\"'<>\\s]*)"
+                );
+                Matcher rm = rel.matcher(decoded);
+                while (rm.find()) {
+                    String u = rm.group(1);
+                    if (u != null && !u.isEmpty()) {
+                        if (u.startsWith("//")) {
+                            u = "https:" + u;
+                        } else if (u.startsWith("/")) {
+                            u = "https://livetv904.me" + u;
+                        }
+                        if (!found.contains(u)) found.add(u);
+                    }
+                }
+            }
+
+            final ArrayList<String> result = found;
+
+            runOnUiThread(() -> {
+                if (resolved[0] || resolverWebView != web) return;
+
+                if (result.isEmpty()) {
+                    resolved[0] = true;
+                    status.setText("No LiveTV904 broadcast links were found.");
+                    return;
+                }
+
+                candidates.clear();
+                candidates.addAll(result);
+                current[0] = 0;
+                status.setText(
+                        "Found " + candidates.size() +
+                        " LiveTV904 streams."
+                );
+                tryNext.run();
+            });
+        }).start();
     }
 
     private void playStreamCandidates(
