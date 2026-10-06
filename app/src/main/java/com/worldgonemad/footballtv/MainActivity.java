@@ -1535,14 +1535,64 @@ public class MainActivity extends Activity {
                             }
 
                             if (found.isEmpty()) {
-                                // One final direct DOM query catches selectors
-                                // represented in text nodes rather than HTML.
+                                // The Browser Links are real clickable controls, but
+                                // LiveTV904 can build their #webplayer_* selector only
+                                // when the user clicks one. Reproduce that click in the
+                                // hidden WebView and read the resulting hash.
                                 view.evaluateJavascript(
-                                        "(function(){return document.body ? document.body.innerText : '';})()",
-                                        textValue -> {
-                                            ArrayList<String> retry = new ArrayList<>();
-                                            collectWebplayerFragments(textValue, retry);
-                                            startCandidates(retry, status, sourceCandidates, current, resolved, tryNext);
+                                        "(function(){"
+                                        + "var all=document.querySelectorAll('*'),root=null;"
+                                        + "for(var i=0;i<all.length;i++){var t=(all[i].innerText||all[i].textContent||'').trim();"
+                                        + "if(t && t.length<160 && /browser\\s*links|ссылки\\s*браузера|ссылки\\s*браузер|браузер/i.test(t)){root=all[i];break;}}"
+                                        + "if(!root)return 'NO_ROOT';"
+                                        + "var candidates=[],box=root;"
+                                        + "for(var up=0;up<4&&box;up++,box=box.parentElement){"
+                                        + "var cs=box.querySelectorAll('a,button,[role=button],[onclick],[data-href],[data-url],[data-link],[data-player]');"
+                                        + "for(var j=0;j<cs.length;j++){var e=cs[j],s=((e.innerText||e.textContent||'')+' '+(e.getAttribute('onclick')||'')+' '+(e.getAttribute('href')||'')+' '+(e.getAttribute('class')||'')+' '+(e.getAttribute('data-player')||'')).trim();"
+                                        + "if(/acestream|ace stream/i.test(s))continue;"
+                                        + "if(!candidates.includes(e) && /watch|browser|браузер|alieztv|player/i.test(s))candidates.push(e);}"
+                                        + "if(candidates.length)break;}"
+                                        + "window.__ltvBrowserProbe=[];"
+                                        + "function step(i){if(i>=candidates.length)return;"
+                                        + "try{candidates[i].click();}catch(e){}"
+                                        + "setTimeout(function(){try{var h=location.hash||'';if(/^#webplayer_/i.test(h)&&window.__ltvBrowserProbe.indexOf(h)<0)window.__ltvBrowserProbe.push(h);}catch(e){};step(i+1);},700);}"
+                                        + "step(0);return 'STARTED:'+candidates.length;"
+                                        + "})()",
+                                        probeStart -> {
+                                            handler.postDelayed(() -> {
+                                                if (resolved[0] || resolverWebView != web) return;
+                                                view.evaluateJavascript(
+                                                        "(function(){var a=(window.__ltvBrowserProbe||[]).slice();if(location.hash&&/^#webplayer_/i.test(location.hash)&&a.indexOf(location.hash)<0)a.push(location.hash);return JSON.stringify(a);})()",
+                                                        probeResult -> {
+                                                            ArrayList<String> retry = new ArrayList<>();
+                                                            String pd = probeResult == null ? "" : probeResult;
+                                                            try {
+                                                                if (pd.length() >= 2 && pd.startsWith(""") && pd.endsWith(""")) {
+                                                                    pd = pd.substring(1, pd.length()-1)
+                                                                            .replace("\\"", """)
+                                                                            .replace("\\\\", "\");
+                                                                }
+                                                                JSONArray pa = new JSONArray(pd);
+                                                                for(int i=0;i<pa.length();i++){
+                                                                    String candidate=pa.optString(i,"").trim();
+                                                                    if(candidate.toLowerCase(Locale.US).startsWith("#webplayer_") && !retry.contains(candidate)) retry.add(candidate);
+                                                                }
+                                                            } catch(Exception ignored) {}
+                                                            if (!retry.isEmpty()) {
+                                                                startCandidates(retry, status, sourceCandidates, current, resolved, tryNext);
+                                                            } else {
+                                                                view.evaluateJavascript(
+                                                                        "(function(){return document.body ? document.body.innerText : '';})()",
+                                                                        textValue -> {
+                                                                            ArrayList<String> bodyRetry = new ArrayList<>();
+                                                                            collectWebplayerFragments(textValue, bodyRetry);
+                                                                            startCandidates(bodyRetry, status, sourceCandidates, current, resolved, tryNext);
+                                                                        }
+                                                                );
+                                                            }
+                                                        }
+                                                );
+                                            }, 5000);
                                         }
                                 );
                             } else {
