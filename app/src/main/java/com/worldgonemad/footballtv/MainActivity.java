@@ -1550,14 +1550,30 @@ public class MainActivity extends Activity {
                                             if (!retry.isEmpty()) {
                                                 startCandidates(retry, status, sourceCandidates, current, resolved, tryNext);
                                             } else {
-                                                view.evaluateJavascript(
-                                                        "(function(){return document.body ? document.body.innerText : '';})()",
-                                                        textValue -> {
-                                                            ArrayList<String> bodyRetry = new ArrayList<>();
-                                                            collectWebplayerFragments(textValue, bodyRetry);
-                                                            startCandidates(bodyRetry, status, sourceCandidates, current, resolved, tryNext);
-                                                        }
-                                                );
+                                                // The click probe is asynchronous. Read its result
+                                                // only after the provider controls had time to execute.
+                                                handler.postDelayed(() -> {
+                                                    if (resolved[0] || resolverWebView != web) return;
+                                                    view.evaluateJavascript(
+                                                            "(function(){return window.__ltvBrowserProbe || '';})()",
+                                                            delayedProbe -> {
+                                                                ArrayList<String> delayedRetry = new ArrayList<>();
+                                                                collectWebplayerFragments(delayedProbe, delayedRetry);
+                                                                if (!delayedRetry.isEmpty()) {
+                                                                    startCandidates(delayedRetry, status, sourceCandidates, current, resolved, tryNext);
+                                                                } else {
+                                                                    view.evaluateJavascript(
+                                                                            "(function(){return document.body ? document.body.innerText : '';})()",
+                                                                            textValue -> {
+                                                                                ArrayList<String> bodyRetry = new ArrayList<>();
+                                                                                collectWebplayerFragments(textValue, bodyRetry);
+                                                                                startCandidates(bodyRetry, status, sourceCandidates, current, resolved, tryNext);
+                                                                            }
+                                                                    );
+                                                                }
+                                                            }
+                                                    );
+                                                }, 7000);
                                             }
                                         }
                                 );
