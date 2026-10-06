@@ -1514,10 +1514,9 @@ public class MainActivity extends Activity {
                                 if (decoded.length() >= 2
                                         && decoded.startsWith("\"")
                                         && decoded.endsWith("\"")) {
-                                    decoded = decoded.substring(1, decoded.length() - 1)
-                                            .replace("\\\"", "\"")
-                                            .replace("\\\\", "\\")
-                                            .replace("\\n", "\n")
+                                                                    pd = pd.substring(1, pd.length()-1);
+                                                                    pd = pd.replace("\\\"", "\"");
+                                                                    pd = pd.replace("\\\\", "\\");
                                             .replace("\\r", "\r");
                                 }
 
