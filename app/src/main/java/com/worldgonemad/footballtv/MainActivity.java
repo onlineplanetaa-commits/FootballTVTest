@@ -1428,33 +1428,27 @@ public class MainActivity extends Activity {
         final int[] current = {0};
         final boolean[] resolved = {false};
         final boolean[] fallbackUsed = {false};
+        final String[] activePlayerUrl = {""};
 
         Runnable finishNoStream = () -> {
             if (resolved[0]) return;
-
             String backup = alternateEventUrl(match.eventUrl);
             if (!fallbackUsed[0] && !backup.isEmpty() && !match.eventUrl.contains("livetv904.me")) {
                 fallbackUsed[0] = true;
                 status.setText("Trying backup LiveTV source...");
-                handler.postDelayed(() -> {
-                    if (resolved[0]) return;
-                    match.eventUrl = backup;
-                    startLiveTvResolver(match);
-                }, 250);
+                match.eventUrl = backup;
+                handler.postDelayed(() -> startLiveTvResolver(match), 100);
                 return;
             }
-
             resolved[0] = true;
             status.setText("No playable LiveTV stream was found.");
         };
 
         final Runnable[] tryNext = new Runnable[1];
-
         tryNext[0] = new Runnable() {
             @Override
             public void run() {
                 if (resolved[0] || resolverWebView != web) return;
-
                 if (current[0] >= sourceCandidates.size()) {
                     finishNoStream.run();
                     return;
@@ -1466,19 +1460,18 @@ public class MainActivity extends Activity {
                     return;
                 }
 
-                status.setText("Trying browser stream " + current[0] + " of " + sourceCandidates.size() + "...");
-
-                web.stopLoading();
-
-                String playerUrl = candidate;
-                if (candidate.toLowerCase(Locale.US).startsWith("#webplayer_")) {
-                    playerUrl = webPlayerFromFragment(match.eventUrl, candidate);
+                String playerUrl = candidate.trim();
+                if (playerUrl.toLowerCase(Locale.US).startsWith("#webplayer_")) {
+                    playerUrl = webPlayerFromFragment(match.eventUrl, playerUrl);
                 }
-
                 if (playerUrl.isEmpty()) {
                     run();
                     return;
                 }
+
+                activePlayerUrl[0] = playerUrl;
+                status.setText("Opening Browser Link " + current[0] + " of "
+                        + sourceCandidates.size() + "...");
 
                 Map<String, String> headers = new HashMap<>();
                 headers.put("Referer", match.eventUrl);
@@ -1486,7 +1479,7 @@ public class MainActivity extends Activity {
                         "User-Agent",
                         "Mozilla/5.0 (Linux; Android 11; Android TV) AppleWebKit/537.36 Chrome/124.0.0.0 Safari/537.36"
                 );
-
+                web.stopLoading();
                 web.loadUrl(playerUrl, headers);
 
                 handler.postDelayed(() -> {
@@ -1496,7 +1489,7 @@ public class MainActivity extends Activity {
                             "(function(){"
                             + "var a=[];"
                             + "document.querySelectorAll('video,video source,audio source').forEach(function(e){if(e.src)a.push(e.src);});"
-                            + "document.querySelectorAll('iframe,frame,video,source').forEach(function(e){if(e.src)a.push('FRAME:'+e.src);});"
+                            + "document.querySelectorAll('iframe,frame').forEach(function(e){if(e.src)a.push('FRAME:'+e.src);});"
                             + "try{performance.getEntriesByType('resource').forEach(function(e){if(e.name)a.push(e.name);});}catch(x){}"
                             + "return JSON.stringify(a);"
                             + "})()",
@@ -1542,89 +1535,26 @@ public class MainActivity extends Activity {
                                 }
                             }
                     );
-                }, 6000);
+                }, 4000);
             }
         };
 
         web.setWebViewClient(new WebViewClient() {
             @Override
-            public void onPageFinished(WebView view, String url) {
-                super.onPageFinished(view, url);
-
-                if (resolved[0] || resolverWebView != web) return;
-
-                // Directly read the event page and extract the exact
-                // webplayer.php Browser Links. No click simulation and no
-                // arbitrary site URLs.
-                if (sourceCandidates.isEmpty() && url != null && !url.toLowerCase(Locale.US).contains("webplayer.php")) {
-                    // LiveTV inserts Browser Links dynamically. Collect them
-                    // over several passes before opening the first provider.
-                    final ArrayList<String> allFound = new ArrayList<>();
-                    final int[] scans = {0};
-
-                    Runnable scanBrowserLinks = new Runnable() {
-                        @Override
-                        public void run() {
-                            if (resolved[0] || resolverWebView != web || !sourceCandidates.isEmpty()) return;
-
-                            view.evaluateJavascript(
-                                    "(function(){"
-                                    + "var h=document.documentElement?document.documentElement.outerHTML:'';"
-                                    + "var a=[];"
-                                    + "document.querySelectorAll('[href],[onclick],[data-href],[data-url],[data-link],[data-player]').forEach(function(e){"
-                                    + "['href','onclick','data-href','data-url','data-link','data-player'].forEach(function(n){"
-                                    + "var v=e.getAttribute(n);if(v&&(v.indexOf('webplayer')>=0||v.indexOf('#webplayer_')>=0))a.push(v);"
-                                    + "});});"
-                                    + "return JSON.stringify({h:h,a:a});"
-                                    + "})()",
-                                    value -> {
-                                        if (resolved[0] || resolverWebView != web || !sourceCandidates.isEmpty()) return;
-
-                                        String decoded = value == null ? "" : value;
-                                        if (decoded.length() >= 2
-                                                && decoded.startsWith("\"")
-                                                && decoded.endsWith("\"")) {
-                                            decoded = decoded.substring(1, decoded.length() - 1)
-                                                    .replace("\\\"", "\"")
-                                                    .replace("\\\\", "\\")
-                                                    .replace("\\n", "\n")
-                                                    .replace("\\r", "\r");
-                                        }
-
-                                        try {
-                                            JSONObject obj = new JSONObject(decoded);
-                                            collectWebPlayerUrls(obj.optString("h", ""), match.eventUrl, allFound);
-                                            JSONArray attrs = obj.optJSONArray("a");
-                                            if (attrs != null) {
-                                                for (int i = 0; i < attrs.length(); i++) {
-                                                    collectWebPlayerUrls(attrs.optString(i, ""), match.eventUrl, allFound);
-                                                }
-                                            }
-                                        } catch (Exception ignored) {
-                                            collectWebPlayerUrls(decoded, match.eventUrl, allFound);
-                                        }
-
-                                        scans[0]++;
-                                        status.setText("Found " + allFound.size() + " Browser Links. Scanning...");
-                                        if (scans[0] < 3) {
-                                            handler.postDelayed(this, 1200);
-                                        } else {
-                                            startCandidates(new ArrayList<>(allFound), status, sourceCandidates, current, resolved, tryNext);
-                                        }
-                                    }
-                            );
-                        }
-                    };
-
-                    scanBrowserLinks.run();
+            public void onPageStarted(WebView view, String url, android.graphics.Bitmap favicon) {
+                super.onPageStarted(view, url, favicon);
+                if (url != null && !url.isEmpty()) {
+                    String top = activePlayerUrl[0];
+                    if (top.isEmpty() || url.equals(top) || !url.contains("livetv904.me/webplayer2.php")) {
+                        activePlayerUrl[0] = url;
+                    }
                 }
             }
 
             @Override
             public void onLoadResource(WebView view, String url) {
                 super.onLoadResource(view, url);
-
-                if (resolved[0] || sourceCandidates.isEmpty() || url == null) return;
+                if (resolved[0] || url == null) return;
 
                 String lower = url.toLowerCase(Locale.US);
                 if (lower.contains(".m3u8")
@@ -1634,12 +1564,26 @@ public class MainActivity extends Activity {
                     resolved[0] = true;
                     ArrayList<String> media = new ArrayList<>();
                     String cookie = CookieManager.getInstance().getCookie(url);
+
                     String candidate = url
-                            + "\\tREFERER=" + match.eventUrl
+                            + "\\tREFERER=" + activePlayerUrl[0]
                             + "\\tUA=Mozilla/5.0 (Linux; Android 11; Android TV) AppleWebKit/537.36 Chrome/124.0.0.0 Safari/537.36";
                     if (cookie != null && !cookie.isEmpty()) {
                         candidate += "\\tCOOKIE=" + cookie;
                     }
+
+                    String origin = "";
+                    try {
+                        Uri u = Uri.parse(activePlayerUrl[0]);
+                        if (u.getScheme() != null && u.getHost() != null) {
+                            origin = u.getScheme() + "://" + u.getHost();
+                        }
+                    } catch (Exception ignored) {}
+
+                    if (!origin.isEmpty()) {
+                        candidate += "\\tORIGIN=" + origin;
+                    }
+
                     media.add(candidate);
                     playStreamCandidates(match, media, 0);
                 }
@@ -1680,18 +1624,57 @@ public class MainActivity extends Activity {
             releasePlayer();
             showMatches();
         });
-
         setContentView(root);
 
-        Map<String, String> eventHeaders = new HashMap<>();
-        eventHeaders.put("Referer", match.eventUrl.contains("livetv904.me")
-                ? "https://livetv904.me/" : "https://livetv.sx/");
-        eventHeaders.put(
-                "User-Agent",
-                "Mozilla/5.0 (Linux; Android 11; Android TV) AppleWebKit/537.36 Chrome/124.0.0.0 Safari/537.36"
-        );
+        // Fetch the event HTML directly. We do not wait for WebView
+        // onPageFinished before discovering Browser Links.
+        new Thread(() -> {
+            String html = downloadPage(match.eventUrl);
+            ArrayList<String> found = new ArrayList<>();
+            collectWebPlayerUrls(html, match.eventUrl, found);
 
-        web.loadUrl(match.eventUrl, eventHeaders);
+            runOnUiThread(() -> {
+                if (resolved[0] || resolverWebView != web) return;
+
+                if (!found.isEmpty()) {
+                    startCandidates(found, status, sourceCandidates, current, resolved, tryNext);
+                } else {
+                    status.setText("No Browser Links found. Trying backup LiveTV...");
+                    String backup = alternateEventUrl(match.eventUrl);
+
+                    if (!fallbackUsed[0] && !backup.isEmpty()) {
+                        fallbackUsed[0] = true;
+                        match.eventUrl = backup;
+
+                        new Thread(() -> {
+                            String backupHtml = downloadPage(backup);
+                            ArrayList<String> backupFound = new ArrayList<>();
+                            collectWebPlayerUrls(backupHtml, backup, backupFound);
+
+                            runOnUiThread(() -> {
+                                if (resolved[0] || resolverWebView != web) return;
+                                if (!backupFound.isEmpty()) {
+                                    startCandidates(backupFound, status, sourceCandidates, current, resolved, tryNext);
+                                } else {
+                                    resolved[0] = true;
+                                    status.setText("No LiveTV Browser Links were found.");
+                                }
+                            });
+                        }).start();
+                    } else {
+                        resolved[0] = true;
+                        status.setText("No LiveTV Browser Links were found.");
+                    }
+                }
+            });
+        }).start();
+
+        // Never leave the user on the loading message for minutes.
+        handler.postDelayed(() -> {
+            if (!resolved[0] && sourceCandidates.isEmpty()) {
+                status.setText("LiveTV link search is taking too long...");
+            }
+        }, 8000);
     }
 
     private void startCandidates(
