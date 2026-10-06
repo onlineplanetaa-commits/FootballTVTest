@@ -2305,4 +2305,6 @@ public class MainActivity extends Activity {
             this.eventUrl = eventUrl;
         }
     }
-}
+                                                                    pd = pd.substring(1, pd.length()-1);
+                                                                    pd = pd.replace("\\\"", "\"");
+                                                                    pd = pd.replace("\\\\", "\\");
