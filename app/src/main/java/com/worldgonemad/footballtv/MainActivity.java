@@ -1213,40 +1213,25 @@ public class MainActivity extends Activity {
             if (html == null || html.isEmpty()) return result;
 
             Pattern iframePattern = Pattern.compile(
-                    "(?is)<iframe\\s+[^>]*src\\s*=\\s*[\\\"']([^\\\"']+)[\\\"'][^>]*>"
+                    "(?is)<iframe[^>]+src\\s*=\\s*[\\\"']([^\\\"']+)[\\\"']"
             );
             Matcher m = iframePattern.matcher(html);
-
-            // The event page contains several iframes. The first one is
-            // normally an advertising iframe (ads.livetv904.me).
-            // The actual LiveTV player is the iframe whose URL contains
-            // /cache/ltvplayer/. Selecting the first iframe caused the app
-            // to open a black advertising frame instead of the broadcast.
-            String playerSrc = null;
 
             while (m.find()) {
                 String src = m.group(1);
                 if (src == null || src.trim().isEmpty()) continue;
                 src = src.trim();
 
+                if (src.startsWith("//")) {
+                    src = "https:" + src;
+                } else if (src.startsWith("/")) {
+                    src = "https://livetv904.me" + src;
+                }
+
                 String lower = src.toLowerCase(Locale.US);
-                if (!lower.contains("ltvplayer")) {
-                    continue;
-                }
-
-                playerSrc = src;
-                break;
-            }
-
-            if (playerSrc != null) {
-                if (playerSrc.startsWith("//")) {
-                    playerSrc = "https:" + playerSrc;
-                } else if (playerSrc.startsWith("/")) {
-                    playerSrc = "https://livetv904.me" + playerSrc;
-                }
-
-                if (playerSrc.startsWith("http")) {
-                    result.add("WEBVIEW\\t" + playerSrc);
+                if (lower.contains("ltvplayer") && src.startsWith("http")) {
+                    result.add("WEBVIEW\\t" + src);
+                    break;
                 }
             }
         } catch (Exception ignored) {
@@ -1435,7 +1420,7 @@ public class MainActivity extends Activity {
                 "Mozilla/5.0 (Linux; Android 11; Android TV) AppleWebKit/537.36 Chrome/124.0.0.0 Safari/537.36"
         );
 
-        web.loadUrl(playerUrl, webHeaders);
+        web.loadUrl(playerUrl);
     }
 
     private void showPlayer(Match match, String message) {
