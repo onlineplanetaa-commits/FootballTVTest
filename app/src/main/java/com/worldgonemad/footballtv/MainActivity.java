@@ -1452,25 +1452,113 @@ public class MainActivity extends Activity {
         };
 
         web.setWebViewClient(new WebViewClient() {
+            private boolean discovering = false;
+
+            @Override
+            public void onPageFinished(WebView view, String url) {
+                super.onPageFinished(view, url);
+
+                if (resolved[0] || resolverWebView != web) return;
+
+                // The event page creates the Browser Links in the rendered
+                // document. Search the complete DOM, including script text,
+                // rather than assuming they are href attributes.
+                if (!discovering && sourceCandidates.isEmpty()) {
+                    discovering = true;
+
+                    handler.postDelayed(() -> {
+                        if (resolved[0] || resolverWebView != web) return;
+
+                        String js =
+                                "(function(){"
+                                + "var parts=[];"
+                                + "try{parts.push(document.documentElement.innerHTML||'');}catch(e){}"
+                                + "try{"
+                                + "document.querySelectorAll('script').forEach(function(s){parts.push(s.textContent||s.innerHTML||'');});"
+                                + "}catch(e){}"
+                                + "try{"
+                                + "document.querySelectorAll('*').forEach(function(e){"
+                                + "for(var i=0;i<e.attributes.length;i++){parts.push(e.attributes[i].value||'');}"
+                                + "});"
+                                + "}catch(e){}"
+                                + "var text=parts.join('\\n');"
+                                + "text=text.replace(/&amp;/g,'&').replace(/&#124;/g,'|').replace(/&#x7c;/gi,'|')"
+                                + ".replace(/\\\\u0023/gi,'#').replace(/\\\\u007c/gi,'|')"
+                                + ".replace(/\\\\\\\"/g,'\\\"');"
+                                + "var out=[],re=/#webplayer_[A-Za-z0-9_-]+(?:\\|[A-Za-z0-9._:%+~-]+)*/gi,m;"
+                                + "while((m=re.exec(text))!==null){if(out.indexOf(m[0])<0)out.push(m[0]);}"
+                                + "return JSON.stringify(out);"
+                                + "})()";
+
+                        view.evaluateJavascript(js, value -> {
+                            if (resolved[0] || resolverWebView != web) return;
+
+                            ArrayList<String> found = new ArrayList<>();
+                            String decoded = value == null ? "" : value;
+
+                            try {
+                                if (decoded.length() >= 2
+                                        && decoded.startsWith("\"")
+                                        && decoded.endsWith("\"")) {
+                                    decoded = decoded.substring(1, decoded.length() - 1)
+                                            .replace("\\\"", "\"")
+                                            .replace("\\\\", "\\")
+                                            .replace("\\n", "\n")
+                                            .replace("\\r", "\r");
+                                }
+
+                                JSONArray arr = new JSONArray(decoded);
+                                for (int i = 0; i < arr.length(); i++) {
+                                    String candidate = arr.optString(i, "").trim();
+                                    if (!candidate.isEmpty()
+                                            && candidate.toLowerCase(Locale.US).startsWith("#webplayer_")
+                                            && !found.contains(candidate)) {
+                                        found.add(candidate);
+                                    }
+                                }
+                            } catch (Exception ignored) {
+                                collectWebplayerFragments(decoded, found);
+                            }
+
+                            if (found.isEmpty()) {
+                                // One final direct DOM query catches selectors
+                                // represented in text nodes rather than HTML.
+                                view.evaluateJavascript(
+                                        "(function(){return document.body ? document.body.innerText : '';})()",
+                                        textValue -> {
+                                            ArrayList<String> retry = new ArrayList<>();
+                                            collectWebplayerFragments(textValue, retry);
+                                            startCandidates(retry, status, sourceCandidates, current, resolved, tryNext);
+                                        }
+                                );
+                            } else {
+                                startCandidates(found, status, sourceCandidates, current, resolved, tryNext);
+                            }
+                        });
+                    }, 1500);
+                }
+            }
+
             @Override
             public void onLoadResource(WebView view, String url) {
                 super.onLoadResource(view, url);
 
-                if (resolved[0] || url == null) return;
+                // Media capture is only active after a Browser Link selector
+                // has been selected. During event-page discovery, ignore all
+                // ordinary LiveTV904 resources.
+                if (resolved[0] || sourceCandidates.isEmpty() || url == null) return;
 
                 String lower = url.toLowerCase(Locale.US);
                 if (lower.contains(".m3u8")
                         || lower.contains(".mp4")
                         || lower.contains("/hls/")
                         || lower.contains("manifest")) {
-                    if (!resolved[0]) {
-                        resolved[0] = true;
-                        ArrayList<String> media = new ArrayList<>();
-                        media.add(url);
-                        releasePlayer();
-                        playerScreen = true;
-                        playStreamCandidates(match, media, 0);
-                    }
+                    resolved[0] = true;
+                    ArrayList<String> media = new ArrayList<>();
+                    media.add(url);
+                    releasePlayer();
+                    playerScreen = true;
+                    playStreamCandidates(match, media, 0);
                 }
             }
 
@@ -1483,15 +1571,6 @@ public class MainActivity extends Activity {
                         ? request.getUrl().toString() : "";
 
                 if (u.startsWith("acestream://") || u.startsWith("acestream:")) {
-                    return true;
-                }
-
-                // Never show the ordinary LiveTV904 site inside the app.
-                if (u.startsWith("https://livetv904.me/")
-                        && !u.contains("/eventinfo/")
-                        && !u.contains("/broadcast/")
-                        && !u.contains("/player/")) {
-                    tryNext[0].run();
                     return true;
                 }
 
@@ -1514,7 +1593,8 @@ public class MainActivity extends Activity {
                     android.webkit.WebResourceError error
             ) {
                 super.onReceivedError(view, request, error);
-                if (request != null && request.isForMainFrame() && !resolved[0]) {
+                if (request != null && request.isForMainFrame()
+                        && !resolved[0] && !sourceCandidates.isEmpty()) {
                     tryNext[0].run();
                 }
             }
