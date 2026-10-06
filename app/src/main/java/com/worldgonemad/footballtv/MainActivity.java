@@ -1495,6 +1495,7 @@ public class MainActivity extends Activity {
                             "(function(){"
                             + "var a=[];"
                             + "document.querySelectorAll('video,video source,audio source').forEach(function(e){if(e.src)a.push(e.src);});"
+                            + "document.querySelectorAll('iframe,frame,video,source').forEach(function(e){if(e.src)a.push('FRAME:'+e.src);});"
                             + "try{performance.getEntriesByType('resource').forEach(function(e){if(e.name)a.push(e.name);});}catch(x){}"
                             + "return JSON.stringify(a);"
                             + "})()",
@@ -1519,9 +1520,23 @@ public class MainActivity extends Activity {
                                     if (!media.contains(mediaUrl)) media.add(mediaUrl);
                                 }
 
+                                ArrayList<String> frames = new ArrayList<>();
+                                for (String item : media) {
+                                    if (item.startsWith("FRAME:")) {
+                                        String frameUrl = item.substring("FRAME:".length()).trim();
+                                        if (frameUrl.startsWith("http://") || frameUrl.startsWith("https://")) {
+                                            frames.add(frameUrl);
+                                        }
+                                    }
+                                }
+                                media.removeIf(item -> item.startsWith("FRAME:"));
+
                                 if (!media.isEmpty()) {
                                     resolved[0] = true;
                                     playStreamCandidates(match, media, 0);
+                                } else if (!frames.isEmpty()) {
+                                    sourceCandidates.addAll(frames);
+                                    tryNext[0].run();
                                 } else {
                                     tryNext[0].run();
                                 }
