@@ -1373,10 +1373,7 @@ public class MainActivity extends Activity {
                     return;
                 }
 
-                status.setText(
-                        "Trying stream " + current[0] +
-                        " of " + sourceCandidates.size() + "..."
-                );
+                status.setText("Resolving broadcast " + current[0] + "...");
 
                 web.stopLoading();
 
@@ -1614,6 +1611,8 @@ public class MainActivity extends Activity {
     private void collectRawStreamUrls(String html, ArrayList<String> found) {
         if (html == null) return;
 
+        // Do not collect every HTTP URL from the page: most are ordinary
+        // LiveTV904 navigation, HTML pages, images, scripts, etc.
         Pattern p = Pattern.compile(
                 "(?i)(?:https?://|acestream://|acestream:)[^\\\"'<>\\s]+"
         );
@@ -1654,11 +1653,10 @@ public class MainActivity extends Activity {
         }
 
         // Skip normal LiveTV navigation and the event page itself.
-        if (u.startsWith("https://livetv904.me/")
-                && (u.contains("/eventinfo/")
-                    || u.contains("/allupcomingsports/")
-                    || u.equals("https://livetv904.me/"))) {
-            return;
+        if (u.startsWith("https://livetv904.me/")) {
+            // Only the explicit #webplayer_* fragment is a broadcast selector.
+            // Never treat ordinary LiveTV904 event/broadcast/player pages as a stream.
+            if (!u.contains("#webplayer_")) return;
         }
 
         // Keep real provider/browser links and direct media URLs.
