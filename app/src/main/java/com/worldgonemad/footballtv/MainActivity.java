@@ -1348,7 +1348,7 @@ public class MainActivity extends Activity {
         // Exact Browser Link targets, for example:
         // /webplayer.php?t=ifr&c=3083550&lang=ru&eid=453410644&lid=3083550&ci=442&si=1
         Pattern wp = Pattern.compile(
-                "(?i)(?:https?:\\/\\/[^\\\"'<>\\s]+|/)?webplayer\\.php\\?[^\\\"'<>\\s]+"
+                "(?i)(?:https?:\\/\\/[^\\\"'<>\\s]+|/)?webplayer(?:2)?\\.php\\?[^\\\"'<>\\s]+"
         );
         Matcher wm = wp.matcher(html);
         while (wm.find()) {
