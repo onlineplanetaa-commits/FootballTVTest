@@ -1355,7 +1355,7 @@ public class MainActivity extends Activity {
             String u = wm.group(0)
                     .replace("\\\\/", "/")
                     .replace("&amp;", "&")
-                    .replace("\"", """)
+                    .replace("\"", "")
                     .trim();
 
             if (u.startsWith("/")) {
