@@ -1567,10 +1567,10 @@ public class MainActivity extends Activity {
                                                             ArrayList<String> retry = new ArrayList<>();
                                                             String pd = probeResult == null ? "" : probeResult;
                                                             try {
-                                                                if (pd.length() >= 2 && pd.startsWith(""") && pd.endsWith(""")) {
+                                                                if (pd.length() >= 2 && pd.startsWith("\"") && pd.endsWith("\"")) {
                                                                     pd = pd.substring(1, pd.length()-1)
                                                                             .replace("\\"", """)
-                                                                            .replace("\\\\", "\");
+                                                                            .replace("\\\\", "\\");
                                                                 }
                                                                 JSONArray pa = new JSONArray(pd);
                                                                 for(int i=0;i<pa.length();i++){
