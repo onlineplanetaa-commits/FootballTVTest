@@ -1332,6 +1332,9 @@ public class MainActivity extends Activity {
         WebView web = new WebView(this);
         resolverWebView = web;
         web.setBackgroundColor(Color.BLACK);
+        // Resolver WebView is a hidden network probe. It must NEVER show
+        // provider HTML, splash images, or LiveTV904 pages to the user.
+        web.setVisibility(View.GONE);
         web.getSettings().setJavaScriptEnabled(true);
         web.getSettings().setDomStorageEnabled(true);
         web.getSettings().setMediaPlaybackRequiresUserGesture(false);
@@ -1460,10 +1463,13 @@ public class MainActivity extends Activity {
                         || lower.contains(".mp4")
                         || lower.contains("/hls/")
                         || lower.contains("manifest")) {
-                    if (!sourceCandidates.contains(url)) {
-                        // Put discovered media URLs at the front. They are the
-                        // real streams that our Media3 player can consume.
-                        sourceCandidates.add(0, url);
+                    if (!resolved[0]) {
+                        resolved[0] = true;
+                        ArrayList<String> media = new ArrayList<>();
+                        media.add(url);
+                        releasePlayer();
+                        playerScreen = true;
+                        playStreamCandidates(match, media, 0);
                     }
                 }
             }
@@ -1514,7 +1520,9 @@ public class MainActivity extends Activity {
             }
         });
 
-        root.addView(web, new LinearLayout.LayoutParams(-1, 0, 1));
+        // Keep the resolver completely invisible. It is only used to
+        // execute provider JavaScript and capture the real media URL.
+        root.addView(web, new LinearLayout.LayoutParams(1, 1));
 
         back.setOnClickListener(v -> {
             releasePlayer();
