@@ -2231,6 +2231,183 @@ public class MainActivity extends Activity {
         );
 
         root.addView(
+                status,
+                new LinearLayout.LayoutParams(-1, 55)
+        );
+
+        playerView = new PlayerView(this);
+        playerView.setBackgroundColor(Color.BLACK);
+        playerView.setKeepScreenOn(true);
+
+        root.addView(
+                playerView,
+                new LinearLayout.LayoutParams(-1, 0, 1)
+        );
+
+        back.setOnClickListener(v -> {
+            releasePlayer();
+            showMatches();
+        });
+
+        setContentView(root);
+    }
+
+    private void playHls(String hls) {
+        if (hls == null || hls.isEmpty()) return;
+
+        releasePlayer();
+        playerScreen = true;
+
+        playerView = new PlayerView(this);
+        playerView.setBackgroundColor(Color.BLACK);
+
+        LinearLayout root = new LinearLayout(this);
+        root.setOrientation(LinearLayout.VERTICAL);
+        root.setBackgroundColor(Color.BLACK);
+
+        LinearLayout top = new LinearLayout(this);
+        top.setOrientation(LinearLayout.HORIZONTAL);
+        top.setGravity(Gravity.CENTER_VERTICAL);
+        top.setPadding(20, 8, 20, 8);
+
+        TextView title = label("MAX FOOTBALL ONLINE", 19, TEXT);
+        title.setTypeface(Typeface.DEFAULT, Typeface.BOLD);
+
+        top.addView(title, new LinearLayout.LayoutParams(0, 56, 1));
+
+        Button back = action("BACK");
+        top.addView(back, new LinearLayout.LayoutParams(120, 52));
+
+        root.addView(top);
+
+        root.addView(
+                playerView,
+                new LinearLayout.LayoutParams(-1, 0, 1)
+        );
+
+        back.setOnClickListener(v -> {
+            releasePlayer();
+            showMatches();
+        });
+
+        setContentView(root);
+
+        player = new ExoPlayer.Builder(this).build();
+        playerView.setPlayer(player);
+
+        MediaItem item = new MediaItem.Builder()
+                .setUri(Uri.parse(hls))
+                .build();
+
+        player.setMediaItem(item);
+        player.prepare();
+        player.play();
+    }
+
+    private void releasePlayer() {
+        if (matchLoaderWebView != null) {
+            try {
+                matchLoaderWebView.stopLoading();
+                matchLoaderWebView.destroy();
+            } catch (Exception ignored) {}
+            matchLoaderWebView = null;
+        }
+
+        if (resolverWebView != null) {
+            try {
+                resolverWebView.stopLoading();
+                resolverWebView.destroy();
+            } catch (Exception ignored) {}
+            resolverWebView = null;
+        }
+
+        if (playerView != null) {
+            // Detach first, then release the player. This prevents a stale
+            // video surface from remaining attached while audio continues.
+            try {
+                playerView.setPlayer(null);
+            } catch (Exception ignored) {}
+        }
+
+        if (player != null) {
+            try {
+                player.stop();
+            } catch (Exception ignored) {}
+
+            try {
+                player.release();
+            } catch (Exception ignored) {}
+
+            player = null;
+        }
+
+        playerView = null;
+    }
+
+    private void showError(
+            String message
+    ) {
+
+        LinearLayout root =
+                new LinearLayout(this);
+
+        root.setOrientation(
+                LinearLayout.VERTICAL
+        );
+
+        root.setGravity(
+                Gravity.CENTER
+        );
+
+        root.setBackgroundColor(BG);
+
+        TextView title =
+                label(
+                        "MAX FOOTBALL ONLINE",
+                        28,
+                        TEXT
+                );
+
+        title.setTypeface(
+                Typeface.DEFAULT,
+                Typeface.BOLD
+        );
+
+        title.setGravity(Gravity.CENTER);
+
+        root.addView(
+                title,
+                new LinearLayout.LayoutParams(
+                        -1,
+                        70
+                )
+        );
+
+        TextView error =
+                label(
+                        message,
+                        18,
+                        MUTED
+                );
+
+        error.setGravity(Gravity.CENTER);
+
+        root.addView(
+                error,
+                new LinearLayout.LayoutParams(
+                        -1,
+                        70
+                )
+        );
+
+        Button retry =
+                action("RETRY");
+
+        retry.setOnClickListener(
+                v -> loadMatches()
+        );
+
+        root.addView(
                 retry,
                 new LinearLayout.LayoutParams(
                         180,
