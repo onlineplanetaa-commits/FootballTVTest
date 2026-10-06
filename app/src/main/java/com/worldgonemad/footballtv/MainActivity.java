@@ -1541,7 +1541,7 @@ public class MainActivity extends Activity {
                 // Directly read the event page and extract the exact
                 // webplayer.php Browser Links. No click simulation and no
                 // arbitrary site URLs.
-                if (sourceCandidates.isEmpty() && url != null && url.toLowerCase(Locale.US).contains("/eventinfo/")) {
+                if (sourceCandidates.isEmpty() && url != null && !url.toLowerCase(Locale.US).contains("webplayer.php")) {
                     view.evaluateJavascript(
                             "(function(){return document.documentElement ? document.documentElement.outerHTML : '';})()",
                             value -> {
