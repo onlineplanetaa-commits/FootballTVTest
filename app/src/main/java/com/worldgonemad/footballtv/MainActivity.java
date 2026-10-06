@@ -1517,6 +1517,7 @@ public class MainActivity extends Activity {
                                                                     pd = pd.substring(1, pd.length()-1);
                                                                     pd = pd.replace("\\\"", "\"");
                                                                     pd = pd.replace("\\\\", "\\");
+                                                                }
                                             .replace("\\r", "\r");
                                 }
 
