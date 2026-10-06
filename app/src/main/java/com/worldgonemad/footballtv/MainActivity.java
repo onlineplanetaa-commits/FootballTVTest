@@ -1568,7 +1568,7 @@ public class MainActivity extends Activity {
                                                             String pd = probeResult == null ? "" : probeResult;
                                                             try {
                                                                 if (pd.length() >= 2 && pd.startsWith("\"") && pd.endsWith("\"")) {
-                                                                    pd = pd.substring(1, pd.length()-1)
+                                                                            .replace("\\\"", "\"")
                                                                             .replace("\\"", """)
                                                                             .replace("\\\\", "\\");
                                                                 }
