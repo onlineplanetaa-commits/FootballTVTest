@@ -970,7 +970,7 @@ public class MainActivity extends Activity {
                 continue;
             }
 
-            String eventUrl = normalizeUrl(href);
+            String eventUrl = normalizeUrl(href, html);
 
             boolean duplicate = false;
 
@@ -1144,7 +1144,7 @@ public class MainActivity extends Activity {
             }
 
             String eventUrl =
-                    normalizeUrl(href);
+                    normalizeUrl(href, area);
 
             return new Match(
                     league,
@@ -1207,44 +1207,22 @@ public class MainActivity extends Activity {
     }
 
     private String normalizeUrl(
-            String href
+            String href,
+            String pageHtml
     ) {
-
-        if (href == null) {
-            return "";
-        }
+        if (href == null) return "";
 
         href = href.trim();
+        if (href.startsWith("https://") || href.startsWith("http://")) return href;
+        if (href.startsWith("//")) return "https:" + href;
 
-        if (
-                href.startsWith(
-                        "https://"
-                )
-        ) {
-            return href;
-        }
+        String host = (pageHtml != null
+                && pageHtml.toLowerCase(Locale.US).contains("livetv904.me"))
+                ? "https://livetv904.me"
+                : "https://livetv.sx";
 
-        if (
-                href.startsWith(
-                        "http://"
-                )
-        ) {
-            return href;
-        }
-
-        if (
-                href.startsWith("//")
-        ) {
-            return "https:" + href;
-        }
-
-        if (
-                href.startsWith("/")
-        ) {
-            return "https://livetv904.me" + href;
-        }
-
-        return "https://livetv904.me/" + href;
+        if (href.startsWith("/")) return host + href;
+        return host + "/" + href;
     }
 
     private String cleanText(
@@ -1454,7 +1432,7 @@ public class MainActivity extends Activity {
             if (resolved[0]) return;
 
             String backup = alternateEventUrl(match.eventUrl);
-            if (!fallbackUsed[0] && !backup.isEmpty()) {
+            if (!fallbackUsed[0] && !backup.isEmpty() && !match.eventUrl.contains("livetv904.me")) {
                 fallbackUsed[0] = true;
                 status.setText("Trying backup LiveTV source...");
                 handler.postDelayed(() -> {
