@@ -2219,7 +2219,7 @@ public class MainActivity extends Activity {
                 "Mozilla/5.0 (Linux; Android 11; Android TV) AppleWebKit/537.36 Chrome/124.0.0.0 Safari/537.36"
         );
 
-        web.loadUrl(playerUrl);
+        web.loadUrl(playerUrl, webHeaders);
     }
 
     private void showPlayer(Match match, String message) {
