@@ -1563,7 +1563,31 @@ public class MainActivity extends Activity {
                 }
 
                 activePlayerUrl[0] = playerUrl;
-                status.setText("Открытие ссылки трансляции " + current[0] + " of "
+
+                // YouTube Browser Links are not ordinary HLS/MP4 sources.
+                // The YouTube player uses its own HTML5/MSE pipeline, so
+                // Media3 extraction cannot reliably see the actual media URL.
+                // For a YouTube selector, open the video directly in the
+                // Android TV WebView instead of declaring the stream dead.
+                if (playerUrl.toLowerCase(Locale.US).contains("t=youtube")) {
+                    Matcher youtubeId = Pattern.compile(
+                            "(?i)[?&]c=([^&]+)"
+                    ).matcher(playerUrl);
+                    if (youtubeId.find()) {
+                        String videoId = youtubeId.group(1);
+                        String youtubeEmbed =
+                                "https://www.youtube-nocookie.com/embed/"
+                                + videoId
+                                + "?autoplay=1&playsinline=1&rel=0";
+                        status.setText("Открытие ссылки трансляции " + current[0] + " из "
+                                + sourceCandidates.size() + "...");
+                        resolved[0] = true;
+                        showLiveTvWebPlayer(match, youtubeEmbed);
+                        return;
+                    }
+                }
+
+                status.setText("Открытие ссылки трансляции " + current[0] + " из "
                         + sourceCandidates.size() + "...");
 
                 Map<String, String> headers = new HashMap<>();
