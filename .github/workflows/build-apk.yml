@@ -42,72 +42,72 @@ jobs:
             from pathlib import Path
             p = Path("app/src/main/java/com/worldgonemad/footballtv/MainActivity.java")
             s = p.read_text()
+
             old = """        releasePlayer();
-          playerScreen = true;
+        playerScreen = true;
 
-          LinearLayout root = new LinearLayout(this);
-  """
+        LinearLayout root = new LinearLayout(this);
+"""
             new = """        releasePlayerOnly();
-          playerScreen = true;
+        playerScreen = true;
 
-          LinearLayout root = new LinearLayout(this);
-  """
+        LinearLayout root = new LinearLayout(this);
+"""
             if old not in s:
                 raise SystemExit("playStreamCandidates start block not found")
             s = s.replace(old, new, 1)
 
             old = """                        if (player != null) {
-                              releasePlayer();
-                          }
-                          playStreamCandidates(match, streams, nextIndex);
-  """
+                            releasePlayer();
+                        }
+                        playStreamCandidates(match, streams, nextIndex);
+"""
             new = """                        if (player != null) {
-                              releasePlayerOnly();
-                          }
-                          playStreamCandidates(match, streams, nextIndex);
-  """
+                            releasePlayerOnly();
+                        }
+                        playStreamCandidates(match, streams, nextIndex);
+"""
             if old not in s:
                 raise SystemExit("player error block not found")
             s = s.replace(old, new, 1)
 
             marker = """    private void releasePlayer() {
-  """
+"""
             method = """    private void releasePlayerOnly() {
-          if (playerView != null) {
-              try {
-                  playerView.setPlayer(null);
-              } catch (Exception ignored) {}
-          }
+        if (playerView != null) {
+            try {
+                playerView.setPlayer(null);
+            } catch (Exception ignored) {}
+        }
 
-          if (player != null) {
-              try {
-                  player.stop();
-              } catch (Exception ignored) {}
+        if (player != null) {
+            try {
+                player.stop();
+            } catch (Exception ignored) {}
 
-              try {
-                  player.release();
-              } catch (Exception ignored) {}
+            try {
+                player.release();
+            } catch (Exception ignored) {}
 
-              player = null;
-          }
+            player = null;
+        }
 
-          playerView = null;
-      }
+        playerView = null;
+    }
 
-  """
+"""
             if marker not in s:
                 raise SystemExit("releasePlayer marker not found")
             s = s.replace(marker, method + marker, 1)
-
             p.write_text(s)
           PY
 
-        - name: Build APK
-          run: gradle --no-daemon assembleDebug
+      - name: Build APK
+        run: gradle --no-daemon assembleDebug
 
-        - name: Upload APK
-          uses: actions/upload-artifact@v4
-          with:
-            name: FootballTV-debug-apk
-            path: app/build/outputs/apk/debug/app-debug.apk
-            if-no-files-found: error
+      - name: Upload APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: FootballTV-debug-apk
+          path: app/build/outputs/apk/debug/app-debug.apk
+          if-no-files-found: error
