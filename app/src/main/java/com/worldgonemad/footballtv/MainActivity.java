@@ -1804,6 +1804,13 @@ public class MainActivity extends Activity {
     ) {
         if (resolved[0]) return;
 
+        // Put Ukrainian/Russian Browser Links first, then all other links.
+        // If there are no Ukrainian/Russian links, the normal links are used immediately.
+        found.sort((a, b) -> Integer.compare(
+                browserLinkLanguagePriority(a),
+                browserLinkLanguagePriority(b)
+        ));
+
         if (found.size() > 12) {
             found.subList(12, found.size()).clear();
         }
@@ -1821,8 +1828,25 @@ public class MainActivity extends Activity {
         tryNext[0].run();
     }
 
-        if ("ru".equals(lang) || "rus".equals(lang)) return 0;
-        if ("ua".equals(lang) || "uk".equals(lang) || "ukr".equals(lang)) return 1;
+    private int browserLinkLanguagePriority(String url) {
+        if (url == null) return 2;
+
+        String lower = url.toLowerCase(Locale.US);
+        String lang = "";
+
+        int q = lower.indexOf("lang=");
+        if (q >= 0) {
+            int start = q + 5;
+            int end = lower.indexOf('&', start);
+            if (end < 0) end = lower.length();
+            lang = lower.substring(start, end);
+        } else if (lower.startsWith("#webplayer_")) {
+            String[] parts = lower.substring(1).split("\\|", -1);
+            if (parts.length >= 7) lang = parts[6];
+        }
+
+        if ("ua".equals(lang) || "uk".equals(lang) || "ukr".equals(lang)) return 0;
+        if ("ru".equals(lang) || "rus".equals(lang)) return 1;
         return 2;
     }
 
