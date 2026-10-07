@@ -1804,6 +1804,15 @@ public class MainActivity extends Activity {
     ) {
         if (resolved[0]) return;
 
+        // Prefer Russian and Ukrainian browser links first.
+        // LiveTV marks these with lang=ru / lang=ua (or the same value
+        // as the last field of a #webplayer_... fragment). Keep the
+        // original order inside each language group.
+        found.sort((a, b) -> Integer.compare(
+                browserLinkLanguagePriority(a),
+                browserLinkLanguagePriority(b)
+        ));
+
         if (found.size() > 12) {
             found.subList(12, found.size()).clear();
         }
@@ -1819,6 +1828,28 @@ public class MainActivity extends Activity {
         current[0] = 0;
         status.setText("Found " + sourceCandidates.size() + " Browser Links. Resolving...");
         tryNext[0].run();
+    }
+
+    private int browserLinkLanguagePriority(String url) {
+        if (url == null) return 2;
+
+        String lower = url.toLowerCase(Locale.US);
+        String lang = "";
+
+        int q = lower.indexOf("lang=");
+        if (q >= 0) {
+            int start = q + 5;
+            int end = lower.indexOf('&', start);
+            if (end < 0) end = lower.length();
+            lang = lower.substring(start, end);
+        } else if (lower.startsWith("#webplayer_")) {
+            String[] parts = lower.substring(1).split("\\\\|", -1);
+            if (parts.length >= 7) lang = parts[6];
+        }
+
+        if ("ru".equals(lang) || "rus".equals(lang)) return 0;
+        if ("ua".equals(lang) || "uk".equals(lang) || "ukr".equals(lang)) return 1;
+        return 2;
     }
 
     private int indexOfIgnoreCase(String text, String needle) {
