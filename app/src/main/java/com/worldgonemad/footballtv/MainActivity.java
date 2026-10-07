@@ -1384,7 +1384,7 @@ public class MainActivity extends Activity {
     }
 
     private void startLiveTvResolver(Match match) {
-        releasePlayer();
+        releasePlayerOnly();
         playerScreen = true;
 
         LinearLayout root = new LinearLayout(this);
@@ -1911,7 +1911,7 @@ public class MainActivity extends Activity {
                             androidx.media3.common.PlaybackException error
                     ) {
                         if (player != null) {
-                            releasePlayer();
+                            releasePlayerOnly();
                         }
                         playStreamCandidates(match, streams, nextIndex);
                     }
@@ -2103,6 +2103,28 @@ public class MainActivity extends Activity {
         player.setMediaItem(item);
         player.prepare();
         player.play();
+    }
+
+    private void releasePlayerOnly() {
+        if (playerView != null) {
+            try {
+                playerView.setPlayer(null);
+            } catch (Exception ignored) {}
+        }
+
+        if (player != null) {
+            try {
+                player.stop();
+            } catch (Exception ignored) {}
+
+            try {
+                player.release();
+            } catch (Exception ignored) {}
+
+            player = null;
+        }
+
+        playerView = null;
     }
 
     private void releasePlayer() {
