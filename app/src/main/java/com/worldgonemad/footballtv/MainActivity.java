@@ -1472,6 +1472,7 @@ public class MainActivity extends Activity {
         final int[] current = {0};
         final boolean[] resolved = {false};
         final boolean[] fallbackUsed = {false};
+        final boolean[] playbackAttemptActive = {false};
         final String[] activePlayerUrl = {""};
 
         Runnable finishNoStream = () -> {
@@ -1538,7 +1539,7 @@ public class MainActivity extends Activity {
                             + "return JSON.stringify(a);"
                             + "})()",
                             value -> {
-                                if (resolved[0] || resolverWebView != web) return;
+                                if (resolved[0] || resolverWebView != web || playbackAttemptActive[0]) return;
 
                                 String decoded = value == null ? "" : value;
                                 if (decoded.length() >= 2
@@ -1568,9 +1569,9 @@ public class MainActivity extends Activity {
                                     if (!frames.contains(frameUrl)) frames.add(frameUrl);
                                 }
 
-                                if (!media.isEmpty()) {
-                                    resolved[0] = true;
-                                    playStreamCandidates(match, media, 0);
+                                if (!media.isEmpty() && !playbackAttemptActive[0]) {
+                                    playbackAttemptActive[0] = true;
+                                    playStreamCandidates(match, media, 0, playbackAttemptActive);
                                 } else if (!frames.isEmpty()) {
                                     sourceCandidates.addAll(frames);
                                     tryNext[0].run();
@@ -1600,8 +1601,8 @@ public class MainActivity extends Activity {
                 super.onLoadResource(view, url);
                 if (resolved[0] || url == null) return;
 
-                if (isLikelyLiveMediaUrl(url)) {
-                    resolved[0] = true;
+                if (isLikelyLiveMediaUrl(url) && !playbackAttemptActive[0]) {
+                    playbackAttemptActive[0] = true;
                     ArrayList<String> media = new ArrayList<>();
                     String cookie = CookieManager.getInstance().getCookie(url);
 
@@ -1625,7 +1626,7 @@ public class MainActivity extends Activity {
                     }
 
                     media.add(candidate);
-                    playStreamCandidates(match, media, 0);
+                    playStreamCandidates(match, media, 0, playbackAttemptActive);
                 }
             }
 
@@ -1637,7 +1638,7 @@ public class MainActivity extends Activity {
                 if (request != null && request.getUrl() != null) {
                     String mediaUrl = request.getUrl().toString();
 
-                    if (isLikelyLiveMediaUrl(mediaUrl)) {
+                    if (isLikelyLiveMediaUrl(mediaUrl) && !playbackAttemptActive[0]) {
                         Map<String, String> requestHeaders = request.getRequestHeaders();
                         String referer = "";
                         String userAgent = "";
@@ -1682,7 +1683,7 @@ public class MainActivity extends Activity {
                         runOnUiThread(() -> {
                             if (resolved[0] || resolverWebView != web) return;
 
-                            resolved[0] = true;
+                            playbackAttemptActive[0] = true;
                             ArrayList<String> media = new ArrayList<>();
                             String candidate = mediaUrl
                                     + "\\tREFERER=" + finalReferer
@@ -1697,7 +1698,7 @@ public class MainActivity extends Activity {
 
                             media.add(candidate);
                             status.setText("Live stream found. Starting player...");
-                            playStreamCandidates(match, media, 0);
+                            playStreamCandidates(match, media, 0, playbackAttemptActive);
                         });
                     }
                 }
@@ -1923,16 +1924,18 @@ public class MainActivity extends Activity {
     private void playStreamCandidates(
             Match match,
             ArrayList<String> streams,
-            int index
+            int index,
+            boolean[] playbackAttemptActive
     ) {
         if (streams == null || index >= streams.size()) {
+            if (playbackAttemptActive != null) playbackAttemptActive[0] = false;
             showPlayer(match, "All LiveTV streams failed.");
             return;
         }
 
         String candidate = streams.get(index);
         if (candidate == null || candidate.trim().isEmpty()) {
-            playStreamCandidates(match, streams, index + 1);
+            playStreamCandidates(match, streams, index + 1, playbackAttemptActive);
             return;
         }
         if (candidate.startsWith("WEBVIEW\\t")) {
@@ -1945,7 +1948,7 @@ public class MainActivity extends Activity {
         String[] parts = candidate.split("\\t", -1);
         String url = parts.length > 0 ? parts[0].trim() : "";
         if (url.isEmpty()) {
-            playStreamCandidates(match, streams, index + 1);
+            playStreamCandidates(match, streams, index + 1, playbackAttemptActive);
             return;
         }
 
@@ -1966,7 +1969,16 @@ public class MainActivity extends Activity {
             }
         }
 
-        releasePlayer();
+        try {
+            Uri mediaUri = Uri.parse(url);
+            String currentCookie = CookieManager.getInstance().getCookie(url);
+            if (currentCookie != null && !currentCookie.isEmpty()
+                    && !headers.containsKey("Cookie")) {
+                headers.put("Cookie", currentCookie);
+            }
+        } catch (Exception ignored) {}
+
+        releasePlayerOnly();
         playerScreen = true;
 
         LinearLayout root = new LinearLayout(this);
@@ -2009,7 +2021,10 @@ public class MainActivity extends Activity {
                         .setUserAgent(
                                 "Mozilla/5.0 (Linux; Android 11; Android TV) AppleWebKit/537.36 Chrome/124.0.0.0 Safari/537.36"
                         )
-                        .setDefaultRequestProperties(headers);
+                        .setDefaultRequestProperties(headers)
+                        .setConnectTimeoutMs(20000)
+                        .setReadTimeoutMs(30000)
+                        .setAllowCrossProtocolRedirects(true);
 
         player = new ExoPlayer.Builder(this)
                 .setMediaSourceFactory(
