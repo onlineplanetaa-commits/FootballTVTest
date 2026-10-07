@@ -2044,7 +2044,7 @@ public class MainActivity extends Activity {
                         if (player != null) {
                             releasePlayerOnly();
                         }
-                        playStreamCandidates(match, streams, nextIndex);
+                        playStreamCandidates(match, streams, nextIndex, playbackAttemptActive);
                     }
                 }
         );
