@@ -55,6 +55,7 @@ public class MainActivity extends Activity {
     private PlayerView playerView;
     private WebView resolverWebView;
     private WebView matchLoaderWebView;
+    private boolean youtubePlayerScreen = false;
 
     // True while the Activity is showing the player/resolver screen.
     // Match refreshes must never replace that screen.
@@ -2165,6 +2166,8 @@ public class MainActivity extends Activity {
     private void showLiveTvWebPlayer(Match match, String playerUrl) {
         releasePlayer();
         playerScreen = true;
+        youtubePlayerScreen = playerUrl != null
+                && playerUrl.toLowerCase(Locale.US).contains("youtube-nocookie.com/embed/");
 
         LinearLayout root = new LinearLayout(this);
         root.setOrientation(LinearLayout.VERTICAL);
@@ -2192,6 +2195,12 @@ public class MainActivity extends Activity {
         web.getSettings().setAllowFileAccess(true);
         web.getSettings().setAllowContentAccess(true);
         web.getSettings().setMixedContentMode(android.webkit.WebSettings.MIXED_CONTENT_COMPATIBILITY_MODE);
+        web.setFocusable(true);
+        web.setFocusableInTouchMode(true);
+        web.setClickable(true);
+        web.setOnFocusChangeListener((v, hasFocus) -> {
+            if (hasFocus) v.setAlpha(1f);
+        });
 
         CookieManager.getInstance().setAcceptCookie(true);
         CookieManager.getInstance().setAcceptThirdPartyCookies(web, true);
@@ -2207,6 +2216,10 @@ public class MainActivity extends Activity {
         });
 
         setContentView(root);
+
+        if (youtubePlayerScreen) {
+            web.requestFocus();
+        }
 
         // The ltvplayer is embedded by LiveTV and may check the
         // originating event page. Send the event URL as Referer on the
@@ -2343,6 +2356,18 @@ public class MainActivity extends Activity {
         player.play();
     }
 
+    @Override
+    public boolean dispatchKeyEvent(android.view.KeyEvent event) {
+        if (youtubePlayerScreen && resolverWebView != null) {
+            try {
+                if (resolverWebView.dispatchKeyEvent(event)) {
+                    return true;
+                }
+            } catch (Exception ignored) {}
+        }
+        return super.dispatchKeyEvent(event);
+    }
+
     private void releasePlayerOnly() {
         if (playerView != null) {
             try {
@@ -2366,6 +2391,7 @@ public class MainActivity extends Activity {
     }
 
     private void releasePlayer() {
+        youtubePlayerScreen = false;
         if (matchLoaderWebView != null) {
             try {
                 matchLoaderWebView.stopLoading();
