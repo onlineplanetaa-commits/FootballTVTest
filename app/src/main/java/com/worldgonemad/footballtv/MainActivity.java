@@ -73,7 +73,7 @@ public class MainActivity extends Activity {
     private static final String PRIMARY_LIVE_TV_URL =
             "https://livetv.sx/allupcomingsports/1/";
 
-    private static final String BACKUP_LIVE_TV_URL =
+    private static final String НАЗАДUP_LIVE_TV_URL =
             "https://livetv904.me/allupcomingsports/1/";
 
     private final ArrayList<Match> matches =
@@ -203,6 +203,12 @@ public class MainActivity extends Activity {
         });
     }
 
+    private void addKyivClock(LinearLayout root) {
+        TextView clock = createKyivClock();
+        root.addView(clock, new LinearLayout.LayoutParams(-1, 38));
+        startKyivClock(clock);
+    }
+
     private void showLoading() {
 
         playerScreen = false;
@@ -297,7 +303,7 @@ public class MainActivity extends Activity {
 
         TextView logo =
                 label(
-                        "MAX FOOTBALL ONLINE",
+                        "МАКС Футбол Онлайн",
                         27,
                         TEXT
                 );
@@ -306,6 +312,11 @@ public class MainActivity extends Activity {
                 Typeface.DEFAULT,
                 Typeface.BOLD
         );
+
+        ImageView headerLogo = new ImageView(this);
+        headerLogo.setImageResource(com.worldgonemad.footballtv.R.drawable.max_logo);
+        headerLogo.setScaleType(ImageView.ScaleType.CENTER_INSIDE);
+        header.addView(headerLogo, new LinearLayout.LayoutParams(62, 62));
 
         header.addView(
                 logo,
@@ -442,7 +453,7 @@ public class MainActivity extends Activity {
         if (statusText != null) {
             statusText.setText(
                     matches.size()
-                            + " MATCHES"
+                            + " МАТЧЕЙ"
             );
         }
     }
@@ -585,7 +596,7 @@ public class MainActivity extends Activity {
 
     /*
      * =========================================================
-     * LOAD MATCHES
+     * LOAD МАТЧЕЙ
      * =========================================================
      */
 
@@ -604,7 +615,7 @@ public class MainActivity extends Activity {
             }
 
             // Primary LiveTV.sx failed. Try the backup LiveTV source.
-            String backupHtml = downloadPage(BACKUP_LIVE_TV_URL);
+            String backupHtml = downloadPage(НАЗАДUP_LIVE_TV_URL);
             ArrayList<Match> backup = parseMatches(backupHtml);
 
             if (!backup.isEmpty()) {
@@ -618,7 +629,7 @@ public class MainActivity extends Activity {
 
             // If both reject HttpURLConnection, try the primary in WebView,
             // then the backup in WebView.
-            runOnUiThread(() -> loadMatchesViaWebView(PRIMARY_LIVE_TV_URL, BACKUP_LIVE_TV_URL));
+            runOnUiThread(() -> loadMatchesViaWebView(PRIMARY_LIVE_TV_URL, НАЗАДUP_LIVE_TV_URL));
         }).start();
     }
 
@@ -727,7 +738,7 @@ public class MainActivity extends Activity {
                                                             done = true;
                                                             matchLoaderWebView = null;
                                                             view.destroy();
-                                                            showError("Could not load football matches.");
+                                                            showError("Не удалось загрузить футбольные матчи.");
                                                         }
                                                     }
                                                 }
@@ -739,7 +750,7 @@ public class MainActivity extends Activity {
                                     done = true;
                                     matchLoaderWebView = null;
                                     web.destroy();
-                                    showError("Could not load football matches.");
+                                    showError("Не удалось загрузить футбольные матчи.");
                                 }
                             }
                         }
@@ -754,7 +765,7 @@ public class MainActivity extends Activity {
                     done = true;
                     matchLoaderWebView = null;
                     view.destroy();
-                    showError("Could not load football matches.");
+                    showError("Не удалось загрузить футбольные матчи.");
                 }
             }
         });
@@ -1330,11 +1341,11 @@ public class MainActivity extends Activity {
 
     private void resolveAndPlay(Match match) {
         if (match == null || match.eventUrl == null || match.eventUrl.isEmpty()) {
-            showError("Stream link is unavailable.");
+            showError("Ссылка на трансляцию недоступна.");
             return;
         }
 
-        showPlayer(match, "Finding LiveTV stream...");
+        showPlayer(match, "Поиск трансляции...");
         startLiveTvResolver(match);
     }
 
@@ -1485,7 +1496,7 @@ public class MainActivity extends Activity {
         top.addView(back, new LinearLayout.LayoutParams(120, 52));
         root.addView(top);
 
-        TextView status = label("Loading LiveTV browser links...", 16, MUTED);
+        TextView status = label("Загрузка ссылок трансляций...", 16, MUTED);
         status.setGravity(Gravity.CENTER);
         root.addView(status, new LinearLayout.LayoutParams(-1, 55));
 
@@ -1517,13 +1528,13 @@ public class MainActivity extends Activity {
             String backup = alternateEventUrl(match.eventUrl);
             if (!fallbackUsed[0] && !backup.isEmpty() && !match.eventUrl.contains("livetv904.me")) {
                 fallbackUsed[0] = true;
-                status.setText("Trying backup LiveTV source...");
+                status.setText("Проверка резервного источника...");
                 match.eventUrl = backup;
                 handler.postDelayed(() -> startLiveTvResolver(match), 100);
                 return;
             }
             resolved[0] = true;
-            status.setText("No playable LiveTV stream was found.");
+            status.setText("Рабочая трансляция не найдена.");
         };
 
         final Runnable[] tryNext = new Runnable[1];
@@ -1552,7 +1563,7 @@ public class MainActivity extends Activity {
                 }
 
                 activePlayerUrl[0] = playerUrl;
-                status.setText("Opening Browser Link " + current[0] + " of "
+                status.setText("Открытие ссылки трансляции " + current[0] + " of "
                         + sourceCandidates.size() + "...");
 
                 Map<String, String> headers = new HashMap<>();
@@ -1734,7 +1745,7 @@ public class MainActivity extends Activity {
                             }
 
                             media.add(candidate);
-                            status.setText("Live stream found. Starting player...");
+                            status.setText("Трансляция найдена. Запуск плеера...");
                             playStreamCandidates(match, media, 0, playbackAttemptActive);
                         });
                     }
@@ -1793,7 +1804,7 @@ public class MainActivity extends Activity {
                 if (!found.isEmpty()) {
                     startCandidates(found, status, sourceCandidates, current, resolved, tryNext);
                 } else {
-                    status.setText("No Browser Links found. Trying backup LiveTV...");
+                    status.setText("Ссылки трансляций не найдены. Проверка резервного источника...");
                     String backup = alternateEventUrl(match.eventUrl);
 
                     if (!fallbackUsed[0] && !backup.isEmpty()) {
@@ -1802,7 +1813,7 @@ public class MainActivity extends Activity {
 
                         new Thread(() -> {
                             String backupHtml = downloadPage(backup);
-                            ArrayList<String> backupFound = new ArrayList<>();
+                            ArrayList<String> backupНайдено = new ArrayList<>();
                             collectWebPlayerUrls(backupHtml, backup, backupFound);
 
                             runOnUiThread(() -> {
@@ -1811,13 +1822,13 @@ public class MainActivity extends Activity {
                                     startCandidates(backupFound, status, sourceCandidates, current, resolved, tryNext);
                                 } else {
                                     resolved[0] = true;
-                                    status.setText("No LiveTV Browser Links were found.");
+                                    status.setText("Ссылки на трансляции не найдены.");
                                 }
                             });
                         }).start();
                     } else {
                         resolved[0] = true;
-                        status.setText("No LiveTV Browser Links were found.");
+                        status.setText("Ссылки на трансляции не найдены.");
                     }
                 }
             });
@@ -1826,7 +1837,7 @@ public class MainActivity extends Activity {
         // Never leave the user on the loading message for minutes.
         handler.postDelayed(() -> {
             if (!resolved[0] && sourceCandidates.isEmpty()) {
-                status.setText("LiveTV link search is taking too long...");
+                status.setText("Поиск трансляций занимает слишком много времени...");
             }
         }, 8000);
     }
@@ -1854,14 +1865,14 @@ public class MainActivity extends Activity {
 
         if (found.isEmpty()) {
             resolved[0] = true;
-            status.setText("No LiveTV Browser Links were found.");
+            status.setText("Ссылки на трансляции не найдены.");
             return;
         }
 
         sourceCandidates.clear();
         sourceCandidates.addAll(found);
         current[0] = 0;
-        status.setText("Found " + sourceCandidates.size() + " Browser Links. Resolving...");
+        status.setText("Найдено " + sourceCandidates.size() + " ссылок. Поиск трансляции...");
         tryNext[0].run();
     }
 
@@ -1995,7 +2006,7 @@ public class MainActivity extends Activity {
     ) {
         if (streams == null || index >= streams.size()) {
             if (playbackAttemptActive != null) playbackAttemptActive[0] = false;
-            showPlayer(match, "All LiveTV streams failed.");
+            showPlayer(match, "Все найденные трансляции недоступны.");
             return;
         }
 
@@ -2064,13 +2075,15 @@ public class MainActivity extends Activity {
         title.setTypeface(Typeface.DEFAULT, Typeface.BOLD);
         top.addView(title, new LinearLayout.LayoutParams(0, 56, 1));
 
-        Button back = action("BACK");
+        Button back = action("НАЗАД");
         top.addView(back, new LinearLayout.LayoutParams(120, 52));
         root.addView(top);
 
         playerView = new PlayerView(this);
         playerView.setBackgroundColor(Color.BLACK);
         playerView.setKeepScreenOn(true);
+        addKyivClock(root);
+
         root.addView(
                 playerView,
                 new LinearLayout.LayoutParams(-1, 0, 1)
@@ -2142,7 +2155,7 @@ public class MainActivity extends Activity {
         title.setTypeface(Typeface.DEFAULT, Typeface.BOLD);
         top.addView(title, new LinearLayout.LayoutParams(0, 56, 1));
 
-        Button back = action("BACK");
+        Button back = action("НАЗАД");
         top.addView(back, new LinearLayout.LayoutParams(120, 52));
         root.addView(top);
 
@@ -2211,7 +2224,7 @@ public class MainActivity extends Activity {
                 new LinearLayout.LayoutParams(0, 56, 1)
         );
 
-        Button back = action("BACK");
+        Button back = action("НАЗАД");
 
         top.addView(
                 back,
@@ -2236,6 +2249,8 @@ public class MainActivity extends Activity {
         playerView = new PlayerView(this);
         playerView.setBackgroundColor(Color.BLACK);
         playerView.setKeepScreenOn(true);
+
+        addKyivClock(root);
 
         root.addView(
                 playerView,
@@ -2268,15 +2283,17 @@ public class MainActivity extends Activity {
         top.setGravity(Gravity.CENTER_VERTICAL);
         top.setPadding(20, 8, 20, 8);
 
-        TextView title = label("MAX FOOTBALL ONLINE", 19, TEXT);
+        TextView title = label("МАКС Футбол Онлайн", 19, TEXT);
         title.setTypeface(Typeface.DEFAULT, Typeface.BOLD);
 
         top.addView(title, new LinearLayout.LayoutParams(0, 56, 1));
 
-        Button back = action("BACK");
+        Button back = action("НАЗАД");
         top.addView(back, new LinearLayout.LayoutParams(120, 52));
 
         root.addView(top);
+
+        addKyivClock(root);
 
         root.addView(
                 playerView,
@@ -2383,7 +2400,7 @@ public class MainActivity extends Activity {
 
         TextView title =
                 label(
-                        "MAX FOOTBALL ONLINE",
+                        "МАКС Футбол Онлайн",
                         28,
                         TEXT
                 );
