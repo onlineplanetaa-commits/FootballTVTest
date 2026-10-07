@@ -1813,7 +1813,7 @@ public class MainActivity extends Activity {
 
                         new Thread(() -> {
                             String backupHtml = downloadPage(backup);
-                            ArrayList<String> backupНайдено = new ArrayList<>();
+                            ArrayList<String> backupFound = new ArrayList<>();
                             collectWebPlayerUrls(backupHtml, backup, backupFound);
 
                             runOnUiThread(() -> {
