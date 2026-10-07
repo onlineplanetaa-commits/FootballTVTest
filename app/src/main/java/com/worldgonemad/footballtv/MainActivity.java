@@ -12,6 +12,7 @@ import android.view.View;
 import android.net.Uri;
 import android.widget.Button;
 import android.widget.LinearLayout;
+import android.widget.ImageView;
 import android.widget.ScrollView;
 import android.widget.TextView;
 
@@ -20,6 +21,9 @@ import org.json.JSONArray;
 import org.json.JSONObject;
 
 import java.util.Locale;
+import java.text.SimpleDateFormat;
+import java.util.Date;
+import java.util.TimeZone;
 import android.webkit.CookieManager;
 import android.webkit.WebChromeClient;
 import android.webkit.WebResourceRequest;
@@ -77,6 +81,7 @@ public class MainActivity extends Activity {
 
     private LinearLayout listContainer;
     private TextView statusText;
+    private TextView kyivClockText;
 
     private final Runnable refreshRunnable =
             new Runnable() {
@@ -171,6 +176,33 @@ public class MainActivity extends Activity {
         return b;
     }
 
+    private TextView createKyivClock() {
+        TextView clock = label("", 14, LIVE);
+        clock.setGravity(Gravity.CENTER);
+        clock.setTypeface(Typeface.DEFAULT, Typeface.BOLD);
+        updateKyivClock(clock);
+        return clock;
+    }
+
+    private void updateKyivClock(TextView clock) {
+        if (clock == null) return;
+        SimpleDateFormat format = new SimpleDateFormat("HH:mm:ss", Locale.US);
+        format.setTimeZone(TimeZone.getTimeZone("Europe/Kyiv"));
+        clock.setText("Киевское время: " + format.format(new Date()));
+    }
+
+    private void startKyivClock(TextView clock) {
+        kyivClockText = clock;
+        handler.post(new Runnable() {
+            @Override
+            public void run() {
+                if (kyivClockText != clock || clock.getParent() == null) return;
+                updateKyivClock(clock);
+                handler.postDelayed(this, 1000);
+            }
+        });
+    }
+
     private void showLoading() {
 
         playerScreen = false;
@@ -187,7 +219,7 @@ public class MainActivity extends Activity {
 
         TextView title =
                 label(
-                        "MAX FOOTBALL ONLINE",
+                        "МАКС Футбол Онлайн",
                         28,
                         TEXT
                 );
@@ -199,6 +231,11 @@ public class MainActivity extends Activity {
 
         title.setGravity(Gravity.CENTER);
 
+        ImageView splashLogo = new ImageView(this);
+        splashLogo.setImageResource(com.worldgonemad.footballtv.R.drawable.max_logo);
+        splashLogo.setScaleType(ImageView.ScaleType.CENTER_INSIDE);
+        root.addView(splashLogo, new LinearLayout.LayoutParams(-1, 120));
+
         root.addView(
                 title,
                 new LinearLayout.LayoutParams(
@@ -209,7 +246,7 @@ public class MainActivity extends Activity {
 
         TextView loading =
                 label(
-                        "Loading football matches...",
+                        "Загрузка футбольных матчей...",
                         18,
                         MUTED
                 );
@@ -282,7 +319,7 @@ public class MainActivity extends Activity {
         statusText =
                 label(
                         matches.size()
-                                + " MATCHES",
+                                + " МАТЧЕЙ",
                         14,
                         MUTED
                 );
@@ -304,7 +341,7 @@ public class MainActivity extends Activity {
 
         TextView title =
                 label(
-                        "LIVE & UPCOMING",
+                        "ПРЯМОЙ ЭФИР",
                         24,
                         TEXT
                 );
@@ -377,7 +414,7 @@ public class MainActivity extends Activity {
 
             TextView empty =
                     label(
-                            "No football matches found.",
+                            "Футбольных трансляций не найдено.",
                             18,
                             MUTED
                     );
@@ -528,7 +565,7 @@ public class MainActivity extends Activity {
         );
 
         Button watch =
-                action("WATCH");
+                action("СМОТРЕТЬ");
 
         watch.setOnClickListener(
                 v ->
@@ -681,7 +718,7 @@ public class MainActivity extends Activity {
                                                                 if (primaryUrl.equals(url)) {
                         try { view.loadUrl(backupUrl); } catch (Exception ignored2) {}
                     } else {
-                        showError("Could not load football matches.");
+                        showError("Не удалось загрузить футбольные матчи.");
                     }
                                                             }
                                                         }
@@ -1444,7 +1481,7 @@ public class MainActivity extends Activity {
         title.setTypeface(Typeface.DEFAULT, Typeface.BOLD);
         top.addView(title, new LinearLayout.LayoutParams(0, 56, 1));
 
-        Button back = action("BACK");
+        Button back = action("НАЗАД");
         top.addView(back, new LinearLayout.LayoutParams(120, 52));
         root.addView(top);
 
@@ -2384,7 +2421,7 @@ public class MainActivity extends Activity {
         );
 
         Button retry =
-                action("RETRY");
+                action("ПОВТОРИТЬ");
 
         retry.setOnClickListener(
                 v -> loadMatches()
