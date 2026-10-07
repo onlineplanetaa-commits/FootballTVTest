@@ -23,6 +23,7 @@ import java.util.Locale;
 import android.webkit.CookieManager;
 import android.webkit.WebChromeClient;
 import android.webkit.WebResourceRequest;
+import android.webkit.WebResourceResponse;
 import android.webkit.WebView;
 import android.webkit.WebViewClient;
 
@@ -1383,6 +1384,49 @@ public class MainActivity extends Activity {
         }
     }
 
+    private boolean isLikelyLiveMediaUrl(String url) {
+        if (url == null || url.isEmpty()) return false;
+
+        String lower = url.toLowerCase(Locale.US);
+
+        boolean media =
+                lower.contains(".m3u8")
+                || lower.contains(".mp4")
+                || lower.contains("/hls/")
+                || lower.contains("manifest");
+
+        if (!media) return false;
+
+        String[] blocked = {
+                "doubleclick",
+                "googlesyndication",
+                "googleadservices",
+                "adservice",
+                "advert",
+                "ads.",
+                "/ads/",
+                "vast",
+                "prebid",
+                "analytics",
+                "tracking",
+                "tracker",
+                "pixel"
+        };
+
+        for (String token : blocked) {
+            if (lower.contains(token)) return false;
+        }
+
+        if (lower.contains("/webplayer")
+                || lower.contains("/eventinfo/")
+                || lower.contains("livetv.sx/")
+                || lower.contains("livetv904.me/")) {
+            return false;
+        }
+
+        return true;
+    }
+
     private void startLiveTvResolver(Match match) {
         releasePlayerOnly();
         playerScreen = true;
@@ -1535,7 +1579,7 @@ public class MainActivity extends Activity {
                                 }
                             }
                     );
-                }, 4000);
+                }, 10000);
             }
         };
 
@@ -1556,11 +1600,7 @@ public class MainActivity extends Activity {
                 super.onLoadResource(view, url);
                 if (resolved[0] || url == null) return;
 
-                String lower = url.toLowerCase(Locale.US);
-                if (lower.contains(".m3u8")
-                        || lower.contains(".mp4")
-                        || lower.contains("/hls/")
-                        || lower.contains("manifest")) {
+                if (isLikelyLiveMediaUrl(url)) {
                     resolved[0] = true;
                     ArrayList<String> media = new ArrayList<>();
                     String cookie = CookieManager.getInstance().getCookie(url);
@@ -1587,6 +1627,82 @@ public class MainActivity extends Activity {
                     media.add(candidate);
                     playStreamCandidates(match, media, 0);
                 }
+            }
+
+            @Override
+            public WebResourceResponse shouldInterceptRequest(
+                    WebView view,
+                    WebResourceRequest request
+            ) {
+                if (request != null && request.getUrl() != null) {
+                    String mediaUrl = request.getUrl().toString();
+
+                    if (isLikelyLiveMediaUrl(mediaUrl)) {
+                        Map<String, String> requestHeaders = request.getRequestHeaders();
+                        String referer = "";
+                        String userAgent = "";
+                        String cookie = "";
+                        String origin = "";
+
+                        if (requestHeaders != null) {
+                            for (Map.Entry<String, String> entry : requestHeaders.entrySet()) {
+                                if (entry.getKey() == null || entry.getValue() == null) continue;
+                                String key = entry.getKey();
+                                String value = entry.getValue();
+
+                                if ("Referer".equalsIgnoreCase(key)) referer = value;
+                                else if ("User-Agent".equalsIgnoreCase(key)) userAgent = value;
+                                else if ("Cookie".equalsIgnoreCase(key)) cookie = value;
+                                else if ("Origin".equalsIgnoreCase(key)) origin = value;
+                            }
+                        }
+
+                        if (referer.isEmpty()) referer = activePlayerUrl[0];
+                        if (userAgent.isEmpty()) {
+                            userAgent = "Mozilla/5.0 (Linux; Android 11; Android TV) AppleWebKit/537.36 Chrome/124.0.0.0 Safari/537.36";
+                        }
+                        if (cookie.isEmpty()) {
+                            String c = CookieManager.getInstance().getCookie(mediaUrl);
+                            if (c != null) cookie = c;
+                        }
+                        if (origin.isEmpty()) {
+                            try {
+                                Uri u = Uri.parse(referer);
+                                if (u.getScheme() != null && u.getHost() != null) {
+                                    origin = u.getScheme() + "://" + u.getHost();
+                                }
+                            } catch (Exception ignored) {}
+                        }
+
+                        final String finalReferer = referer;
+                        final String finalUserAgent = userAgent;
+                        final String finalCookie = cookie;
+                        final String finalOrigin = origin;
+
+                        runOnUiThread(() -> {
+                            if (resolved[0] || resolverWebView != web) return;
+
+                            resolved[0] = true;
+                            ArrayList<String> media = new ArrayList<>();
+                            String candidate = mediaUrl
+                                    + "\\tREFERER=" + finalReferer
+                                    + "\\tUA=" + finalUserAgent;
+
+                            if (finalCookie != null && !finalCookie.isEmpty()) {
+                                candidate += "\\tCOOKIE=" + finalCookie;
+                            }
+                            if (finalOrigin != null && !finalOrigin.isEmpty()) {
+                                candidate += "\\tORIGIN=" + finalOrigin;
+                            }
+
+                            media.add(candidate);
+                            status.setText("Live stream found. Starting player...");
+                            playStreamCandidates(match, media, 0);
+                        });
+                    }
+                }
+
+                return super.shouldInterceptRequest(view, request);
             }
 
             @Override
