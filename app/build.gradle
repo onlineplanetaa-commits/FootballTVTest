@@ -7,8 +7,7 @@ android {
     compileSdk 35
 
     defaultConfig {
-        applicationId 'com.worldgonemad.footballtv.ru
-ua'
+        applicationId 'com.worldgonemad.footballtv.ruua'
         minSdk 21
         targetSdk 28
         versionCode 1
