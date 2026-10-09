@@ -212,6 +212,7 @@ public class MainActivity extends Activity {
 
     private void showLoading() {
 
+        setImmersivePlayback(false);
         playerScreen = false;
 
         LinearLayout root =
@@ -273,6 +274,7 @@ public class MainActivity extends Activity {
 
     private void showMatches() {
 
+        setImmersivePlayback(false);
         playerScreen = false;
 
         LinearLayout root =
@@ -2087,39 +2089,19 @@ public class MainActivity extends Activity {
         root.setOrientation(LinearLayout.VERTICAL);
         root.setBackgroundColor(Color.BLACK);
 
-        LinearLayout top = new LinearLayout(this);
-        top.setOrientation(LinearLayout.HORIZONTAL);
-        top.setGravity(Gravity.CENTER_VERTICAL);
-        top.setPadding(20, 8, 20, 8);
-
-        TextView title = label(
-                match.home + " — " + match.away,
-                19,
-                TEXT
-        );
-        title.setTypeface(Typeface.DEFAULT, Typeface.BOLD);
-        top.addView(title, new LinearLayout.LayoutParams(0, 56, 1));
-
-        Button back = action("НАЗАД");
-        top.addView(back, new LinearLayout.LayoutParams(120, 52));
-        root.addView(top);
-
         playerView = new PlayerView(this);
         playerView.setBackgroundColor(Color.BLACK);
         playerView.setKeepScreenOn(true);
-        addKyivClock(root);
+        playerView.setUseController(true);
+        playerView.setFocusable(true);
 
         root.addView(
                 playerView,
-                new LinearLayout.LayoutParams(-1, 0, 1)
+                new LinearLayout.LayoutParams(-1, -1)
         );
 
-        back.setOnClickListener(v -> {
-            releasePlayer();
-            showMatches();
-        });
-
         setContentView(root);
+        setImmersivePlayback(true);
         DefaultHttpDataSource.Factory http =
                 new DefaultHttpDataSource.Factory()
                         .setUserAgent(
@@ -2173,19 +2155,6 @@ public class MainActivity extends Activity {
         root.setOrientation(LinearLayout.VERTICAL);
         root.setBackgroundColor(Color.BLACK);
 
-        LinearLayout top = new LinearLayout(this);
-        top.setOrientation(LinearLayout.HORIZONTAL);
-        top.setGravity(Gravity.CENTER_VERTICAL);
-        top.setPadding(20, 8, 20, 8);
-
-        TextView title = label(match.home + " — " + match.away, 19, TEXT);
-        title.setTypeface(Typeface.DEFAULT, Typeface.BOLD);
-        top.addView(title, new LinearLayout.LayoutParams(0, 56, 1));
-
-        Button back = action("НАЗАД");
-        top.addView(back, new LinearLayout.LayoutParams(120, 52));
-        root.addView(top);
-
         WebView web = new WebView(this);
         resolverWebView = web;
         web.setBackgroundColor(Color.BLACK);
@@ -2208,14 +2177,10 @@ public class MainActivity extends Activity {
         web.setWebChromeClient(new WebChromeClient());
         web.setWebViewClient(new WebViewClient());
 
-        root.addView(web, new LinearLayout.LayoutParams(-1, 0, 1));
-
-        back.setOnClickListener(v -> {
-            releasePlayer();
-            showMatches();
-        });
+        root.addView(web, new LinearLayout.LayoutParams(-1, -1));
 
         setContentView(root);
+        setImmersivePlayback(true);
 
         if (youtubePlayerScreen) {
             web.requestFocus();
@@ -2368,6 +2333,22 @@ public class MainActivity extends Activity {
         return super.dispatchKeyEvent(event);
     }
 
+    private void setImmersivePlayback(boolean enabled) {
+        View decor = getWindow().getDecorView();
+        if (enabled) {
+            decor.setSystemUiVisibility(
+                    View.SYSTEM_UI_FLAG_FULLSCREEN
+                    | View.SYSTEM_UI_FLAG_HIDE_NAVIGATION
+                    | View.SYSTEM_UI_FLAG_IMMERSIVE_STICKY
+                    | View.SYSTEM_UI_FLAG_LAYOUT_STABLE
+                    | View.SYSTEM_UI_FLAG_LAYOUT_HIDE_NAVIGATION
+                    | View.SYSTEM_UI_FLAG_LAYOUT_FULLSCREEN
+            );
+        } else {
+            decor.setSystemUiVisibility(View.SYSTEM_UI_FLAG_VISIBLE);
+        }
+    }
+
     private void releasePlayerOnly() {
         if (playerView != null) {
             try {
@@ -2435,6 +2416,7 @@ public class MainActivity extends Activity {
             String message
     ) {
 
+        setImmersivePlayback(false);
         LinearLayout root =
                 new LinearLayout(this);
 
