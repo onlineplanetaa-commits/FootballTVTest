@@ -45,54 +45,41 @@ jobs:
           python3 - <<'PY'
           from PIL import Image, ImageDraw, ImageFont, ImageFilter
           import math
-          S = 512
-          im = Image.new("RGB", (S, S))
-          px = im.load()
-          # Deep navy gradient background
+          S=512
+          im=Image.new("RGB",(S,S),(5,16,37))
+          px=im.load()
           for y in range(S):
               for x in range(S):
-                  glow = max(0, 1 - math.sqrt((x-256)**2 + (y-180)**2)/420)
-                  px[x,y] = (int(4+5*glow), int(15+23*glow), int(34+42*glow))
-          # Soft stadium-light glow behind the ball
-          glow_layer = Image.new("RGBA", (S,S), (0,0,0,0))
-          gd = ImageDraw.Draw(glow_layer)
-          for r, a in [(150,8),(125,12),(100,17)]:
-              gd.ellipse((256-r,132-r,256+r,132+r), fill=(24,132,255,a))
-          im = Image.alpha_composite(im.convert("RGBA"), glow_layer.filter(ImageFilter.GaussianBlur(18)))
-          d = ImageDraw.Draw(im)
-          d.rounded_rectangle((7,7,505,505), radius=76, outline=(42,115,184,255), width=5)
-          # Green stadium accent lines
-          d.arc((34,26,478,470), 205, 335, fill=(45,226,112,180), width=4)
-          # Draw a crisp, unmistakable black-and-white soccer ball
-          cx, cy, r = 256, 124, 83
-          d.ellipse((cx-r,cy-r,cx+r,cy+r), fill=(248,250,252,255), outline=(3,12,24,255), width=6)
-          def polygon(center, radius, sides=5, rotation=-90):
-              return [(center[0]+radius*math.cos(math.radians(rotation+i*360/sides)),
-                       center[1]+radius*math.sin(math.radians(rotation+i*360/sides))) for i in range(sides)]
-          # Central black pentagon and five surrounding panels
-          center_pts = polygon((cx,cy), 27, 5, -90)
-          d.polygon(center_pts, fill=(8,17,29,255))
+                  glow=max(0,1-math.sqrt((x-256)**2+(y-165)**2)/430)
+                  px[x,y]=(int(4+5*glow),int(14+23*glow),int(34+45*glow))
+          im=im.convert("RGBA")
+          gl=Image.new("RGBA",(S,S),(0,0,0,0))
+          ImageDraw.Draw(gl).ellipse((118,12,394,288),fill=(0,145,255,50))
+          im=Image.alpha_composite(im,gl.filter(ImageFilter.GaussianBlur(22)))
+          d=ImageDraw.Draw(im)
+          d.rounded_rectangle((7,7,505,505),radius=70,outline=(52,126,194,255),width=5)
+          cx,cy,r=256,125,79
+          d.ellipse((cx-r,cy-r,cx+r,cy+r),fill=(246,248,250,255),outline=(1,8,18,255),width=7)
+          def pent(cx,cy,r,rot=-90):
+              return [(cx+r*math.cos(math.radians(rot+i*72)),cy+r*math.sin(math.radians(rot+i*72))) for i in range(5)]
+          center=pent(cx,cy,26,-90)
+          d.polygon(center,fill=(4,12,24,255))
           for i in range(5):
-              ang = math.radians(-90+i*72)
-              ox, oy = cx+52*math.cos(ang), cy+52*math.sin(ang)
-              patch = polygon((ox,oy), 19, 5, -90+i*72)
-              d.polygon(patch, fill=(8,17,29,255))
-              d.line((center_pts[i][0],center_pts[i][1],ox,oy), fill=(8,17,29,255), width=3)
-          # Slight inner highlight gives the ball a clean, dimensional finish
-          d.arc((cx-r+8,cy-r+8,cx+r-8,cy+r-8), 200, 305, fill=(255,255,255,220), width=3)
-          font_path = "/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf"
-          title_font = ImageFont.truetype(font_path, 83)
-          title = "МАКС"
-          box = d.textbbox((0,0), title, font=title_font, stroke_width=1)
-          d.text(((S-(box[2]-box[0]))//2, 222), title, font=title_font,
-                 fill=(255,255,255,255), stroke_width=1, stroke_fill=(9,24,45,255))
-          # Bold green divider
-          d.rounded_rectangle((76,322,436,331), radius=5, fill=(45,231,112,255))
-          sub_font = ImageFont.truetype(font_path, 28)
-          for label, y in [("ФУТБОЛ",350), ("ОНЛАЙН",392)]:
-              box = d.textbbox((0,0), label, font=sub_font)
-              d.text(((S-(box[2]-box[0]))//2, y), label, font=sub_font, fill=(239,246,255,255))
-          im.convert("RGB").save("app/src/main/res/drawable-nodpi/app_icon.png", optimize=True)
+              ang=math.radians(-90+i*72)
+              ox,oy=cx+53*math.cos(ang),cy+53*math.sin(ang)
+              d.polygon(pent(ox,oy,19,-90+i*72),fill=(4,12,24,255))
+              d.line((center[i][0],center[i][1],ox,oy),fill=(4,12,24,255),width=4)
+          d.arc((cx-r+10,cy-r+10,cx+r-10,cy+r-10),195,280,fill=(255,255,255,230),width=4)
+          fontpath="/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf"
+          def centered(txt,y,font,fill,stroke=0,strokefill=(0,0,0,255)):
+              b=d.textbbox((0,0),txt,font=font,stroke_width=stroke)
+              d.text(((S-(b[2]-b[0]))//2,y),txt,font=font,fill=fill,stroke_width=stroke,stroke_fill=strokefill)
+          centered("МАКС",222,ImageFont.truetype(fontpath,86),(255,255,255,255),2,(4,17,35,255))
+          d.rounded_rectangle((72,323,440,333),radius=5,fill=(44,235,111,255))
+          f2=ImageFont.truetype(fontpath,29)
+          centered("ФУТБОЛ",350,f2,(245,249,255,255))
+          centered("ОНЛАЙН",392,f2,(245,249,255,255))
+          im.convert("RGB").save("app/src/main/res/drawable-nodpi/app_icon.png",optimize=True)
           PY
 
       - name: Build APK
