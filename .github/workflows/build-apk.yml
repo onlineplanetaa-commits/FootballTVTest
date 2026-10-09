@@ -45,6 +45,8 @@ jobs:
           python3 - <<'PY'
           from PIL import Image, ImageDraw, ImageFont, ImageFilter
           import math
+          from PIL import ImageFile
+          ImageFile.LOAD_TRUNCATED_IMAGES = True
           Image.open("app/src/main/res/drawable-nodpi/app_icon.jpg").convert("RGB").save("app/src/main/res/drawable-nodpi/app_icon.png",optimize=True)
           raise SystemExit
           S=512
