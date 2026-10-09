@@ -47,7 +47,7 @@ jobs:
           import math
           from PIL import ImageFile
           ImageFile.LOAD_TRUNCATED_IMAGES = True
-          Image.open("app/src/main/res/drawable-nodpi/app_icon.jpg").convert("RGB").save("app/src/main/res/drawable-nodpi/app_icon.png",optimize=True)
+          Image.open("assets/app_icon.jpg").convert("RGB").save("app/src/main/res/drawable-nodpi/app_icon.png",optimize=True)
           raise SystemExit
           S=512
           im=Image.new("RGB",(S,S),(6,19,42))
