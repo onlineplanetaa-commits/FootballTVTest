@@ -13,6 +13,7 @@ import android.net.Uri;
 import android.widget.Button;
 import android.widget.LinearLayout;
 import android.widget.ImageView;
+import android.widget.FrameLayout;
 import android.widget.ScrollView;
 import android.widget.TextView;
 
@@ -180,6 +181,10 @@ public class MainActivity extends Activity {
     private TextView createKyivClock() {
         TextView clock = label("", 14, LIVE);
         clock.setGravity(Gravity.CENTER);
+        clock.setTextColor(Color.WHITE);
+        clock.setTextSize(16);
+        clock.setPadding(12, 6, 12, 6);
+        clock.setBackground(bg(Color.argb(150, 0, 0, 0), 10));
         clock.setTypeface(Typeface.DEFAULT, Typeface.BOLD);
         updateKyivClock(clock);
         return clock;
@@ -187,9 +192,9 @@ public class MainActivity extends Activity {
 
     private void updateKyivClock(TextView clock) {
         if (clock == null) return;
-        SimpleDateFormat format = new SimpleDateFormat("HH:mm:ss", Locale.US);
+        SimpleDateFormat format = new SimpleDateFormat("HH.mm", Locale.US);
         format.setTimeZone(TimeZone.getTimeZone("Europe/Kyiv"));
-        clock.setText("Киевское время: " + format.format(new Date()));
+        clock.setText(format.format(new Date()));
     }
 
     private void startKyivClock(TextView clock) {
@@ -2252,12 +2257,16 @@ public class MainActivity extends Activity {
         playerView.setBackgroundColor(Color.BLACK);
         playerView.setKeepScreenOn(true);
 
-        addKyivClock(root);
+        FrameLayout videoFrame = new FrameLayout(this);
+        videoFrame.setBackgroundColor(Color.BLACK);
+        videoFrame.addView(playerView, new FrameLayout.LayoutParams(-1, -1));
+        TextView clock = createKyivClock();
+        FrameLayout.LayoutParams clockParams = new FrameLayout.LayoutParams(-2, -2, Gravity.TOP | Gravity.RIGHT);
+        clockParams.setMargins(0, 14, 18, 0);
+        videoFrame.addView(clock, clockParams);
+        startKyivClock(clock);
 
-        root.addView(
-                playerView,
-                new LinearLayout.LayoutParams(-1, 0, 1)
-        );
+        root.addView(videoFrame, new LinearLayout.LayoutParams(-1, 0, 1));
 
         back.setOnClickListener(v -> {
             releasePlayer();
@@ -2295,12 +2304,16 @@ public class MainActivity extends Activity {
 
         root.addView(top);
 
-        addKyivClock(root);
+        FrameLayout videoFrame = new FrameLayout(this);
+        videoFrame.setBackgroundColor(Color.BLACK);
+        videoFrame.addView(playerView, new FrameLayout.LayoutParams(-1, -1));
+        TextView clock = createKyivClock();
+        FrameLayout.LayoutParams clockParams = new FrameLayout.LayoutParams(-2, -2, Gravity.TOP | Gravity.RIGHT);
+        clockParams.setMargins(0, 14, 18, 0);
+        videoFrame.addView(clock, clockParams);
+        startKyivClock(clock);
 
-        root.addView(
-                playerView,
-                new LinearLayout.LayoutParams(-1, 0, 1)
-        );
+        root.addView(videoFrame, new LinearLayout.LayoutParams(-1, 0, 1));
 
         back.setOnClickListener(v -> {
             releasePlayer();
