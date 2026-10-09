@@ -240,7 +240,7 @@ public class MainActivity extends Activity {
         title.setGravity(Gravity.CENTER);
 
         ImageView splashLogo = new ImageView(this);
-        splashLogo.setImageResource(com.worldgonemad.footballtv.R.drawable.max_logo);
+        splashLogo.setImageResource(com.worldgonemad.footballtv.R.drawable.app_icon);
         splashLogo.setScaleType(ImageView.ScaleType.CENTER_INSIDE);
         root.addView(splashLogo, new LinearLayout.LayoutParams(-1, 120));
 
@@ -317,7 +317,7 @@ public class MainActivity extends Activity {
         );
 
         ImageView headerLogo = new ImageView(this);
-        headerLogo.setImageResource(com.worldgonemad.footballtv.R.drawable.max_logo);
+        headerLogo.setImageResource(com.worldgonemad.footballtv.R.drawable.app_icon);
         headerLogo.setScaleType(ImageView.ScaleType.CENTER_INSIDE);
         header.addView(headerLogo, new LinearLayout.LayoutParams(62, 62));
 
