@@ -1500,6 +1500,10 @@ public class MainActivity extends Activity {
         title.setTypeface(Typeface.DEFAULT, Typeface.BOLD);
         top.addView(title, new LinearLayout.LayoutParams(0, 56, 1));
 
+        TextView playerClock = createKyivClock();
+        top.addView(playerClock, new LinearLayout.LayoutParams(100, 52));
+        startKyivClock(playerClock);
+
         Button back = action("НАЗАД");
         top.addView(back, new LinearLayout.LayoutParams(120, 52));
         root.addView(top);
