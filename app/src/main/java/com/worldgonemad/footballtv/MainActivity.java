@@ -193,7 +193,7 @@ public class MainActivity extends Activity {
     private void updateKyivClock(TextView clock) {
         if (clock == null) return;
         SimpleDateFormat format = new SimpleDateFormat("HH.mm", Locale.US);
-        format.setTimeZone(TimeZone.getTimeZone("Europe/Kyiv"));
+        format.setTimeZone(TimeZone.getTimeZone("Europe/Kiev"));
         clock.setText(format.format(new Date()));
     }
 
@@ -2186,7 +2186,20 @@ public class MainActivity extends Activity {
         web.setWebChromeClient(new WebChromeClient());
         web.setWebViewClient(new WebViewClient());
 
-        root.addView(web, new LinearLayout.LayoutParams(-1, -1));
+        FrameLayout playerFrame = new FrameLayout(this);
+        playerFrame.setBackgroundColor(Color.BLACK);
+        playerFrame.addView(web, new FrameLayout.LayoutParams(-1, -1));
+
+        // Keep Kyiv time above the LiveTV904 iframe video while it is playing.
+        TextView clock = createKyivClock();
+        FrameLayout.LayoutParams clockParams =
+                new FrameLayout.LayoutParams(-2, -2, Gravity.TOP | Gravity.RIGHT);
+        clockParams.setMargins(0, 18, 24, 0);
+        clock.setElevation(20f);
+        playerFrame.addView(clock, clockParams);
+        startKyivClock(clock);
+
+        root.addView(playerFrame, new LinearLayout.LayoutParams(-1, -1));
 
         setContentView(root);
         setImmersivePlayback(true);
