@@ -37,7 +37,7 @@ jobs:
           unzip -q /tmp/gradle.zip -d /opt
           echo "/opt/gradle-8.7/bin" >> "$GITHUB_PATH"
 
-      - name: Generate real PNG football app logo
+      - name: Generate clean PNG football app logo
         run: |
           python3 -m pip install --quiet pillow
           mkdir -p app/src/main/res/drawable-nodpi
@@ -46,39 +46,42 @@ jobs:
           from PIL import Image, ImageDraw, ImageFont, ImageFilter
           import math
           S=512
-          im=Image.new("RGB",(S,S),(5,16,37))
+          im=Image.new("RGB",(S,S),(6,19,42))
           px=im.load()
           for y in range(S):
               for x in range(S):
-                  glow=max(0,1-math.sqrt((x-256)**2+(y-165)**2)/430)
-                  px[x,y]=(int(4+5*glow),int(14+23*glow),int(34+45*glow))
+                  glow=max(0,1-math.sqrt((x-256)**2+(y-115)**2)/440)
+                  px[x,y]=(int(5+4*glow),int(17+19*glow),int(37+38*glow))
           im=im.convert("RGBA")
-          gl=Image.new("RGBA",(S,S),(0,0,0,0))
-          ImageDraw.Draw(gl).ellipse((118,12,394,288),fill=(0,145,255,50))
-          im=Image.alpha_composite(im,gl.filter(ImageFilter.GaussianBlur(22)))
+          glow=Image.new("RGBA",(S,S),(0,0,0,0))
+          ImageDraw.Draw(glow).ellipse((137,4,375,242),fill=(0,150,255,60))
+          im=Image.alpha_composite(im,glow.filter(ImageFilter.GaussianBlur(25)))
           d=ImageDraw.Draw(im)
-          d.rounded_rectangle((7,7,505,505),radius=70,outline=(52,126,194,255),width=5)
-          cx,cy,r=256,125,79
-          d.ellipse((cx-r,cy-r,cx+r,cy+r),fill=(246,248,250,255),outline=(1,8,18,255),width=7)
-          def pent(cx,cy,r,rot=-90):
-              return [(cx+r*math.cos(math.radians(rot+i*72)),cy+r*math.sin(math.radians(rot+i*72))) for i in range(5)]
-          center=pent(cx,cy,26,-90)
-          d.polygon(center,fill=(4,12,24,255))
+          d.rounded_rectangle((8,8,504,504),radius=72,outline=(54,143,216,255),width=5)
+          d.rounded_rectangle((18,18,494,494),radius=63,outline=(255,255,255,30),width=2)
+          # Large, unmistakable black-and-white football
+          cx,cy,r=256,119,76
+          d.ellipse((cx-r,cy-r,cx+r,cy+r),fill=(250,251,253,255),outline=(2,10,22,255),width=7)
+          def pentagon(x,y,rad,rotation=-90):
+              return [(x+rad*math.cos(math.radians(rotation+i*72)),y+rad*math.sin(math.radians(rotation+i*72))) for i in range(5)]
+          center=pentagon(cx,cy,25,-90)
+          d.polygon(center,fill=(5,13,26,255))
           for i in range(5):
-              ang=math.radians(-90+i*72)
-              ox,oy=cx+53*math.cos(ang),cy+53*math.sin(ang)
-              d.polygon(pent(ox,oy,19,-90+i*72),fill=(4,12,24,255))
-              d.line((center[i][0],center[i][1],ox,oy),fill=(4,12,24,255),width=4)
-          d.arc((cx-r+10,cy-r+10,cx+r-10,cy+r-10),195,280,fill=(255,255,255,230),width=4)
+              a=math.radians(-90+i*72)
+              x,y=cx+50*math.cos(a),cy+50*math.sin(a)
+              patch=pentagon(x,y,16,-90+i*72)
+              d.polygon(patch,fill=(5,13,26,255))
+              d.line((center[i][0],center[i][1],x,y),fill=(5,13,26,255),width=4)
+          d.arc((cx-r+11,cy-r+11,cx+r-11,cy+r-11),205,300,fill=(255,255,255,230),width=4)
           fontpath="/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf"
-          def centered(txt,y,font,fill,stroke=0,strokefill=(0,0,0,255)):
-              b=d.textbbox((0,0),txt,font=font,stroke_width=stroke)
-              d.text(((S-(b[2]-b[0]))//2,y),txt,font=font,fill=fill,stroke_width=stroke,stroke_fill=strokefill)
-          centered("МАКС",222,ImageFont.truetype(fontpath,86),(255,255,255,255),2,(4,17,35,255))
-          d.rounded_rectangle((72,323,440,333),radius=5,fill=(44,235,111,255))
-          f2=ImageFont.truetype(fontpath,29)
-          centered("ФУТБОЛ",350,f2,(245,249,255,255))
-          centered("ОНЛАЙН",392,f2,(245,249,255,255))
+          def centered(text,y,font,fill,stroke=0):
+              b=d.textbbox((0,0),text,font=font,stroke_width=stroke)
+              d.text(((S-(b[2]-b[0]))//2,y),text,font=font,fill=fill,stroke_width=stroke,stroke_fill=(0,5,15,255))
+          centered("МАКС",211,ImageFont.truetype(fontpath,82),(255,255,255,255),2)
+          d.rounded_rectangle((72,308,440,318),radius=5,fill=(43,232,105,255))
+          small=ImageFont.truetype(fontpath,30)
+          centered("ФУТБОЛ",333,small,(249,251,255,255))
+          centered("ОНЛАЙН",375,small,(249,251,255,255))
           im.convert("RGB").save("app/src/main/res/drawable-nodpi/app_icon.png",optimize=True)
           PY
 
