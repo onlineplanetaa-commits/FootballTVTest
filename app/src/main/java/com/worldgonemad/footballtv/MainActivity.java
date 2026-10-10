@@ -715,8 +715,14 @@ public class MainActivity extends Activity {
             mergeMatches(dailyResults, parseMatches(liveTv904Html, false));
             String myFootballWidgetHtml = downloadPage(MYFOOTBALL_SCHEDULE_URL);
             mergeMatches(dailyResults, parseMatches(myFootballWidgetHtml, false));
-            if (dailyResults.size() > 160) {
-                dailyResults = new ArrayList<>(dailyResults.subList(0, 160));
+
+            // "Все матчи сегодня" must include every currently live match
+            // as well as fixtures from the upcoming schedule.
+            // The Online tab remains based on liveResults only.
+            mergeMatches(dailyResults, liveResults);
+
+            if (dailyResults.size() > 200) {
+                dailyResults = new ArrayList<>(dailyResults.subList(0, 200));
             }
 
             if (!liveResults.isEmpty()) {
