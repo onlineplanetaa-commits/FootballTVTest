@@ -1314,14 +1314,12 @@ public class MainActivity extends Activity {
         }
 
         int afterStart = linkMatcher.end();
-            int afterEnd =
-                    Math.min(
-                            html.length(),
-                            afterStart + 250
-                    );
-
-            String after =
-                    html.substring(afterStart, afterEnd);
+            // Inspect this event's remaining row only, stopping before the next event link.
+            int nextEventLink = html.indexOf("/eventinfo/", afterStart);
+            int afterEnd = nextEventLink > afterStart
+                    ? Math.min(nextEventLink, afterStart + 2000)
+                    : Math.min(html.length(), afterStart + 500);
+            String after = html.substring(afterStart, afterEnd);
 
             Matcher timeMatcher =
                     Pattern.compile(
@@ -1334,15 +1332,11 @@ public class MainActivity extends Activity {
                 time = timeMatcher.group(1);
             }
 
-            // Keep the live check local to this event. A long HTML window
-            // accidentally picked up scores from neighbouring matches and marked
-            // nearly the entire schedule as live.
-            // Only a score embedded in this match's own link text marks it live.
-            // Do not inspect the following HTML: it contains neighbouring fixtures and
-            // was incorrectly marking dozens of scheduled games as live.
-            boolean live = Pattern.compile(
-                    "(?is).*?\\b\\d+\\s*:\\s*\\d+\\b.*"
-            ).matcher(anchorText).matches();
+            // A score in the link text or this event's own row indicates live play.
+            // The row ends before the next event link to avoid neighbouring scores.
+            Pattern scorePattern = Pattern.compile("(?is).*?\\b\\d+\\s*:\\s*\\d+\\b.*");
+            boolean live = scorePattern.matcher(anchorText).matches()
+                    || scorePattern.matcher(after).matches();
 
             if (time.isEmpty()) {
                 time = live ? "LIVE" : "UPCOMING";
