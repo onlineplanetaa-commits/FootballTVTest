@@ -1382,13 +1382,9 @@ public class MainActivity extends Activity {
                     break;
                 }
             }
-            boolean finished = eventText.contains("заверш")
-                    || eventText.contains("finished")
-                    || eventText.contains("full time")
-                    || eventText.matches("(?s).*\\bft\\b.*")
-                    || eventText.contains("матч окончен")
-                    || eventText.contains("ended");
-            boolean live = usePreviousOnlineDetection && liveLabel && !finished;
+            // The Online tab is controlled solely by the GIF LIVE badge.
+            // Do not infer live status from scores, times, or finished-status text.
+            boolean live = usePreviousOnlineDetection && liveLabel;
 
             if (time.isEmpty()) {
                 time = live ? "LIVE" : "UPCOMING";
