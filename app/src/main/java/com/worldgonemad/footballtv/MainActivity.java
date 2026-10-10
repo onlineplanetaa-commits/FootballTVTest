@@ -1354,9 +1354,12 @@ public class MainActivity extends Activity {
                     ? html.substring(rowStart, Math.min(html.length(), rowEnd + 5))
                     : html.substring(Math.max(0, linkMatcher.start() - 1200),
                             Math.min(html.length(), afterEnd));
-            String rowText = cleanText(rowMarkup).toLowerCase(Locale.ROOT);
-            boolean liveLabel = Pattern.compile("(?i)(?:^|\\W)live(?:\\W|$)")
-                    .matcher(rowText).find();
+            // Search the raw markup, not cleanText(): cleanText() strips HTML
+            // tags and therefore also removes LIVE labels stored in title/alt/class
+            // attributes. The badge is scoped to the current event row.
+            boolean liveLabel = Pattern.compile(
+                    "(?i)(?:\\bLIVE\\b|class\\s*=\\s*['\\\"][^'\\\"]*\\blive\\b[^'\\\"]*['\\\"]|(?:title|alt|aria-label)\\s*=\\s*['\\\"][^'\\\"]*\\blive\\b[^'\\\"]*['\\\"])")
+                    .matcher(rowMarkup).find();
             boolean finished = eventText.contains("заверш")
                     || eventText.contains("finished")
                     || eventText.contains("full time")
