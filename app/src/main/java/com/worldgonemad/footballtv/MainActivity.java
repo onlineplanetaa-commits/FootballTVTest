@@ -117,10 +117,17 @@ public class MainActivity extends Activity {
         preferences = getSharedPreferences("max_football_preferences", MODE_PRIVATE);
         favoriteIds.addAll(preferences.getStringSet("favorite_match_ids", new HashSet<>()));
 
-        // Show the interface immediately from saved data; never make startup wait for network.
+        // Show the branded splash briefly on a fresh install; cached data is shown immediately when available.
         todayMatches.addAll(readTodayMatchesCache());
         matches.addAll(readLiveMatchesCache());
-        showMatches();
+        if (todayMatches.isEmpty() && matches.isEmpty()) {
+            showLoading();
+            handler.postDelayed(() -> {
+                if (todayMatches.isEmpty() && matches.isEmpty() && !playerScreen) showMatches();
+            }, 2500);
+        } else {
+            showMatches();
+        }
 
         loadMatches();
 
@@ -754,6 +761,9 @@ public class MainActivity extends Activity {
         if (feed == null || feed.trim().isEmpty()) return result;
 
         String currentLeague = "Футбол";
+        SimpleDateFormat dayFormat = new SimpleDateFormat("yyyyMMdd", Locale.US);
+        dayFormat.setTimeZone(TimeZone.getTimeZone("Europe/Kyiv"));
+        String todayKey = dayFormat.format(new Date());
         String[] records = feed.split("~");
         for (String record : records) {
             if (record == null || record.trim().isEmpty()) continue;
@@ -783,15 +793,21 @@ public class MainActivity extends Activity {
 
             String time = "";
             String timestamp = fields.get("AD");
-            if (timestamp != null && timestamp.matches("\\d{9,13}")) {
-                try {
-                    long value = Long.parseLong(timestamp);
-                    if (timestamp.length() <= 10) value *= 1000L;
-                    SimpleDateFormat format = new SimpleDateFormat("HH:mm", Locale.getDefault());
-                    format.setTimeZone(TimeZone.getTimeZone("Europe/Kyiv"));
-                    time = format.format(new Date(value));
-                } catch (Exception ignored) {}
+            if (timestamp == null || !timestamp.matches("\\d{9,13}")) continue;
+            try {
+                long value = Long.parseLong(timestamp);
+                if (timestamp.length() <= 10) value *= 1000L;
+                Date kickoff = new Date(value);
+                // This feed can contain thousands of events across multiple dates.
+                // Only retain fixtures whose kickoff date is today in Kyiv.
+                if (!todayKey.equals(dayFormat.format(kickoff))) continue;
+                SimpleDateFormat timeFormat = new SimpleDateFormat("HH:mm", Locale.getDefault());
+                timeFormat.setTimeZone(TimeZone.getTimeZone("Europe/Kyiv"));
+                time = timeFormat.format(kickoff);
+            } catch (Exception ignored) {
+                continue;
             }
+            if (result.size() >= 100) break;
             if (live) {
                 String score = validScore(homeScore, awayScore);
                 String minute = fields.get("BA");
