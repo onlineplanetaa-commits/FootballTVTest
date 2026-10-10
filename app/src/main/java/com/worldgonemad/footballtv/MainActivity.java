@@ -1345,16 +1345,18 @@ public class MainActivity extends Activity {
                 time = timeMatcher.group(1);
             }
 
-            Pattern scorePattern = Pattern.compile("(?is).*?\\b\\d+\\s*:\\s*\\d+\\b.*");
-            boolean hasScore = scorePattern.matcher(anchorText).matches()
-                    || scorePattern.matcher(cleanText(after)).matches();
+            // LiveTV marks matches that are actually in progress with a
+            // visible LIVE label. Do not infer live status from a score:
+            // scores from nearby rows were making future fixtures appear live.
+            String localMarkup = (linkMatcher.group(0) + " " + after).toLowerCase(Locale.ROOT);
+            boolean liveLabel = Pattern.compile("(?is)(?:^|\\\\W)live(?:\\\\W|$)").matcher(cleanText(localMarkup)).find();
             boolean finished = eventText.contains("заверш")
                     || eventText.contains("finished")
                     || eventText.contains("full time")
-                    || eventText.matches("(?s).*\\bft\\b.*")
+                    || eventText.matches("(?s).*\\\\bft\\\\b.*")
                     || eventText.contains("матч окончен")
                     || eventText.contains("ended");
-            boolean live = hasScore && !finished;
+            boolean live = liveLabel && !finished;
 
             if (finished) {
                 live = false;
