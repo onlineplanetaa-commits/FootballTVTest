@@ -117,7 +117,10 @@ public class MainActivity extends Activity {
         preferences = getSharedPreferences("max_football_preferences", MODE_PRIVATE);
         favoriteIds.addAll(preferences.getStringSet("favorite_match_ids", new HashSet<>()));
 
-        showLoading();
+        // Show the interface immediately from saved data; never make startup wait for network.
+        todayMatches.addAll(readTodayMatchesCache());
+        matches.addAll(readLiveMatchesCache());
+        showMatches();
 
         loadMatches();
 
@@ -683,10 +686,9 @@ public class MainActivity extends Activity {
 
     private void loadMatches() {
         new Thread(() -> {
+            // Load the daily fixture feed first and publish it immediately.
+            // Slow stream-source checks happen afterward and never delay startup.
             ArrayList<Match> flashscore = parseFlashscoreFeed(downloadFlashscoreFeed());
-            ArrayList<Match> combined = parseMatches(downloadPage(PRIMARY_LIVE_TV_URL));
-            mergeMatches(combined, parseMatches(downloadPage(НАЗАДUP_LIVE_TV_URL)));
-
             if (!flashscore.isEmpty()) {
                 saveTodayMatches(flashscore);
             } else {
@@ -699,15 +701,20 @@ public class MainActivity extends Activity {
                     todayMatches.clear();
                     todayMatches.addAll(finalFlashscore);
                 }
-                if (!combined.isEmpty()) {
+                if (!playerScreen && listContainer != null) renderMatches();
+            });
+
+            // LiveTV.sx and LiveTV904 update the online section independently of startup.
+            ArrayList<Match> combined = parseMatches(downloadPage(PRIMARY_LIVE_TV_URL));
+            mergeMatches(combined, parseMatches(downloadPage(НАЗАДUP_LIVE_TV_URL)));
+            if (!combined.isEmpty()) {
+                saveLiveMatchesCache(combined);
+                runOnUiThread(() -> {
                     matches.clear();
                     matches.addAll(combined);
-                }
-                // Refresh only the list contents. Do not recreate the screen or
-                // interrupt remote focus while a user is browsing match cards.
-                if (!playerScreen && listContainer != null) renderMatches();
-                else if (!playerScreen && matches.isEmpty() && todayMatches.isEmpty()) showLoading();
-            });
+                    if (!playerScreen && listContainer != null) renderMatches();
+                });
+            }
         }).start();
     }
 
@@ -832,6 +839,41 @@ public class MainActivity extends Activity {
         ArrayList<Match> result = new ArrayList<>();
         if (preferences == null) return result;
         String saved = preferences.getString("flashscore_today_cache", "");
+        if (saved == null || saved.isEmpty()) return result;
+        try {
+            JSONArray array = new JSONArray(saved);
+            for (int i = 0; i < array.length(); i++) {
+                JSONObject item = array.getJSONObject(i);
+                result.add(new Match(item.optString("league", "Футбол"),
+                        item.optString("home", ""), item.optString("away", ""),
+                        item.optString("time", "Сегодня"), item.optBoolean("live", false),
+                        item.optString("eventUrl", "")));
+            }
+        } catch (Exception ignored) {}
+        return result;
+    }
+
+    private void saveLiveMatchesCache(ArrayList<Match> list) {
+        try {
+            JSONArray array = new JSONArray();
+            for (Match match : list) {
+                JSONObject item = new JSONObject();
+                item.put("league", match.league);
+                item.put("home", match.home);
+                item.put("away", match.away);
+                item.put("time", match.time);
+                item.put("live", match.live);
+                item.put("eventUrl", match.eventUrl);
+                array.put(item);
+            }
+            preferences.edit().putString("livetv_matches_cache", array.toString()).apply();
+        } catch (Exception ignored) {}
+    }
+
+    private ArrayList<Match> readLiveMatchesCache() {
+        ArrayList<Match> result = new ArrayList<>();
+        if (preferences == null) return result;
+        String saved = preferences.getString("livetv_matches_cache", "");
         if (saved == null || saved.isEmpty()) return result;
         try {
             JSONArray array = new JSONArray(saved);
