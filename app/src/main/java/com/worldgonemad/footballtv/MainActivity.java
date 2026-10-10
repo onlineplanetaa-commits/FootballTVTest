@@ -695,53 +695,45 @@ public class MainActivity extends Activity {
 
     private void loadMatches() {
         new Thread(() -> {
-            // The daily and live lists now come only from LiveTV.sx and LiveTV904.
-            ArrayList<Match> combined = parseMatches(downloadPage(PRIMARY_LIVE_TV_URL));
-            mergeMatches(combined, parseMatches(downloadPage(НАЗАДUP_LIVE_TV_URL)));
-
-            // A TV interface should never inflate thousands of cards.
-            if (combined.size() > 80) {
-                combined = new ArrayList<>(combined.subList(0, 80));
+            // LiveTV is used for the live/stream list only.
+            ArrayList<Match> liveResults = parseMatches(downloadPage(PRIMARY_LIVE_TV_URL));
+            mergeMatches(liveResults, parseMatches(downloadPage(НАЗАДUP_LIVE_TV_URL)));
+            if (liveResults.size() > 80) {
+                liveResults = new ArrayList<>(liveResults.subList(0, 80));
             }
 
-            if (!combined.isEmpty()) {
-                saveLiveMatchesCache(combined);
-                ArrayList<Match> loadedMatches = new ArrayList<>(combined);
-                ArrayList<Match> daily = new ArrayList<>(loadedMatches);
-                runOnUiThread(() -> {
-                    matches.clear();
-                    matches.addAll(loadedMatches);
-                    todayMatches.clear();
-                    todayMatches.addAll(daily);
-                    if (!playerScreen) {
-                        if (listContainer == null) showMatches();
-                        else renderMatches();
-                    }
-                });
+            // The daily schedule is loaded separately from the score feed and is
+            // limited to fixtures today and tomorrow in Kyiv time.
+            ArrayList<Match> dailyResults = parseFlashscoreFeed(downloadFlashscoreFeed());
+
+            if (!liveResults.isEmpty()) {
+                saveLiveMatchesCache(liveResults);
             } else {
-                // Keep previously saved LiveTV results when both sources fail.
-                ArrayList<Match> cached = readLiveMatchesCache();
-                if (cached.isEmpty()) cached = readTodayMatchesCache();
-                if (!cached.isEmpty()) {
-                    ArrayList<Match> fallbackMatches = new ArrayList<>(cached);
-                    runOnUiThread(() -> {
-                        matches.clear();
-                        matches.addAll(fallbackMatches);
-                        todayMatches.clear();
-                        todayMatches.addAll(fallbackMatches);
-                        if (!playerScreen) {
-                            if (listContainer == null) showMatches();
-                            else renderMatches();
-                        }
-                    });
-                } else {
-                    // Both sources failed and no saved data exists. Leave the loading
-                    // screen only after the request completes, then show a clear empty state.
-                    runOnUiThread(() -> {
-                        if (!playerScreen && listContainer == null) showMatches();
-                    });
-                }
+                liveResults = readLiveMatchesCache();
+                if (liveResults.isEmpty()) liveResults = readTodayMatchesCache();
             }
+
+            if (!dailyResults.isEmpty()) {
+                saveTodayMatches(dailyResults);
+            } else {
+                dailyResults = readTodayMatchesCache();
+                // First run / unavailable schedule feed: retain a useful list,
+                // but do not overwrite a previously saved daily schedule.
+                if (dailyResults.isEmpty()) dailyResults = new ArrayList<>(liveResults);
+            }
+
+            ArrayList<Match> loadedLive = new ArrayList<>(liveResults);
+            ArrayList<Match> loadedDaily = new ArrayList<>(dailyResults);
+            runOnUiThread(() -> {
+                matches.clear();
+                matches.addAll(loadedLive);
+                todayMatches.clear();
+                todayMatches.addAll(loadedDaily);
+                if (!playerScreen) {
+                    if (listContainer == null) showMatches();
+                    else renderMatches();
+                }
+            });
         }).start();
     }
 
@@ -784,6 +776,9 @@ public class MainActivity extends Activity {
         SimpleDateFormat dayFormat = new SimpleDateFormat("yyyyMMdd", Locale.US);
         dayFormat.setTimeZone(TimeZone.getTimeZone("Europe/Kyiv"));
         String todayKey = dayFormat.format(new Date());
+        java.util.Calendar tomorrowCalendar = java.util.Calendar.getInstance(TimeZone.getTimeZone("Europe/Kyiv"));
+        tomorrowCalendar.add(java.util.Calendar.DAY_OF_YEAR, 1);
+        String tomorrowKey = dayFormat.format(tomorrowCalendar.getTime());
         String[] records = feed.split("~");
         for (String record : records) {
             if (record == null || record.trim().isEmpty()) continue;
@@ -818,12 +813,13 @@ public class MainActivity extends Activity {
                 long value = Long.parseLong(timestamp);
                 if (timestamp.length() <= 10) value *= 1000L;
                 Date kickoff = new Date(value);
-                // This feed can contain thousands of events across multiple dates.
-                // Only retain fixtures whose kickoff date is today in Kyiv.
-                if (!todayKey.equals(dayFormat.format(kickoff))) continue;
+                // Keep only today's and tomorrow's fixtures in Kyiv time.
+                String kickoffDay = dayFormat.format(kickoff);
+                if (!todayKey.equals(kickoffDay) && !tomorrowKey.equals(kickoffDay)) continue;
                 SimpleDateFormat timeFormat = new SimpleDateFormat("HH:mm", Locale.getDefault());
                 timeFormat.setTimeZone(TimeZone.getTimeZone("Europe/Kyiv"));
                 time = timeFormat.format(kickoff);
+                if (tomorrowKey.equals(kickoffDay)) time = "ЗАВТРА · " + time;
             } catch (Exception ignored) {
                 continue;
             }
