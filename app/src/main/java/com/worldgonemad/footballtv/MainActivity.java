@@ -725,9 +725,7 @@ public class MainActivity extends Activity {
             // The Online tab remains based on liveResults only.
             mergeMatches(dailyResults, liveResults);
 
-            if (dailyResults.size() > 200) {
-                dailyResults = new ArrayList<>(dailyResults.subList(0, 200));
-            }
+            // Do not truncate the daily schedule: include all parsed fixtures from every source.
 
             if (!liveResults.isEmpty()) {
                 saveLiveMatchesCache(liveResults);
@@ -1271,7 +1269,7 @@ public class MainActivity extends Activity {
                 linkPattern.matcher(html);
 
         while (linkMatcher.find()) {
-            if (result.size() >= 200) break;
+            if (usePreviousOnlineDetection && result.size() >= 200) break;
 
             String href = linkMatcher.group(1);
             String anchorText = cleanText(linkMatcher.group(2));
