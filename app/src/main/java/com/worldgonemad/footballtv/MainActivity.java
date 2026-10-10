@@ -1329,32 +1329,37 @@ public class MainActivity extends Activity {
         }
 
         int afterStart = linkMatcher.end();
-            int afterEnd;
-            if (usePreviousOnlineDetection) {
-                // Preserve the original online-tab detection behaviour.
-                afterEnd = Math.min(html.length(), afterStart + 1500);
-            } else {
-                int nextEventLink = html.indexOf("/eventinfo/", afterStart);
-                afterEnd = nextEventLink > afterStart
-                        ? Math.min(nextEventLink, afterStart + 2000)
-                        : Math.min(html.length(), afterStart + 500);
-            }
+            // Limit detection to this event row. A 1,500-character window
+            // includes later fixtures, whose scores were falsely marking
+            // upcoming matches as live.
+            int nextEventLink = html.indexOf("/eventinfo/", afterStart);
+            int afterEnd = nextEventLink > afterStart
+                    ? Math.min(nextEventLink, afterStart + 2000)
+                    : Math.min(html.length(), afterStart + 500);
             String after = html.substring(afterStart, afterEnd);
+            String eventText = (cleanText(anchorText + " " + after)).toLowerCase(Locale.ROOT);
 
-            Matcher timeMatcher =
-                    Pattern.compile(
-                            "\\b(\\d{1,2}:\\d{2})\\b"
-                    ).matcher(after);
-
+            Matcher timeMatcher = Pattern.compile("\\b(\\d{1,2}:\\d{2})\\b").matcher(after);
             String time = "";
             if (timeMatcher.find()) {
                 time = timeMatcher.group(1);
             }
 
             Pattern scorePattern = Pattern.compile("(?is).*?\\b\\d+\\s*:\\s*\\d+\\b.*");
-            boolean live = scorePattern.matcher(anchorText).matches()
-                    || (usePreviousOnlineDetection && scorePattern.matcher(after).matches());
+            boolean hasScore = scorePattern.matcher(anchorText).matches()
+                    || scorePattern.matcher(cleanText(after)).matches();
+            boolean finished = eventText.contains("заверш")
+                    || eventText.contains("finished")
+                    || eventText.contains("full time")
+                    || eventText.matches("(?s).*\\bft\\b.*")
+                    || eventText.contains("матч окончен")
+                    || eventText.contains("ended");
+            boolean live = hasScore && !finished;
 
+            if (finished) {
+                live = false;
+                if (time.isEmpty()) time = "ЗАВЕРШЁН";
+            }
             if (time.isEmpty()) {
                 time = live ? "LIVE" : "UPCOMING";
             }
