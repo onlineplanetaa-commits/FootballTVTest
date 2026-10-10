@@ -123,13 +123,11 @@ public class MainActivity extends Activity {
 
         // Show cached LiveTV matches immediately. On a fresh install, keep the loading screen
         // visible until the first network load finishes instead of showing an empty list.
-        ArrayList<Match> cachedAtStart = readLiveMatchesCache();
-        // Migration fallback: older versions saved the daily schedule in the
-        // Flashscore cache. Keep those saved cards if the LiveTV cache is empty.
-        if (cachedAtStart.isEmpty()) cachedAtStart = readTodayMatchesCache();
-        matches.addAll(cachedAtStart);
-        todayMatches.addAll(cachedAtStart);
-        if (cachedAtStart.isEmpty()) {
+        ArrayList<Match> cachedLiveAtStart = readLiveMatchesCache();
+        ArrayList<Match> cachedDailyAtStart = readTodayMatchesCache();
+        matches.addAll(cachedLiveAtStart);
+        todayMatches.addAll(cachedDailyAtStart);
+        if (cachedLiveAtStart.isEmpty() && cachedDailyAtStart.isEmpty()) {
             showLoading();
         } else {
             showMatches();
@@ -731,9 +729,10 @@ public class MainActivity extends Activity {
             if (!dailyResults.isEmpty()) {
                 saveTodayMatches(dailyResults);
             } else {
+                // Keep only a previously saved daily schedule when sources fail.
+                // Never copy the live list into the daily tab: that made both tabs
+                // show the same ~50 events even when the schedule could not load.
                 dailyResults = readTodayMatchesCache();
-                // If both sites are temporarily unavailable, keep the saved schedule.
-                if (dailyResults.isEmpty()) dailyResults = new ArrayList<>(liveResults);
             }
 
             ArrayList<Match> loadedLive = new ArrayList<>(liveResults);
@@ -1233,23 +1232,6 @@ public class MainActivity extends Activity {
         return parseMatches(html, false);
     }
 
-    private boolean hasLiveScore(String text) {
-        if (text == null || text.isEmpty()) return false;
-        Pattern score = Pattern.compile("(?<!\\d)(\\d{1,2})\\s*:\\s*(\\d{1,2})(?!\\d)");
-        Matcher matcher = score.matcher(text);
-        while (matcher.find()) {
-            String candidate = matcher.group();
-            // Exclude ordinary 24-hour clock times (e.g. 19:45, 20:00).
-            if (candidate.matches("(?:[01]?\\d|2[0-3]):[0-5]\\d")) continue;
-            try {
-                int homeScore = Integer.parseInt(matcher.group(1));
-                int awayScore = Integer.parseInt(matcher.group(2));
-                if (homeScore <= 20 && awayScore <= 20) return true;
-            } catch (NumberFormatException ignored) {}
-        }
-        return false;
-    }
-
     private ArrayList<Match> parseMatches(
             String html,
             boolean usePreviousOnlineDetection
@@ -1344,26 +1326,31 @@ public class MainActivity extends Activity {
         }
 
         int afterStart = linkMatcher.end();
-            // Keep every event's detection inside its own row. A 1,500-character
-            // window crossed into neighbouring fixtures and made the whole schedule
-            // appear live when only a few games were actually in progress.
-            int nextEventLink = html.indexOf("/eventinfo/", afterStart);
-            int afterEnd = nextEventLink > afterStart
-                    ? Math.min(nextEventLink, afterStart + 2000)
-                    : Math.min(html.length(), afterStart + 500);
+            int afterEnd;
+            if (usePreviousOnlineDetection) {
+                // Preserve the original online-tab detection behaviour.
+                afterEnd = Math.min(html.length(), afterStart + 1500);
+            } else {
+                int nextEventLink = html.indexOf("/eventinfo/", afterStart);
+                afterEnd = nextEventLink > afterStart
+                        ? Math.min(nextEventLink, afterStart + 2000)
+                        : Math.min(html.length(), afterStart + 500);
+            }
             String after = html.substring(afterStart, afterEnd);
 
             Matcher timeMatcher =
-                    Pattern.compile("\\b(\\d{1,2}:\\d{2})\\b").matcher(after);
+                    Pattern.compile(
+                            "\\b(\\d{1,2}:\\d{2})\\b"
+                    ).matcher(after);
+
             String time = "";
             if (timeMatcher.find()) {
                 time = timeMatcher.group(1);
             }
 
-            // A kickoff time such as 20:00 is not a score. LiveTV scores normally
-            // use one-digit score values (1:0); reject strict HH:MM clock values.
-            Pattern scorePattern = Pattern.compile("(?<!\\d)(\\d{1,2})\\s*:\\s*(\\d{1,2})(?!\\d)");
-            boolean live = hasLiveScore(anchorText) || hasLiveScore(after);
+            Pattern scorePattern = Pattern.compile("(?is).*?\\b\\d+\\s*:\\s*\\d+\\b.*");
+            boolean live = scorePattern.matcher(anchorText).matches()
+                    || (usePreviousOnlineDetection && scorePattern.matcher(after).matches());
 
             if (time.isEmpty()) {
                 time = live ? "LIVE" : "UPCOMING";
