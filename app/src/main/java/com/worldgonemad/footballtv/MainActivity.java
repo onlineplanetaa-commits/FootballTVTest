@@ -81,6 +81,10 @@ public class MainActivity extends Activity {
     private static final String НАЗАДUP_LIVE_TV_URL =
             "https://livetv904.me/allupcomingsports/1/";
 
+    // LiveTV schedule widget embedded on myfootball.sbs/football.
+    private static final String MYFOOTBALL_SCHEDULE_URL =
+            "https://livetv.sx/export/webmasters.php?id=1157892&lang=ru&s=0";
+
     private final ArrayList<Match> matches =
             new ArrayList<>();
     private final ArrayList<Match> todayMatches = new ArrayList<>();
@@ -706,10 +710,13 @@ public class MainActivity extends Activity {
                 liveResults = new ArrayList<>(liveResults.subList(0, 80));
             }
 
-            // The daily schedule uses the same two user-provided fixture pages,
-            // but does not infer a live status from neighbouring event rows.
+            // The daily schedule uses the two fixture pages plus the LiveTV
+            // schedule widget embedded on myfootball.sbs/football. Keep this
+            // additional source isolated from the Online tab.
             ArrayList<Match> dailyResults = parseMatches(liveTvHtml, false);
             mergeMatches(dailyResults, parseMatches(liveTv904Html, false));
+            String myFootballWidgetHtml = downloadPage(MYFOOTBALL_SCHEDULE_URL);
+            mergeMatches(dailyResults, parseMatches(myFootballWidgetHtml, false));
             if (dailyResults.size() > 160) {
                 dailyResults = new ArrayList<>(dailyResults.subList(0, 160));
             }
