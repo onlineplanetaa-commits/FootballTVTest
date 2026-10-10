@@ -16,6 +16,7 @@ import android.widget.ImageView;
 import android.widget.FrameLayout;
 import android.widget.ScrollView;
 import android.widget.TextView;
+import android.content.SharedPreferences;
 
 import androidx.media3.datasource.DefaultHttpDataSource;
 import org.json.JSONArray;
@@ -81,8 +82,16 @@ public class MainActivity extends Activity {
     private final ArrayList<Match> matches =
             new ArrayList<>();
 
+    private static final int SECTION_TODAY = 0;
+    private static final int SECTION_ONLINE = 1;
+    private static final int SECTION_FAVORITES = 2;
+    private int selectedSection = SECTION_ONLINE;
+    private final Set<String> favoriteIds = new HashSet<>();
+    private SharedPreferences preferences;
+
     private LinearLayout listContainer;
     private TextView statusText;
+    private TextView sectionTitle;
     private TextView kyivClockText;
 
     private final Runnable refreshRunnable =
@@ -101,6 +110,9 @@ public class MainActivity extends Activity {
     @Override
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
+
+        preferences = getSharedPreferences("max_football_preferences", MODE_PRIVATE);
+        favoriteIds.addAll(preferences.getStringSet("favorite_match_ids", new HashSet<>()));
 
         showLoading();
 
@@ -358,32 +370,22 @@ public class MainActivity extends Activity {
 
         root.addView(header);
 
-        TextView title =
-                label(
-                        "ПРЯМОЙ ЭФИР",
-                        24,
-                        TEXT
-                );
+        LinearLayout tabs = new LinearLayout(this);
+        tabs.setOrientation(LinearLayout.HORIZONTAL);
+        tabs.setGravity(Gravity.CENTER_VERTICAL);
+        tabs.setPadding(34, 0, 34, 10);
+        tabs.addView(sectionButton("⚽ Все матчи сегодня", SECTION_TODAY),
+                new LinearLayout.LayoutParams(0, 54, 1));
+        tabs.addView(sectionButton("🔴 Онлайн матчи", SECTION_ONLINE),
+                new LinearLayout.LayoutParams(0, 54, 1));
+        tabs.addView(sectionButton("★ Избранные матчи", SECTION_FAVORITES),
+                new LinearLayout.LayoutParams(0, 54, 1));
+        root.addView(tabs);
 
-        title.setTypeface(
-                Typeface.DEFAULT,
-                Typeface.BOLD
-        );
-
-        title.setPadding(
-                42,
-                4,
-                42,
-                12
-        );
-
-        root.addView(
-                title,
-                new LinearLayout.LayoutParams(
-                        -1,
-                        55
-                )
-        );
+        sectionTitle = label(sectionTitleText(), 22, TEXT);
+        sectionTitle.setTypeface(Typeface.DEFAULT, Typeface.BOLD);
+        sectionTitle.setPadding(42, 2, 42, 10);
+        root.addView(sectionTitle, new LinearLayout.LayoutParams(-1, 46));
 
         ScrollView scroll =
                 new ScrollView(this);
@@ -421,6 +423,66 @@ public class MainActivity extends Activity {
         renderMatches();
     }
 
+    private Button sectionButton(String caption, int section) {
+        Button button = action(caption);
+        button.setTextSize(13);
+        button.setPadding(6, 0, 6, 0);
+        button.setBackground(bg(selectedSection == section ? ACCENT : PANEL, 12));
+        button.setOnClickListener(v -> {
+            selectedSection = section;
+            showMatches();
+        });
+        return button;
+    }
+
+    private String sectionTitleText() {
+        if (selectedSection == SECTION_TODAY) return "ВСЕ МАТЧИ СЕГОДНЯ";
+        if (selectedSection == SECTION_FAVORITES) return "ИЗБРАННЫЕ МАТЧИ";
+        return "ОНЛАЙН МАТЧИ";
+    }
+
+    private ArrayList<Match> getVisibleMatches() {
+        ArrayList<Match> visible = new ArrayList<>();
+        for (Match match : matches) {
+            if (selectedSection == SECTION_ONLINE && !match.live) continue;
+            if (selectedSection == SECTION_FAVORITES && !favoriteIds.contains(match.eventUrl)) continue;
+            visible.add(match);
+        }
+        java.util.Collections.sort(visible, (a, b) -> {
+            int rankA = leaguePriority(a.league);
+            int rankB = leaguePriority(b.league);
+            if (rankA != rankB) return Integer.compare(rankA, rankB);
+            return a.league.compareToIgnoreCase(b.league);
+        });
+        return visible;
+    }
+
+    // Popular championships first, Ukraine next, then other leagues by approximate popularity.
+    private int leaguePriority(String league) {
+        String x = league == null ? "" : league.toLowerCase(Locale.ROOT);
+        if (x.contains("champions league") || x.contains("лига чемпионов") || x.contains("ліга чемпіонів")) return 0;
+        if ((x.contains("england") || x.contains("англи") || x.contains("англі")) && (x.contains("premier") || x.contains("премьер") || x.contains("прем'єр"))) return 1;
+        if (x.contains("spain") || x.contains("испани") || x.contains("іспан") || x.contains("la liga")) return 2;
+        if (x.contains("italy") || x.contains("итал") || x.contains("італ") || x.contains("serie a")) return 3;
+        if (x.contains("germany") || x.contains("герман") || x.contains("німеч") || x.contains("bundesliga")) return 4;
+        if (x.contains("france") || x.contains("франц") || x.contains("ligue 1")) return 5;
+        if (x.contains("europa league") || x.contains("лига европы") || x.contains("ліга європи")) return 6;
+        if (x.contains("conference league") || x.contains("лига конференций") || x.contains("ліга конференцій")) return 7;
+        if (x.contains("ukraine") || x.contains("украин") || x.contains("україн") || x.contains("упл")) return 8;
+        if (x.contains("portugal") || x.contains("португал")) return 9;
+        if (x.contains("netherlands") || x.contains("голланд") || x.contains("нидерланд") || x.contains("нідерланд")) return 10;
+        if (x.contains("turkey") || x.contains("турц")) return 11;
+        if (x.contains("saudi") || x.contains("сауд")) return 12;
+        if (x.contains("usa") || x.contains("mls") || x.contains("сша")) return 13;
+        if (x.contains("brazil") || x.contains("бразил")) return 14;
+        if (x.contains("argentina") || x.contains("аргентин")) return 15;
+        if (x.contains("scotland") || x.contains("шотланд")) return 16;
+        if (x.contains("belgium") || x.contains("бельг")) return 17;
+        if (x.contains("greece") || x.contains("грец")) return 18;
+        if (x.contains("poland") || x.contains("польш") || x.contains("польщ")) return 19;
+        return 20;
+    }
+
     private void renderMatches() {
 
         if (listContainer == null) {
@@ -429,40 +491,29 @@ public class MainActivity extends Activity {
 
         listContainer.removeAllViews();
 
-        if (matches.isEmpty()) {
-
-            TextView empty =
-                    label(
-                            "Футбольных трансляций не найдено.",
-                            18,
-                            MUTED
-                    );
-
+        ArrayList<Match> visible = getVisibleMatches();
+        if (visible.isEmpty()) {
+            String message;
+            if (selectedSection == SECTION_FAVORITES) {
+                message = "Избранных матчей пока нет. Нажми ☆ рядом с матчем, чтобы сохранить его здесь.";
+            } else if (selectedSection == SECTION_ONLINE) {
+                message = "Сейчас не найдено матчей в прямом эфире.";
+            } else {
+                message = "Матчи на сегодня не найдены.";
+            }
+            TextView empty = label(message, 18, MUTED);
             empty.setGravity(Gravity.CENTER);
-
-            listContainer.addView(
-                    empty,
-                    new LinearLayout.LayoutParams(
-                            -1,
-                            100
-                    )
-            );
-
-            return;
+            empty.setPadding(36, 12, 36, 12);
+            listContainer.addView(empty, new LinearLayout.LayoutParams(-1, 110));
+        } else {
+            for (Match match : visible) {
+                addMatch(listContainer, match);
+            }
         }
 
-        for (Match match : matches) {
-            addMatch(
-                    listContainer,
-                    match
-            );
-        }
-
+        if (sectionTitle != null) sectionTitle.setText(sectionTitleText());
         if (statusText != null) {
-            statusText.setText(
-                    matches.size()
-                            + " МАТЧЕЙ"
-            );
+            statusText.setText(visible.size() + " МАТЧЕЙ");
         }
     }
 
@@ -583,23 +634,28 @@ public class MainActivity extends Activity {
                 )
         );
 
-        Button watch =
-                action("СМОТРЕТЬ");
+        Button favorite = action(favoriteIds.contains(match.eventUrl) ? "★" : "☆");
+        favorite.setTextSize(24);
+        favorite.setContentDescription(favoriteIds.contains(match.eventUrl)
+                ? "Убрать из избранного" : "Добавить в избранное");
+        favorite.setBackground(bg(favoriteIds.contains(match.eventUrl)
+                ? Color.rgb(120, 83, 15) : Color.rgb(48, 51, 58), 12));
+        favorite.setOnClickListener(v -> {
+            if (favoriteIds.contains(match.eventUrl)) {
+                favoriteIds.remove(match.eventUrl);
+            } else {
+                favoriteIds.add(match.eventUrl);
+            }
+            preferences.edit().putStringSet("favorite_match_ids", new HashSet<>(favoriteIds)).apply();
+            renderMatches();
+        });
+        LinearLayout.LayoutParams favoriteParams = new LinearLayout.LayoutParams(58, 58);
+        favoriteParams.setMargins(0, 0, 10, 0);
+        card.addView(favorite, favoriteParams);
 
-        watch.setOnClickListener(
-                v ->
-                        resolveAndPlay(
-                                match
-                        )
-        );
-
-        card.addView(
-                watch,
-                new LinearLayout.LayoutParams(
-                        130,
-                        58
-                )
-        );
+        Button watch = action("СМОТРЕТЬ");
+        watch.setOnClickListener(v -> resolveAndPlay(match));
+        card.addView(watch, new LinearLayout.LayoutParams(130, 58));
     }
 
     /*
