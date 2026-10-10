@@ -118,8 +118,9 @@ public class MainActivity extends Activity {
         favoriteIds.addAll(preferences.getStringSet("favorite_match_ids", new HashSet<>()));
 
         // Show the branded splash briefly on a fresh install; cached data is shown immediately when available.
-        todayMatches.addAll(readTodayMatchesCache());
+        // Use only the two LiveTV sources; ignore the old Flashscore cache.
         matches.addAll(readLiveMatchesCache());
+        todayMatches.addAll(readLiveMatchesCache());
         if (todayMatches.isEmpty() && matches.isEmpty()) {
             showLoading();
             handler.postDelayed(() -> {
@@ -693,34 +694,37 @@ public class MainActivity extends Activity {
 
     private void loadMatches() {
         new Thread(() -> {
-            // Load the daily fixture feed first and publish it immediately.
-            // Slow stream-source checks happen afterward and never delay startup.
-            ArrayList<Match> flashscore = parseFlashscoreFeed(downloadFlashscoreFeed());
-            if (!flashscore.isEmpty()) {
-                saveTodayMatches(flashscore);
-            } else {
-                flashscore = readTodayMatchesCache();
-            }
-
-            ArrayList<Match> finalFlashscore = flashscore;
-            runOnUiThread(() -> {
-                if (!finalFlashscore.isEmpty()) {
-                    todayMatches.clear();
-                    todayMatches.addAll(finalFlashscore);
-                }
-                if (!playerScreen && listContainer != null) renderMatches();
-            });
-
-            // LiveTV.sx and LiveTV904 update the online section independently of startup.
+            // The daily and live lists now come only from LiveTV.sx and LiveTV904.
             ArrayList<Match> combined = parseMatches(downloadPage(PRIMARY_LIVE_TV_URL));
             mergeMatches(combined, parseMatches(downloadPage(НАЗАДUP_LIVE_TV_URL)));
+
+            // A TV interface should never inflate thousands of cards.
+            if (combined.size() > 80) {
+                combined = new ArrayList<>(combined.subList(0, 80));
+            }
+
             if (!combined.isEmpty()) {
                 saveLiveMatchesCache(combined);
+                ArrayList<Match> daily = new ArrayList<>(combined);
                 runOnUiThread(() -> {
                     matches.clear();
                     matches.addAll(combined);
+                    todayMatches.clear();
+                    todayMatches.addAll(daily);
                     if (!playerScreen && listContainer != null) renderMatches();
                 });
+            } else {
+                // Keep previously saved LiveTV results when both sources fail.
+                ArrayList<Match> cached = readLiveMatchesCache();
+                if (!cached.isEmpty()) {
+                    runOnUiThread(() -> {
+                        matches.clear();
+                        matches.addAll(cached);
+                        todayMatches.clear();
+                        todayMatches.addAll(cached);
+                        if (!playerScreen && listContainer != null) renderMatches();
+                    });
+                }
             }
         }).start();
     }
@@ -1227,6 +1231,7 @@ public class MainActivity extends Activity {
                 linkPattern.matcher(html);
 
         while (linkMatcher.find()) {
+            if (result.size() >= 80) break;
 
             String href = linkMatcher.group(1);
             String anchorText = cleanText(linkMatcher.group(2));
