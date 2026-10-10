@@ -1233,6 +1233,23 @@ public class MainActivity extends Activity {
         return parseMatches(html, false);
     }
 
+    private boolean hasLiveScore(String text) {
+        if (text == null || text.isEmpty()) return false;
+        Pattern score = Pattern.compile("(?<!\\d)(\\d{1,2})\\s*:\\s*(\\d{1,2})(?!\\d)");
+        Matcher matcher = score.matcher(text);
+        while (matcher.find()) {
+            String candidate = matcher.group();
+            // Exclude ordinary 24-hour clock times (e.g. 19:45, 20:00).
+            if (candidate.matches("(?:[01]?\\d|2[0-3]):[0-5]\\d")) continue;
+            try {
+                int homeScore = Integer.parseInt(matcher.group(1));
+                int awayScore = Integer.parseInt(matcher.group(2));
+                if (homeScore <= 20 && awayScore <= 20) return true;
+            } catch (NumberFormatException ignored) {}
+        }
+        return false;
+    }
+
     private ArrayList<Match> parseMatches(
             String html,
             boolean usePreviousOnlineDetection
@@ -1327,34 +1344,26 @@ public class MainActivity extends Activity {
         }
 
         int afterStart = linkMatcher.end();
-            int afterEnd;
-            if (usePreviousOnlineDetection) {
-                // Keep the prior Online-tab detection range for compatibility.
-                afterEnd = Math.min(html.length(), afterStart + 1500);
-            } else {
-                // Schedule parsing must stop at the next event to avoid borrowing
-                // the score of another match and marking this fixture as live.
-                int nextEventLink = html.indexOf("/eventinfo/", afterStart);
-                afterEnd = nextEventLink > afterStart
-                        ? Math.min(nextEventLink, afterStart + 2000)
-                        : Math.min(html.length(), afterStart + 500);
-            }
+            // Keep every event's detection inside its own row. A 1,500-character
+            // window crossed into neighbouring fixtures and made the whole schedule
+            // appear live when only a few games were actually in progress.
+            int nextEventLink = html.indexOf("/eventinfo/", afterStart);
+            int afterEnd = nextEventLink > afterStart
+                    ? Math.min(nextEventLink, afterStart + 2000)
+                    : Math.min(html.length(), afterStart + 500);
             String after = html.substring(afterStart, afterEnd);
 
             Matcher timeMatcher =
-                    Pattern.compile(
-                            "\\b(\\d{1,2}:\\d{2})\\b"
-                    ).matcher(after);
-
+                    Pattern.compile("\\b(\\d{1,2}:\\d{2})\\b").matcher(after);
             String time = "";
-
             if (timeMatcher.find()) {
                 time = timeMatcher.group(1);
             }
 
-            Pattern scorePattern = Pattern.compile("(?is).*?\\b\\d+\\s*:\\s*\\d+\\b.*");
-            boolean live = scorePattern.matcher(anchorText).matches()
-                    || (usePreviousOnlineDetection && scorePattern.matcher(after).matches());
+            // A kickoff time such as 20:00 is not a score. LiveTV scores normally
+            // use one-digit score values (1:0); reject strict HH:MM clock values.
+            Pattern scorePattern = Pattern.compile("(?<!\\d)(\\d{1,2})\\s*:\\s*(\\d{1,2})(?!\\d)");
+            boolean live = hasLiveScore(anchorText) || hasLiveScore(after);
 
             if (time.isEmpty()) {
                 time = live ? "LIVE" : "UPCOMING";
