@@ -1267,7 +1267,7 @@ public class MainActivity extends Activity {
                 linkPattern.matcher(html);
 
         while (linkMatcher.find()) {
-            if (result.size() >= 80) break;
+            if (result.size() >= 200) break;
 
             String href = linkMatcher.group(1);
             String anchorText = cleanText(linkMatcher.group(2));
@@ -1309,10 +1309,12 @@ public class MainActivity extends Activity {
         String sport = "";
         String league = "";
 
-        String lowerLastAlt = lastAlt.toLowerCase();
+        String lowerLastAlt = lastAlt.toLowerCase(Locale.ROOT);
 
-        // LiveTV may return the schedule in Russian even when the
-        // app requests the same English-capable domain. Accept both forms.
+        // These pages are specifically LiveTV's football schedule
+        // (/allupcomingsports/1/). Some upcoming rows have no sport icon
+        // immediately before their event link, so don't discard them just
+        // because the nearest preceding image has no alt text.
         if (lowerLastAlt.startsWith("football.")
                 || lowerLastAlt.equals("football")) {
             sport = "football";
@@ -1325,10 +1327,16 @@ public class MainActivity extends Activity {
             league = lastAlt.length() > 7
                     ? cleanText(lastAlt.substring(7))
                     : "Football";
+        } else if (lastAlt.isEmpty()) {
+            sport = "football";
+            league = "Football";
         }
 
-        if (!"football".equals(sport) || league.isEmpty()) {
+        if (!"football".equals(sport)) {
             continue;
+        }
+        if (league == null || league.trim().isEmpty()) {
+            league = "Football";
         }
 
         int afterStart = linkMatcher.end();
