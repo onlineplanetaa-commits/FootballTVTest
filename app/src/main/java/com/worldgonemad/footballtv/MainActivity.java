@@ -120,6 +120,9 @@ public class MainActivity extends Activity {
         // Show cached LiveTV matches immediately. On a fresh install, keep the loading screen
         // visible until the first network load finishes instead of showing an empty list.
         ArrayList<Match> cachedAtStart = readLiveMatchesCache();
+        // Migration fallback: older versions saved the daily schedule in the
+        // Flashscore cache. Keep those saved cards if the LiveTV cache is empty.
+        if (cachedAtStart.isEmpty()) cachedAtStart = readTodayMatchesCache();
         matches.addAll(cachedAtStart);
         todayMatches.addAll(cachedAtStart);
         if (cachedAtStart.isEmpty()) {
@@ -718,20 +721,22 @@ public class MainActivity extends Activity {
             } else {
                 // Keep previously saved LiveTV results when both sources fail.
                 ArrayList<Match> cached = readLiveMatchesCache();
+                if (cached.isEmpty()) cached = readTodayMatchesCache();
                 if (!cached.isEmpty()) {
+                    ArrayList<Match> fallbackMatches = new ArrayList<>(cached);
                     runOnUiThread(() -> {
                         matches.clear();
-                        matches.addAll(cached);
+                        matches.addAll(fallbackMatches);
                         todayMatches.clear();
-                        todayMatches.addAll(cached);
+                        todayMatches.addAll(fallbackMatches);
                         if (!playerScreen) {
                             if (listContainer == null) showMatches();
                             else renderMatches();
                         }
                     });
                 } else {
-                    // Both sources failed and there is no saved cache: leave the loading
-                    // screen only after the first attempt has actually completed.
+                    // Both sources failed and no saved data exists. Leave the loading
+                    // screen only after the request completes, then show a clear empty state.
                     runOnUiThread(() -> {
                         if (!playerScreen && listContainer == null) showMatches();
                     });
