@@ -427,12 +427,23 @@ public class MainActivity extends Activity {
         Button button = action(caption);
         button.setTextSize(13);
         button.setPadding(6, 0, 6, 0);
-        button.setBackground(bg(selectedSection == section ? ACCENT : PANEL, 12));
+        updateSectionButtonColor(button, section, false);
+        button.setOnFocusChangeListener((v, hasFocus) ->
+                updateSectionButtonColor(button, section, hasFocus));
         button.setOnClickListener(v -> {
             selectedSection = section;
             showMatches();
         });
         return button;
+    }
+
+    private void updateSectionButtonColor(Button button, int section, boolean hasFocus) {
+        // Selected stays blue; an unselected button turns yellow when the remote focuses it.
+        int color = selectedSection == section ? ACCENT
+                : (hasFocus ? Color.rgb(255, 205, 35) : Color.BLACK);
+        button.setBackground(bg(color, 12));
+        button.setTextColor((hasFocus && selectedSection != section)
+                ? Color.BLACK : Color.WHITE);
     }
 
     private String sectionTitleText() {
@@ -481,6 +492,14 @@ public class MainActivity extends Activity {
         if (x.contains("greece") || x.contains("грец")) return 18;
         if (x.contains("poland") || x.contains("польш") || x.contains("польщ")) return 19;
         return 20;
+    }
+
+    private void updateFavoriteButtonColor(Button button, boolean isFavorite, boolean hasFocus) {
+        // Unselected star: dark; focused unselected star: yellow; saved favorite: blue.
+        int color = isFavorite ? ACCENT
+                : (hasFocus ? Color.rgb(255, 205, 35) : Color.rgb(48, 51, 58));
+        button.setBackground(bg(color, 12));
+        button.setTextColor((hasFocus && !isFavorite) ? Color.BLACK : Color.WHITE);
     }
 
     private void renderMatches() {
@@ -638,8 +657,9 @@ public class MainActivity extends Activity {
         favorite.setTextSize(24);
         favorite.setContentDescription(favoriteIds.contains(match.eventUrl)
                 ? "Убрать из избранного" : "Добавить в избранное");
-        favorite.setBackground(bg(favoriteIds.contains(match.eventUrl)
-                ? Color.rgb(120, 83, 15) : Color.rgb(48, 51, 58), 12));
+        updateFavoriteButtonColor(favorite, favoriteIds.contains(match.eventUrl), false);
+        favorite.setOnFocusChangeListener((v, hasFocus) ->
+                updateFavoriteButtonColor(favorite, favoriteIds.contains(match.eventUrl), hasFocus));
         favorite.setOnClickListener(v -> {
             if (favoriteIds.contains(match.eventUrl)) {
                 favoriteIds.remove(match.eventUrl);
@@ -647,7 +667,12 @@ public class MainActivity extends Activity {
                 favoriteIds.add(match.eventUrl);
             }
             preferences.edit().putStringSet("favorite_match_ids", new HashSet<>(favoriteIds)).apply();
-            renderMatches();
+            boolean isFavorite = favoriteIds.contains(match.eventUrl);
+            favorite.setText(isFavorite ? "★" : "☆");
+            favorite.setContentDescription(isFavorite
+                    ? "Убрать из избранного" : "Добавить в избранное");
+            updateFavoriteButtonColor(favorite, isFavorite, favorite.hasFocus());
+            if (selectedSection == SECTION_FAVORITES) renderMatches();
         });
         LinearLayout.LayoutParams favoriteParams = new LinearLayout.LayoutParams(58, 58);
         favoriteParams.setMargins(0, 0, 10, 0);
@@ -666,26 +691,18 @@ public class MainActivity extends Activity {
 
     private void loadMatches() {
         new Thread(() -> {
-            String html = downloadPage(PRIMARY_LIVE_TV_URL);
-            ArrayList<Match> result = parseMatches(html);
-
-            if (!result.isEmpty()) {
-                runOnUiThread(() -> {
-                    matches.clear();
-                    matches.addAll(result);
-                    if (!playerScreen) showMatches();
-                });
-                return;
-            }
-
-            // Primary LiveTV.sx failed. Try the backup LiveTV source.
+            // Read both schedules every time. LiveTV904 is not only a fallback:
+            // it can contain matches missing from LiveTV.sx.
+            String primaryHtml = downloadPage(PRIMARY_LIVE_TV_URL);
             String backupHtml = downloadPage(НАЗАДUP_LIVE_TV_URL);
-            ArrayList<Match> backup = parseMatches(backupHtml);
 
-            if (!backup.isEmpty()) {
+            ArrayList<Match> combined = parseMatches(primaryHtml);
+            mergeMatches(combined, parseMatches(backupHtml));
+
+            if (!combined.isEmpty()) {
                 runOnUiThread(() -> {
                     matches.clear();
-                    matches.addAll(backup);
+                    matches.addAll(combined);
                     if (!playerScreen) showMatches();
                 });
                 return;
@@ -695,6 +712,30 @@ public class MainActivity extends Activity {
             // then the backup in WebView.
             runOnUiThread(() -> loadMatchesViaWebView(PRIMARY_LIVE_TV_URL, НАЗАДUP_LIVE_TV_URL));
         }).start();
+    }
+
+    private void mergeMatches(ArrayList<Match> target, ArrayList<Match> incoming) {
+        for (Match candidate : incoming) {
+            boolean duplicate = false;
+            for (Match existing : target) {
+                boolean sameUrl = existing.eventUrl != null
+                        && existing.eventUrl.equalsIgnoreCase(candidate.eventUrl);
+                boolean sameTeams = existing.home != null && existing.away != null
+                        && candidate.home != null && candidate.away != null
+                        && existing.home.trim().equalsIgnoreCase(candidate.home.trim())
+                        && existing.away.trim().equalsIgnoreCase(candidate.away.trim());
+                if (sameUrl || sameTeams) {
+                    duplicate = true;
+                    // Keep the live status if either source identifies the match as live.
+                    if (candidate.live && !existing.live) {
+                        existing.live = true;
+                        existing.time = candidate.time;
+                    }
+                    break;
+                }
+            }
+            if (!duplicate) target.add(candidate);
+        }
     }
 
     private void loadMatchesViaWebView(String primaryUrl, String backupUrl) {
