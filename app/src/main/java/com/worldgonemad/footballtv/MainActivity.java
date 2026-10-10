@@ -699,16 +699,17 @@ public class MainActivity extends Activity {
             String liveTvHtml = downloadPage(PRIMARY_LIVE_TV_URL);
             String liveTv904Html = downloadPage(НАЗАДUP_LIVE_TV_URL);
 
-            ArrayList<Match> liveResults = parseMatches(liveTvHtml);
-            mergeMatches(liveResults, parseMatches(liveTv904Html));
+            // Restore the Online tab's previous LiveTV parsing behaviour.
+            ArrayList<Match> liveResults = parseMatches(liveTvHtml, true);
+            mergeMatches(liveResults, parseMatches(liveTv904Html, true));
             if (liveResults.size() > 80) {
                 liveResults = new ArrayList<>(liveResults.subList(0, 80));
             }
 
-            // The same upcoming pages supply the full fixture schedule. The Online tab
-            // filters this list by the per-event live flag; it must not show every fixture.
-            ArrayList<Match> dailyResults = parseMatches(liveTvHtml);
-            mergeMatches(dailyResults, parseMatches(liveTv904Html));
+            // The daily schedule uses the same two user-provided fixture pages,
+            // but does not infer a live status from neighbouring event rows.
+            ArrayList<Match> dailyResults = parseMatches(liveTvHtml, false);
+            mergeMatches(dailyResults, parseMatches(liveTv904Html, false));
             if (dailyResults.size() > 160) {
                 dailyResults = new ArrayList<>(dailyResults.subList(0, 160));
             }
@@ -1221,8 +1222,13 @@ public class MainActivity extends Activity {
      * =========================================================
      */
 
+    private ArrayList<Match> parseMatches(String html) {
+        return parseMatches(html, false);
+    }
+
     private ArrayList<Match> parseMatches(
-            String html
+            String html,
+            boolean usePreviousOnlineDetection
     ) {
 
         ArrayList<Match> result =
@@ -1314,11 +1320,18 @@ public class MainActivity extends Activity {
         }
 
         int afterStart = linkMatcher.end();
-            // Inspect this event's remaining row only, stopping before the next event link.
-            int nextEventLink = html.indexOf("/eventinfo/", afterStart);
-            int afterEnd = nextEventLink > afterStart
-                    ? Math.min(nextEventLink, afterStart + 2000)
-                    : Math.min(html.length(), afterStart + 500);
+            int afterEnd;
+            if (usePreviousOnlineDetection) {
+                // Keep the prior Online-tab detection range for compatibility.
+                afterEnd = Math.min(html.length(), afterStart + 1500);
+            } else {
+                // Schedule parsing must stop at the next event to avoid borrowing
+                // the score of another match and marking this fixture as live.
+                int nextEventLink = html.indexOf("/eventinfo/", afterStart);
+                afterEnd = nextEventLink > afterStart
+                        ? Math.min(nextEventLink, afterStart + 2000)
+                        : Math.min(html.length(), afterStart + 500);
+            }
             String after = html.substring(afterStart, afterEnd);
 
             Matcher timeMatcher =
@@ -1332,11 +1345,9 @@ public class MainActivity extends Activity {
                 time = timeMatcher.group(1);
             }
 
-            // A score in the link text or this event's own row indicates live play.
-            // The row ends before the next event link to avoid neighbouring scores.
             Pattern scorePattern = Pattern.compile("(?is).*?\\b\\d+\\s*:\\s*\\d+\\b.*");
             boolean live = scorePattern.matcher(anchorText).matches()
-                    || scorePattern.matcher(after).matches();
+                    || (usePreviousOnlineDetection && scorePattern.matcher(after).matches());
 
             if (time.isEmpty()) {
                 time = live ? "LIVE" : "UPCOMING";
