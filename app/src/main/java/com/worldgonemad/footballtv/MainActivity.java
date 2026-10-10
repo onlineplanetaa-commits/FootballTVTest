@@ -1306,37 +1306,26 @@ public class MainActivity extends Activity {
             lastAlt = cleanText(sportMatcher.group(1));
         }
 
-        String sport = "";
-        String league = "";
-
+        String league = "Футбол";
         String lowerLastAlt = lastAlt.toLowerCase(Locale.ROOT);
 
-        // These pages are specifically LiveTV's football schedule
-        // (/allupcomingsports/1/). Some upcoming rows have no sport icon
-        // immediately before their event link, so don't discard them just
-        // because the nearest preceding image has no alt text.
+        // All current callers supply football-only LiveTV schedule pages
+        // or the football schedule widget. Do not use the nearest image
+        // marker as a gate: that marker can belong to a previous row, and
+        // this incorrectly drops scheduled fixtures while live rows survive.
         if (lowerLastAlt.startsWith("football.")
                 || lowerLastAlt.equals("football")) {
-            sport = "football";
             league = lastAlt.length() > 9
                     ? cleanText(lastAlt.substring(9))
-                    : "Football";
+                    : "Футбол";
         } else if (lowerLastAlt.startsWith("футбол.")
                 || lowerLastAlt.equals("футбол")) {
-            sport = "football";
             league = lastAlt.length() > 7
                     ? cleanText(lastAlt.substring(7))
-                    : "Football";
-        } else if (lastAlt.isEmpty()) {
-            sport = "football";
-            league = "Football";
-        }
-
-        if (!"football".equals(sport)) {
-            continue;
+                    : "Футбол";
         }
         if (league == null || league.trim().isEmpty()) {
-            league = "Football";
+            league = "Футбол";
         }
 
         int afterStart = linkMatcher.end();
