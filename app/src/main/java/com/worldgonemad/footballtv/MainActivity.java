@@ -83,6 +83,7 @@ public class MainActivity extends Activity {
 
     private final ArrayList<Match> matches =
             new ArrayList<>();
+    private final ArrayList<Match> todayMatches = new ArrayList<>();
 
     private static final int SECTION_TODAY = 0;
     private static final int SECTION_ONLINE = 1;
@@ -389,39 +390,19 @@ public class MainActivity extends Activity {
         sectionTitle.setPadding(42, 2, 42, 10);
         root.addView(sectionTitle, new LinearLayout.LayoutParams(-1, 46));
 
-        if (selectedSection == SECTION_TODAY) {
-            // Use Flashscore's live daily football calendar: finished, live and upcoming matches.
-            flashscoreScreen = true;
-            flashscoreWebView = new WebView(this);
-            flashscoreWebView.setBackgroundColor(BG);
-            flashscoreWebView.setFocusable(true);
-            flashscoreWebView.setFocusableInTouchMode(true);
-            flashscoreWebView.getSettings().setJavaScriptEnabled(true);
-            flashscoreWebView.getSettings().setDomStorageEnabled(true);
-            flashscoreWebView.getSettings().setDatabaseEnabled(true);
-            flashscoreWebView.getSettings().setMediaPlaybackRequiresUserGesture(true);
-            flashscoreWebView.getSettings().setUserAgentString(
-                    "Mozilla/5.0 (Linux; Android 11; Android TV) AppleWebKit/537.36 Chrome/124.0.0.0 Safari/537.36"
-            );
-            flashscoreWebView.setWebChromeClient(new WebChromeClient());
-            flashscoreWebView.setWebViewClient(new WebViewClient());
-            root.addView(flashscoreWebView, new LinearLayout.LayoutParams(-1, 0, 1));
-            flashscoreWebView.loadUrl("https://www.flashscore.ua/football/");
-        } else {
-            flashscoreScreen = false;
-            flashscoreWebView = null;
-            ScrollView scroll = new ScrollView(this);
-            scroll.setFillViewport(true);
-            scroll.setClipToPadding(false);
-            scroll.setPadding(34, 0, 34, 30);
-            listContainer = new LinearLayout(this);
-            listContainer.setOrientation(LinearLayout.VERTICAL);
-            scroll.addView(listContainer);
-            root.addView(scroll, new LinearLayout.LayoutParams(-1, 0, 1));
-        }
+        flashscoreScreen = false;
+        flashscoreWebView = null;
+        ScrollView scroll = new ScrollView(this);
+        scroll.setFillViewport(true);
+        scroll.setClipToPadding(false);
+        scroll.setPadding(34, 0, 34, 30);
+        listContainer = new LinearLayout(this);
+        listContainer.setOrientation(LinearLayout.VERTICAL);
+        scroll.addView(listContainer);
+        root.addView(scroll, new LinearLayout.LayoutParams(-1, 0, 1));
 
         setContentView(root);
-        if (!flashscoreScreen) renderMatches();
+        renderMatches();
     }
 
     private Button sectionButton(String caption, int section) {
@@ -455,7 +436,8 @@ public class MainActivity extends Activity {
 
     private ArrayList<Match> getVisibleMatches() {
         ArrayList<Match> visible = new ArrayList<>();
-        for (Match match : matches) {
+        ArrayList<Match> source = selectedSection == SECTION_TODAY ? todayMatches : matches;
+        for (Match match : source) {
             if (selectedSection == SECTION_ONLINE && !match.live) continue;
             if (selectedSection == SECTION_FAVORITES && !favoriteIds.contains(match.eventUrl)) continue;
             visible.add(match);
@@ -685,7 +667,11 @@ public class MainActivity extends Activity {
             watch.setTextColor(hasFocus ? Color.BLACK : Color.WHITE);
             watch.setAlpha(1f);
         });
-        watch.setOnClickListener(v -> resolveAndPlay(match));
+        watch.setOnClickListener(v -> {
+            Match streamMatch = findLiveTvMatch(match);
+            if (streamMatch != null) resolveAndPlay(streamMatch);
+            else showPlayer(match, "Трансляция этого матча не найдена в LiveTV.sx / LiveTV904.");
+        });
         card.addView(watch, new LinearLayout.LayoutParams(130, 58));
     }
 
@@ -697,27 +683,201 @@ public class MainActivity extends Activity {
 
     private void loadMatches() {
         new Thread(() -> {
-            // Read both schedules every time. LiveTV904 is not only a fallback:
-            // it can contain matches missing from LiveTV.sx.
-            String primaryHtml = downloadPage(PRIMARY_LIVE_TV_URL);
-            String backupHtml = downloadPage(НАЗАДUP_LIVE_TV_URL);
+            ArrayList<Match> flashscore = parseFlashscoreFeed(downloadFlashscoreFeed());
+            ArrayList<Match> combined = parseMatches(downloadPage(PRIMARY_LIVE_TV_URL));
+            mergeMatches(combined, parseMatches(downloadPage(НАЗАДUP_LIVE_TV_URL)));
 
-            ArrayList<Match> combined = parseMatches(primaryHtml);
-            mergeMatches(combined, parseMatches(backupHtml));
-
-            if (!combined.isEmpty()) {
-                runOnUiThread(() -> {
-                    matches.clear();
-                    matches.addAll(combined);
-                    if (!playerScreen) showMatches();
-                });
-                return;
+            if (!flashscore.isEmpty()) {
+                saveTodayMatches(flashscore);
+            } else {
+                flashscore = readTodayMatchesCache();
             }
 
-            // If both reject HttpURLConnection, try the primary in WebView,
-            // then the backup in WebView.
-            runOnUiThread(() -> loadMatchesViaWebView(PRIMARY_LIVE_TV_URL, НАЗАДUP_LIVE_TV_URL));
+            ArrayList<Match> finalFlashscore = flashscore;
+            runOnUiThread(() -> {
+                if (!finalFlashscore.isEmpty()) {
+                    todayMatches.clear();
+                    todayMatches.addAll(finalFlashscore);
+                }
+                if (!combined.isEmpty()) {
+                    matches.clear();
+                    matches.addAll(combined);
+                }
+                // Refresh only the list contents. Do not recreate the screen or
+                // interrupt remote focus while a user is browsing match cards.
+                if (!playerScreen && listContainer != null) renderMatches();
+                else if (!playerScreen && matches.isEmpty() && todayMatches.isEmpty()) showLoading();
+            });
         }).start();
+    }
+
+    private String downloadFlashscoreFeed() {
+        String address = "https://local-ruua.flashscore.ninja/46/x/feed/f_1_0_3_ru-kz_1";
+        HttpURLConnection connection = null;
+        try {
+            connection = (HttpURLConnection) new URL(address).openConnection();
+            connection.setRequestMethod("GET");
+            connection.setConnectTimeout(9000);
+            connection.setReadTimeout(12000);
+            connection.setRequestProperty("User-Agent",
+                    "Mozilla/5.0 (Linux; Android 11; Android TV) AppleWebKit/537.36 Chrome/124.0.0.0 Safari/537.36");
+            connection.setRequestProperty("Accept", "*/*");
+            connection.setRequestProperty("Accept-Language", "ru,uk;q=0.9,en;q=0.8");
+            connection.setRequestProperty("Referer", "https://www.flashscore.ua/");
+            connection.setRequestProperty("Origin", "https://www.flashscore.ua");
+            connection.setRequestProperty("x-fsign", "SW9D1eZo");
+            int code = connection.getResponseCode();
+            if (code < 200 || code >= 300) return "";
+            InputStream input = connection.getInputStream();
+            BufferedReader reader = new BufferedReader(new InputStreamReader(input, "UTF-8"));
+            StringBuilder body = new StringBuilder();
+            String line;
+            while ((line = reader.readLine()) != null) body.append(line).append("\n");
+            reader.close();
+            return body.toString();
+        } catch (Exception e) {
+            return "";
+        } finally {
+            if (connection != null) connection.disconnect();
+        }
+    }
+
+    private ArrayList<Match> parseFlashscoreFeed(String feed) {
+        ArrayList<Match> result = new ArrayList<>();
+        if (feed == null || feed.trim().isEmpty()) return result;
+
+        String currentLeague = "Футбол";
+        String[] records = feed.split("~");
+        for (String record : records) {
+            if (record == null || record.trim().isEmpty()) continue;
+            HashMap<String, String> fields = new HashMap<>();
+            String[] pairs = record.split("¬");
+            for (String pair : pairs) {
+                int sep = pair.indexOf('÷');
+                if (sep > 0 && sep + 1 <= pair.length()) {
+                    fields.put(pair.substring(0, sep).trim(), pair.substring(sep + 1).trim());
+                }
+            }
+            String league = fields.get("ZA");
+            if (league != null && !league.trim().isEmpty()) currentLeague = cleanText(league);
+            String id = fields.get("AA");
+            String home = fields.get("AE");
+            String away = fields.get("AF");
+            if (id == null || home == null || away == null
+                    || home.trim().isEmpty() || away.trim().isEmpty()) continue;
+
+            String homeScore = fields.get("AG");
+            String awayScore = fields.get("AH");
+            String stage = fields.get("AB");
+            String stageText = fields.get("AC");
+            String statusCode = stage == null ? "" : stage.trim();
+            String statusDetails = (stageText == null ? "" : stageText).toLowerCase(Locale.ROOT);
+            boolean finished = "3".equals(statusCode)
+                    || statusDetails.contains("finished")
+                    || statusDetails.contains("заверш")
+                    || statusDetails.contains("закінч");
+            boolean live = "2".equals(statusCode)
+                    || statusDetails.contains("live")
+                    || statusDetails.contains("тайм")
+                    || statusDetails.contains("перерыв")
+                    || statusDetails.contains("перерва")
+                    || statusDetails.matches(".*\\d{1,2}['’].*");
+
+            String time = "";
+            String timestamp = fields.get("AD");
+            if (timestamp != null && timestamp.matches("\\d{9,13}")) {
+                try {
+                    long value = Long.parseLong(timestamp);
+                    if (timestamp.length() <= 10) value *= 1000L;
+                    SimpleDateFormat format = new SimpleDateFormat("HH:mm", Locale.getDefault());
+                    format.setTimeZone(TimeZone.getTimeZone("Europe/Kyiv"));
+                    time = format.format(new Date(value));
+                } catch (Exception ignored) {}
+            }
+            if (live) {
+                String score = validScore(homeScore, awayScore);
+                time = "🔴 LIVE" + (statusTextValue(statusDetails).isEmpty() ? "" : " · " + statusTextValue(statusDetails))
+                        + (score.isEmpty() ? "" : " · " + score);
+            } else if (finished) {
+                String score = validScore(homeScore, awayScore);
+                time = "ЗАВЕРШЁН" + (score.isEmpty() ? "" : " · " + score);
+            } else if (time.isEmpty()) {
+                time = "Сегодня";
+            }
+
+            Match match = new Match(currentLeague, cleanText(home), cleanText(away), time, live,
+                    "https://www.flashscore.ua/match/" + id + "/");
+            result.add(match);
+        }
+        return result;
+    }
+
+    private String validScore(String home, String away) {
+        if (home == null || away == null || !home.matches("\\d+") || !away.matches("\\d+")) return "";
+        return home + ":" + away;
+    }
+
+    private String statusTextValue(String value) {
+        if (value == null || value.isEmpty()) return "";
+        Matcher matcher = Pattern.compile("(\\d{1,3}(?:\\+\\d+)?['’]?)").matcher(value);
+        return matcher.find() ? matcher.group(1) : "";
+    }
+
+    private void saveTodayMatches(ArrayList<Match> list) {
+        try {
+            JSONArray array = new JSONArray();
+            for (Match match : list) {
+                JSONObject item = new JSONObject();
+                item.put("league", match.league);
+                item.put("home", match.home);
+                item.put("away", match.away);
+                item.put("time", match.time);
+                item.put("live", match.live);
+                item.put("eventUrl", match.eventUrl);
+                array.put(item);
+            }
+            preferences.edit().putString("flashscore_today_cache", array.toString()).apply();
+        } catch (Exception ignored) {}
+    }
+
+    private ArrayList<Match> readTodayMatchesCache() {
+        ArrayList<Match> result = new ArrayList<>();
+        if (preferences == null) return result;
+        String saved = preferences.getString("flashscore_today_cache", "");
+        if (saved == null || saved.isEmpty()) return result;
+        try {
+            JSONArray array = new JSONArray(saved);
+            for (int i = 0; i < array.length(); i++) {
+                JSONObject item = array.getJSONObject(i);
+                result.add(new Match(item.optString("league", "Футбол"),
+                        item.optString("home", ""), item.optString("away", ""),
+                        item.optString("time", "Сегодня"), item.optBoolean("live", false),
+                        item.optString("eventUrl", "")));
+            }
+        } catch (Exception ignored) {}
+        return result;
+    }
+
+    private Match findLiveTvMatch(Match requested) {
+        if (requested == null) return null;
+        String home = normalizeTeamForMatch(requested.home);
+        String away = normalizeTeamForMatch(requested.away);
+        for (Match candidate : matches) {
+            if (normalizeTeamForMatch(candidate.home).equals(home)
+                    && normalizeTeamForMatch(candidate.away).equals(away)) return candidate;
+            if (normalizeTeamForMatch(candidate.home).equals(away)
+                    && normalizeTeamForMatch(candidate.away).equals(home)) return candidate;
+        }
+        return null;
+    }
+
+    private String normalizeTeamForMatch(String name) {
+        if (name == null) return "";
+        return name.toLowerCase(Locale.ROOT)
+                .replaceAll("[^\\p{L}\\p{N}]", "")
+                .replace("fc", "")
+                .replace("фк", "")
+                .replace("афк", "");
     }
 
     private void mergeMatches(ArrayList<Match> target, ArrayList<Match> incoming) {
