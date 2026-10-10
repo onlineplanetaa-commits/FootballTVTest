@@ -1345,18 +1345,25 @@ public class MainActivity extends Activity {
                 time = timeMatcher.group(1);
             }
 
-            // Restore the previous score-based detection for recovery: the LIVE-label
-            // parser returned no matches with the current LiveTV page markup.
-            Pattern scorePattern = Pattern.compile("(?is).*?\\b\\d+\\s*:\\s*\\d+\\b.*");
-            boolean hasScore = scorePattern.matcher(anchorText).matches()
-                    || scorePattern.matcher(cleanText(after)).matches();
+            // For the Online tab, inspect the whole HTML row because LiveTV's
+            // red LIVE badge may appear before the teams link, not after it.
+            // Daily schedule parsing remains independent of this live-only test.
+            int rowStart = html.lastIndexOf("<tr", linkMatcher.start());
+            int rowEnd = html.indexOf("</tr>", linkMatcher.end());
+            String rowMarkup = (rowStart >= 0 && rowEnd > linkMatcher.end())
+                    ? html.substring(rowStart, Math.min(html.length(), rowEnd + 5))
+                    : html.substring(Math.max(0, linkMatcher.start() - 1200),
+                            Math.min(html.length(), afterEnd));
+            String rowText = cleanText(rowMarkup).toLowerCase(Locale.ROOT);
+            boolean liveLabel = Pattern.compile("(?i)(?:^|\\W)live(?:\\W|$)")
+                    .matcher(rowText).find();
             boolean finished = eventText.contains("заверш")
                     || eventText.contains("finished")
                     || eventText.contains("full time")
                     || eventText.matches("(?s).*\\bft\\b.*")
                     || eventText.contains("матч окончен")
                     || eventText.contains("ended");
-            boolean live = hasScore && !finished;
+            boolean live = usePreviousOnlineDetection && liveLabel && !finished;
 
             if (time.isEmpty()) {
                 time = live ? "LIVE" : "UPCOMING";
