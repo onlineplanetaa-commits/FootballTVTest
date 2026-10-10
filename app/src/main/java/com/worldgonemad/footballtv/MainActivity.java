@@ -117,15 +117,13 @@ public class MainActivity extends Activity {
         preferences = getSharedPreferences("max_football_preferences", MODE_PRIVATE);
         favoriteIds.addAll(preferences.getStringSet("favorite_match_ids", new HashSet<>()));
 
-        // Show the branded splash briefly on a fresh install; cached data is shown immediately when available.
-        // Use only the two LiveTV sources; ignore the old Flashscore cache.
-        matches.addAll(readLiveMatchesCache());
-        todayMatches.addAll(readLiveMatchesCache());
-        if (todayMatches.isEmpty() && matches.isEmpty()) {
+        // Show cached LiveTV matches immediately. On a fresh install, keep the loading screen
+        // visible until the first network load finishes instead of showing an empty list.
+        ArrayList<Match> cachedAtStart = readLiveMatchesCache();
+        matches.addAll(cachedAtStart);
+        todayMatches.addAll(cachedAtStart);
+        if (cachedAtStart.isEmpty()) {
             showLoading();
-            handler.postDelayed(() -> {
-                if (todayMatches.isEmpty() && matches.isEmpty() && !playerScreen) showMatches();
-            }, 2500);
         } else {
             showMatches();
         }
@@ -712,7 +710,10 @@ public class MainActivity extends Activity {
                     matches.addAll(loadedMatches);
                     todayMatches.clear();
                     todayMatches.addAll(daily);
-                    if (!playerScreen && listContainer != null) renderMatches();
+                    if (!playerScreen) {
+                        if (listContainer == null) showMatches();
+                        else renderMatches();
+                    }
                 });
             } else {
                 // Keep previously saved LiveTV results when both sources fail.
@@ -723,7 +724,16 @@ public class MainActivity extends Activity {
                         matches.addAll(cached);
                         todayMatches.clear();
                         todayMatches.addAll(cached);
-                        if (!playerScreen && listContainer != null) renderMatches();
+                        if (!playerScreen) {
+                            if (listContainer == null) showMatches();
+                            else renderMatches();
+                        }
+                    });
+                } else {
+                    // Both sources failed and there is no saved cache: leave the loading
+                    // screen only after the first attempt has actually completed.
+                    runOnUiThread(() -> {
+                        if (!playerScreen && listContainer == null) showMatches();
                     });
                 }
             }
@@ -1300,7 +1310,7 @@ public class MainActivity extends Activity {
             int afterEnd =
                     Math.min(
                             html.length(),
-                            afterStart + 1500
+                            afterStart + 250
                     );
 
             String after =
@@ -1317,6 +1327,9 @@ public class MainActivity extends Activity {
                 time = timeMatcher.group(1);
             }
 
+            // Keep the live check local to this event. A long HTML window
+            // accidentally picked up scores from neighbouring matches and marked
+            // nearly the entire schedule as live.
             boolean live =
                     Pattern.compile(
                             "(?is).*?\\b\\d+\\s*:\\s*\\d+\\b.*"
