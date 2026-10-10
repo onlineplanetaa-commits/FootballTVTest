@@ -675,18 +675,22 @@ public class MainActivity extends Activity {
         favoriteParams.setMargins(0, 0, 10, 0);
         card.addView(favorite, favoriteParams);
 
-        Button watch = action("СМОТРЕТЬ");
-        watch.setOnFocusChangeListener((v, hasFocus) -> {
-            watch.setBackground(bg(hasFocus ? Color.rgb(255, 205, 35) : ACCENT, 14));
-            watch.setTextColor(hasFocus ? Color.BLACK : Color.WHITE);
-            watch.setAlpha(1f);
-        });
-        watch.setOnClickListener(v -> {
-            Match streamMatch = findLiveTvMatch(match);
-            if (streamMatch != null) resolveAndPlay(streamMatch);
-            else showPlayer(match, "Трансляция этого матча не найдена в LiveTV.sx / LiveTV904.");
-        });
-        card.addView(watch, new LinearLayout.LayoutParams(130, 58));
+        // The Today tab is a schedule/favorites list: keep only the star there.
+        // Playback controls remain available in the Online and other sections.
+        if (selectedSection != SECTION_TODAY) {
+            Button watch = action("СМОТРЕТЬ");
+            watch.setOnFocusChangeListener((v, hasFocus) -> {
+                watch.setBackground(bg(hasFocus ? Color.rgb(255, 205, 35) : ACCENT, 14));
+                watch.setTextColor(hasFocus ? Color.BLACK : Color.WHITE);
+                watch.setAlpha(1f);
+            });
+            watch.setOnClickListener(v -> {
+                Match streamMatch = findLiveTvMatch(match);
+                if (streamMatch != null) resolveAndPlay(streamMatch);
+                else showPlayer(match, "Трансляция этого матча не найдена в LiveTV.sx / LiveTV904.");
+            });
+            card.addView(watch, new LinearLayout.LayoutParams(130, 58));
+        }
     }
 
     /*
