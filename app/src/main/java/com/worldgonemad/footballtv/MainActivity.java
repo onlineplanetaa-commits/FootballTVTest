@@ -705,10 +705,11 @@ public class MainActivity extends Activity {
 
             if (!combined.isEmpty()) {
                 saveLiveMatchesCache(combined);
-                ArrayList<Match> daily = new ArrayList<>(combined);
+                ArrayList<Match> loadedMatches = new ArrayList<>(combined);
+                ArrayList<Match> daily = new ArrayList<>(loadedMatches);
                 runOnUiThread(() -> {
                     matches.clear();
-                    matches.addAll(combined);
+                    matches.addAll(loadedMatches);
                     todayMatches.clear();
                     todayMatches.addAll(daily);
                     if (!playerScreen && listContainer != null) renderMatches();
