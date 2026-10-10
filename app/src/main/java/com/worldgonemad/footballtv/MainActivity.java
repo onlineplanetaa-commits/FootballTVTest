@@ -729,7 +729,7 @@ public class MainActivity extends Activity {
                 saveLiveMatchesCache(liveResults);
             } else {
                 liveResults = readLiveMatchesCache();
-                if (liveResults.isEmpty()) liveResults = readTodayMatchesCache();
+                // Never put the daily schedule into the Online tab.
             }
 
             if (!dailyResults.isEmpty()) {
@@ -1349,11 +1349,11 @@ public class MainActivity extends Activity {
             // visible LIVE label. Do not infer live status from a score:
             // scores from nearby rows were making future fixtures appear live.
             String localMarkup = (linkMatcher.group(0) + " " + after).toLowerCase(Locale.ROOT);
-            boolean liveLabel = Pattern.compile("(?is)(?:^|\\\\W)live(?:\\\\W|$)").matcher(cleanText(localMarkup)).find();
+            boolean liveLabel = Pattern.compile("(?is)(?:^|\\W)live(?:\\W|$)").matcher(cleanText(localMarkup)).find();
             boolean finished = eventText.contains("заверш")
                     || eventText.contains("finished")
                     || eventText.contains("full time")
-                    || eventText.matches("(?s).*\\\\bft\\\\b.*")
+                    || eventText.matches("(?s).*\\bft\\b.*")
                     || eventText.contains("матч окончен")
                     || eventText.contains("ended");
             boolean live = liveLabel && !finished;
