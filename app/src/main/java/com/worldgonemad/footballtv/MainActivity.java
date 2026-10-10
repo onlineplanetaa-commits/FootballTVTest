@@ -62,6 +62,8 @@ public class MainActivity extends Activity {
     // True while the Activity is showing the player/resolver screen.
     // Match refreshes must never replace that screen.
     private boolean playerScreen = false;
+    private boolean flashscoreScreen = false;
+    private WebView flashscoreWebView;
 
     private final Handler handler =
             new Handler(Looper.getMainLooper());
@@ -387,40 +389,39 @@ public class MainActivity extends Activity {
         sectionTitle.setPadding(42, 2, 42, 10);
         root.addView(sectionTitle, new LinearLayout.LayoutParams(-1, 46));
 
-        ScrollView scroll =
-                new ScrollView(this);
-
-        scroll.setFillViewport(true);
-        scroll.setClipToPadding(false);
-
-        scroll.setPadding(
-                34,
-                0,
-                34,
-                30
-        );
-
-        listContainer =
-                new LinearLayout(this);
-
-        listContainer.setOrientation(
-                LinearLayout.VERTICAL
-        );
-
-        scroll.addView(listContainer);
-
-        root.addView(
-                scroll,
-                new LinearLayout.LayoutParams(
-                        -1,
-                        0,
-                        1
-                )
-        );
+        if (selectedSection == SECTION_TODAY) {
+            // Use Flashscore's live daily football calendar: finished, live and upcoming matches.
+            flashscoreScreen = true;
+            flashscoreWebView = new WebView(this);
+            flashscoreWebView.setBackgroundColor(BG);
+            flashscoreWebView.setFocusable(true);
+            flashscoreWebView.setFocusableInTouchMode(true);
+            flashscoreWebView.getSettings().setJavaScriptEnabled(true);
+            flashscoreWebView.getSettings().setDomStorageEnabled(true);
+            flashscoreWebView.getSettings().setDatabaseEnabled(true);
+            flashscoreWebView.getSettings().setMediaPlaybackRequiresUserGesture(true);
+            flashscoreWebView.getSettings().setUserAgentString(
+                    "Mozilla/5.0 (Linux; Android 11; Android TV) AppleWebKit/537.36 Chrome/124.0.0.0 Safari/537.36"
+            );
+            flashscoreWebView.setWebChromeClient(new WebChromeClient());
+            flashscoreWebView.setWebViewClient(new WebViewClient());
+            root.addView(flashscoreWebView, new LinearLayout.LayoutParams(-1, 0, 1));
+            flashscoreWebView.loadUrl("https://www.flashscore.ua/football/");
+        } else {
+            flashscoreScreen = false;
+            flashscoreWebView = null;
+            ScrollView scroll = new ScrollView(this);
+            scroll.setFillViewport(true);
+            scroll.setClipToPadding(false);
+            scroll.setPadding(34, 0, 34, 30);
+            listContainer = new LinearLayout(this);
+            listContainer.setOrientation(LinearLayout.VERTICAL);
+            scroll.addView(listContainer);
+            root.addView(scroll, new LinearLayout.LayoutParams(-1, 0, 1));
+        }
 
         setContentView(root);
-
-        renderMatches();
+        if (!flashscoreScreen) renderMatches();
     }
 
     private Button sectionButton(String caption, int section) {
@@ -679,6 +680,11 @@ public class MainActivity extends Activity {
         card.addView(favorite, favoriteParams);
 
         Button watch = action("СМОТРЕТЬ");
+        watch.setOnFocusChangeListener((v, hasFocus) -> {
+            watch.setBackground(bg(hasFocus ? Color.rgb(255, 205, 35) : ACCENT, 14));
+            watch.setTextColor(hasFocus ? Color.BLACK : Color.WHITE);
+            watch.setAlpha(1f);
+        });
         watch.setOnClickListener(v -> resolveAndPlay(match));
         card.addView(watch, new LinearLayout.LayoutParams(130, 58));
     }
@@ -2654,15 +2660,24 @@ public class MainActivity extends Activity {
     @Override
     public void onBackPressed() {
 
-        if (player != null || playerView != null || playerScreen) {
-
+        if (flashscoreScreen && flashscoreWebView != null) {
+            if (flashscoreWebView.canGoBack()) {
+                flashscoreWebView.goBack();
+            } else {
+                try {
+                    flashscoreWebView.stopLoading();
+                    flashscoreWebView.destroy();
+                } catch (Exception ignored) {}
+                flashscoreWebView = null;
+                flashscoreScreen = false;
+                selectedSection = SECTION_ONLINE;
+                showMatches();
+            }
+        } else if (player != null || playerView != null || playerScreen) {
             releasePlayer();
             playerScreen = false;
-
             showMatches();
-
         } else {
-
             super.onBackPressed();
         }
     }
