@@ -769,19 +769,10 @@ public class MainActivity extends Activity {
             String homeScore = fields.get("AG");
             String awayScore = fields.get("AH");
             String stage = fields.get("AB");
-            String stageText = fields.get("AC");
             String statusCode = stage == null ? "" : stage.trim();
-            String statusDetails = (stageText == null ? "" : stageText).toLowerCase(Locale.ROOT);
-            boolean finished = "3".equals(statusCode)
-                    || statusDetails.contains("finished")
-                    || statusDetails.contains("заверш")
-                    || statusDetails.contains("закінч");
-            boolean live = "2".equals(statusCode)
-                    || statusDetails.contains("live")
-                    || statusDetails.contains("тайм")
-                    || statusDetails.contains("перерыв")
-                    || statusDetails.contains("перерва")
-                    || statusDetails.matches(".*\\d{1,2}['’].*");
+            // Flashscore feed: AB=1 scheduled, AB=2 live, AB=3 finished.
+            boolean finished = "3".equals(statusCode);
+            boolean live = "2".equals(statusCode);
 
             String time = "";
             String timestamp = fields.get("AD");
@@ -796,7 +787,10 @@ public class MainActivity extends Activity {
             }
             if (live) {
                 String score = validScore(homeScore, awayScore);
-                time = "🔴 LIVE" + (statusTextValue(statusDetails).isEmpty() ? "" : " · " + statusTextValue(statusDetails))
+                String minute = fields.get("BA");
+                String liveMinute = minute != null && minute.matches("\\d{1,3}(?:\\+\\d+)?")
+                        ? minute + "'" : "";
+                time = "🔴 LIVE" + (liveMinute.isEmpty() ? "" : " · " + liveMinute)
                         + (score.isEmpty() ? "" : " · " + score);
             } else if (finished) {
                 String score = validScore(homeScore, awayScore);
@@ -815,12 +809,6 @@ public class MainActivity extends Activity {
     private String validScore(String home, String away) {
         if (home == null || away == null || !home.matches("\\d+") || !away.matches("\\d+")) return "";
         return home + ":" + away;
-    }
-
-    private String statusTextValue(String value) {
-        if (value == null || value.isEmpty()) return "";
-        Matcher matcher = Pattern.compile("(\\d{1,3}(?:\\+\\d+)?['’]?)").matcher(value);
-        return matcher.find() ? matcher.group(1) : "";
     }
 
     private void saveTodayMatches(ArrayList<Match> list) {
@@ -2821,18 +2809,14 @@ public class MainActivity extends Activity {
     public void onBackPressed() {
 
         if (flashscoreScreen && flashscoreWebView != null) {
-            if (flashscoreWebView.canGoBack()) {
-                flashscoreWebView.goBack();
-            } else {
-                try {
-                    flashscoreWebView.stopLoading();
-                    flashscoreWebView.destroy();
-                } catch (Exception ignored) {}
-                flashscoreWebView = null;
-                flashscoreScreen = false;
-                selectedSection = SECTION_ONLINE;
-                showMatches();
-            }
+            try { flashscoreWebView.stopLoading(); flashscoreWebView.destroy(); } catch (Exception ignored) {}
+            flashscoreWebView = null;
+            flashscoreScreen = false;
+            selectedSection = SECTION_ONLINE;
+            showMatches();
+        } else if (selectedSection != SECTION_ONLINE && !playerScreen) {
+            selectedSection = SECTION_ONLINE;
+            showMatches();
         } else if (player != null || playerView != null || playerScreen) {
             releasePlayer();
             playerScreen = false;
