@@ -695,16 +695,23 @@ public class MainActivity extends Activity {
 
     private void loadMatches() {
         new Thread(() -> {
-            // LiveTV is used for the live/stream list only.
-            ArrayList<Match> liveResults = parseMatches(downloadPage(PRIMARY_LIVE_TV_URL));
-            mergeMatches(liveResults, parseMatches(downloadPage(НАЗАДUP_LIVE_TV_URL)));
+            // Both lists come from the two LiveTV upcoming-football pages supplied by the user.
+            String liveTvHtml = downloadPage(PRIMARY_LIVE_TV_URL);
+            String liveTv904Html = downloadPage(НАЗАДUP_LIVE_TV_URL);
+
+            ArrayList<Match> liveResults = parseMatches(liveTvHtml);
+            mergeMatches(liveResults, parseMatches(liveTv904Html));
             if (liveResults.size() > 80) {
                 liveResults = new ArrayList<>(liveResults.subList(0, 80));
             }
 
-            // The daily schedule is loaded separately from the score feed and is
-            // limited to fixtures today and tomorrow in Kyiv time.
-            ArrayList<Match> dailyResults = parseFlashscoreFeed(downloadFlashscoreFeed());
+            // The same upcoming pages supply the full fixture schedule. The Online tab
+            // filters this list by the per-event live flag; it must not show every fixture.
+            ArrayList<Match> dailyResults = parseMatches(liveTvHtml);
+            mergeMatches(dailyResults, parseMatches(liveTv904Html));
+            if (dailyResults.size() > 160) {
+                dailyResults = new ArrayList<>(dailyResults.subList(0, 160));
+            }
 
             if (!liveResults.isEmpty()) {
                 saveLiveMatchesCache(liveResults);
@@ -717,8 +724,7 @@ public class MainActivity extends Activity {
                 saveTodayMatches(dailyResults);
             } else {
                 dailyResults = readTodayMatchesCache();
-                // First run / unavailable schedule feed: retain a useful list,
-                // but do not overwrite a previously saved daily schedule.
+                // If both sites are temporarily unavailable, keep the saved schedule.
                 if (dailyResults.isEmpty()) dailyResults = new ArrayList<>(liveResults);
             }
 
@@ -1331,13 +1337,12 @@ public class MainActivity extends Activity {
             // Keep the live check local to this event. A long HTML window
             // accidentally picked up scores from neighbouring matches and marked
             // nearly the entire schedule as live.
-            boolean live =
-                    Pattern.compile(
-                            "(?is).*?\\b\\d+\\s*:\\s*\\d+\\b.*"
-                    ).matcher(anchorText).matches()
-                    || Pattern.compile(
-                            "(?is).*?\\b\\d+\\s*:\\s*\\d+\\b.*"
-                    ).matcher(after).matches();
+            // Only a score embedded in this match's own link text marks it live.
+            // Do not inspect the following HTML: it contains neighbouring fixtures and
+            // was incorrectly marking dozens of scheduled games as live.
+            boolean live = Pattern.compile(
+                    "(?is).*?\\b\\d+\\s*:\\s*\\d+\\b.*"
+            ).matcher(anchorText).matches();
 
             if (time.isEmpty()) {
                 time = live ? "LIVE" : "UPCOMING";
