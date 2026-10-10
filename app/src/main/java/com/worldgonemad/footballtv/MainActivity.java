@@ -1354,12 +1354,34 @@ public class MainActivity extends Activity {
                     ? html.substring(rowStart, Math.min(html.length(), rowEnd + 5))
                     : html.substring(Math.max(0, linkMatcher.start() - 1200),
                             Math.min(html.length(), afterEnd));
-            // Search the raw markup, not cleanText(): cleanText() strips HTML
-            // tags and therefore also removes LIVE labels stored in title/alt/class
-            // attributes. The badge is scoped to the current event row.
-            boolean liveLabel = Pattern.compile(
-                    "(?i)(?:\\bLIVE\\b|class\\s*=\\s*['\\\"][^'\\\"]*\\blive\\b[^'\\\"]*['\\\"]|(?:title|alt|aria-label)\\s*=\\s*['\\\"][^'\\\"]*\\blive\\b[^'\\\"]*['\\\"])")
-                    .matcher(rowMarkup).find();
+            // LiveTV's red LIVE badge is an image (usually a GIF), not reliable
+            // visible text. Require an actual GIF image in this event row and
+            // identify it by its URL or image attributes. Do not treat a team's
+            // name, score, CSS text, or unrelated plain "LIVE" text as proof.
+            boolean liveLabel = false;
+            Matcher imageMatcher = Pattern.compile("(?is)<img\\b[^>]*>").matcher(rowMarkup);
+            while (imageMatcher.find()) {
+                String imageTag = imageMatcher.group();
+                Matcher srcMatcher = Pattern.compile(
+                        "(?i)\\bsrc\\s*=\\s*['\\\"]([^'\\\"]+)['\\\"]")
+                        .matcher(imageTag);
+                if (!srcMatcher.find()) {
+                    continue;
+                }
+                String imageSrc = srcMatcher.group(1).toLowerCase(Locale.ROOT);
+                boolean isGif = imageSrc.matches("(?s).*\\.gif(?:[?#].*)?$");
+                if (!isGif) {
+                    continue;
+                }
+                boolean liveNamedImage = imageSrc.matches("(?s).*\\blive\\b.*")
+                        || Pattern.compile(
+                                "(?i)(?:\\balt|\\btitle|\\baria-label|\\bclass)\\s*=\\s*['\\\"][^'\\\"]*\\blive\\b[^'\\\"]*['\\\"]")
+                                .matcher(imageTag).find();
+                if (liveNamedImage) {
+                    liveLabel = true;
+                    break;
+                }
+            }
             boolean finished = eventText.contains("заверш")
                     || eventText.contains("finished")
                     || eventText.contains("full time")
