@@ -1980,6 +1980,7 @@ public class MainActivity extends Activity {
                 status.setText("Открытие ссылки трансляции " + current[0] + " из "
                         + sourceCandidates.size() + "...");
 
+                final String resolvedPlayerUrl = playerUrl;
                 Map<String, String> headers = new HashMap<>();
                 headers.put("Referer", match.eventUrl);
                 headers.put(
@@ -2051,9 +2052,9 @@ public class MainActivity extends Activity {
                                     // an iframe/MSE pipeline that exposes no direct HLS/MP4 URL.
                                     // If extraction finds nothing, show that exact player inside
                                     // our full-screen WebView; never launch an external browser.
-                                    if (playerUrl.toLowerCase(Locale.US).contains("t=ifr")) {
+                                    if (resolvedPlayerUrl.toLowerCase(Locale.US).contains("t=ifr")) {
                                         resolved[0] = true;
-                                        showLiveTvWebPlayer(match, playerUrl);
+                                        showLiveTvWebPlayer(match, resolvedPlayerUrl);
                                     } else {
                                         tryNext[0].run();
                                     }
