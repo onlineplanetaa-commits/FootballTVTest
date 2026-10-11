@@ -2092,10 +2092,10 @@ public class MainActivity extends Activity {
                     String cookie = CookieManager.getInstance().getCookie(url);
 
                     String candidate = url
-                            + "\\tREFERER=" + activePlayerUrl[0]
-                            + "\\tUA=Mozilla/5.0 (Linux; Android 11; Android TV) AppleWebKit/537.36 Chrome/124.0.0.0 Safari/537.36";
+                            + "\tREFERER=" + activePlayerUrl[0]
+                            + "\tUA=Mozilla/5.0 (Linux; Android 11; Android TV) AppleWebKit/537.36 Chrome/124.0.0.0 Safari/537.36";
                     if (cookie != null && !cookie.isEmpty()) {
-                        candidate += "\\tCOOKIE=" + cookie;
+                        candidate += "\tCOOKIE=" + cookie;
                     }
 
                     String origin = "";
@@ -2107,7 +2107,7 @@ public class MainActivity extends Activity {
                     } catch (Exception ignored) {}
 
                     if (!origin.isEmpty()) {
-                        candidate += "\\tORIGIN=" + origin;
+                        candidate += "\tORIGIN=" + origin;
                     }
 
                     media.add(candidate);
@@ -2180,14 +2180,14 @@ public class MainActivity extends Activity {
                             playbackAttemptActive[0] = true;
                             ArrayList<String> media = new ArrayList<>();
                             String candidate = mediaUrl
-                                    + "\\tREFERER=" + finalReferer
-                                    + "\\tUA=" + finalUserAgent;
+                                    + "\tREFERER=" + finalReferer
+                                    + "\tUA=" + finalUserAgent;
 
                             if (finalCookie != null && !finalCookie.isEmpty()) {
-                                candidate += "\\tCOOKIE=" + finalCookie;
+                                candidate += "\tCOOKIE=" + finalCookie;
                             }
                             if (finalOrigin != null && !finalOrigin.isEmpty()) {
-                                candidate += "\\tORIGIN=" + finalOrigin;
+                                candidate += "\tORIGIN=" + finalOrigin;
                             }
 
                             media.add(candidate);
@@ -2484,8 +2484,8 @@ public class MainActivity extends Activity {
             playStreamCandidates(match, streams, index + 1, playbackAttemptActive);
             return;
         }
-        if (candidate.startsWith("WEBVIEW\\t")) {
-            String playerUrl = candidate.substring("WEBVIEW\\t".length()).trim();
+        if (candidate.startsWith("WEBVIEW\t")) {
+            String playerUrl = candidate.substring("WEBVIEW\t".length()).trim();
             showLiveTvWebPlayer(match, playerUrl);
             return;
         }
