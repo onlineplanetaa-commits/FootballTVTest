@@ -2036,6 +2036,10 @@ public class MainActivity extends Activity {
                                     playStreamCandidates(match, media, 0, playbackAttemptActive, () -> {
                                         if (!resolved[0] && resolverWebView == web) {
                                             playbackAttemptActive[0] = false;
+                                            // Restore the resolver screen before trying the next source.
+                                            // playStreamCandidates temporarily replaces it with the video view.
+                                            setContentView(root);
+                                            web.setVisibility(View.GONE);
                                             tryNext[0].run();
                                         }
                                     });
@@ -2096,6 +2100,10 @@ public class MainActivity extends Activity {
                     playStreamCandidates(match, media, 0, playbackAttemptActive, () -> {
                                         if (!resolved[0] && resolverWebView == web) {
                                             playbackAttemptActive[0] = false;
+                                            // Restore the resolver screen before trying the next source.
+                                            // playStreamCandidates temporarily replaces it with the video view.
+                                            setContentView(root);
+                                            web.setVisibility(View.GONE);
                                             tryNext[0].run();
                                         }
                                     });
@@ -2173,6 +2181,10 @@ public class MainActivity extends Activity {
                             playStreamCandidates(match, media, 0, playbackAttemptActive, () -> {
                                         if (!resolved[0] && resolverWebView == web) {
                                             playbackAttemptActive[0] = false;
+                                            // Restore the resolver screen before trying the next source.
+                                            // playStreamCandidates temporarily replaces it with the video view.
+                                            setContentView(root);
+                                            web.setVisibility(View.GONE);
                                             tryNext[0].run();
                                         }
                                     });
