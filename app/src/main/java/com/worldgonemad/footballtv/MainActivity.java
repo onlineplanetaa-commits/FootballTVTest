@@ -1803,9 +1803,13 @@ public class MainActivity extends Activity {
             return;
         }
 
-        // Keep the exact event URL from the provider that supplied this match.
-        // The merged match list already prefers LiveTV.sx when the event exists there.
-        // Never turn a LiveTV904 event path into a potentially unrelated LiveTV.sx path.
+        // Always try LiveTV.sx first. If this match came from the cached/backup
+        // LiveTV904 list, try the equivalent path on LiveTV.sx first; LiveTV904
+        // remains the fallback if that page does not provide a working stream.
+        match.streamFallbackTried = false;
+        if (match.eventUrl.contains("livetv904.me")) {
+            match.eventUrl = match.eventUrl.replace("https://livetv904.me", "https://livetv.sx");
+        }
 
         showPlayer(match, "Поиск трансляции на LiveTV.sx...");
         startLiveTvResolver(match);
@@ -1998,7 +2002,7 @@ public class MainActivity extends Activity {
         final ArrayList<String> sourceCandidates = new ArrayList<>();
         final int[] current = {0};
         final boolean[] resolved = {false};
-        final boolean[] fallbackUsed = {false};
+        final boolean[] fallbackUsed = {match.streamFallbackTried};
         final boolean[] playbackAttemptActive = {false};
         final String[] activePlayerUrl = {""};
 
@@ -2007,6 +2011,7 @@ public class MainActivity extends Activity {
             String backup = alternateEventUrl(match.eventUrl);
             if (!fallbackUsed[0] && !backup.isEmpty()) {
                 fallbackUsed[0] = true;
+                match.streamFallbackTried = true;
                 status.setText("Проверка резервного источника...");
                 match.eventUrl = backup;
                 handler.postDelayed(() -> startLiveTvResolver(match), 100);
@@ -2209,6 +2214,7 @@ public class MainActivity extends Activity {
                             String backup = alternateEventUrl(match.eventUrl);
                             if (!fallbackUsed[0] && !backup.isEmpty()) {
                                 fallbackUsed[0] = true;
+                                match.streamFallbackTried = true;
                                 match.eventUrl = backup;
                                 status.setText("Проверка резервного LiveTV...");
                                 Map<String, String> backupHeaders = new HashMap<>();
@@ -3161,6 +3167,7 @@ public class MainActivity extends Activity {
         String time;
         boolean live;
         String eventUrl;
+        boolean streamFallbackTried;
 
         Match(
                 String league,
