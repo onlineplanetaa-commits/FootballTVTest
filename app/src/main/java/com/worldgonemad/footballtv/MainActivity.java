@@ -1366,13 +1366,14 @@ public class MainActivity extends Activity {
                     : html.substring(Math.max(0, linkMatcher.start() - 1200),
                             Math.min(html.length(), Math.min(afterEnd, linkMatcher.end() + 1200)));
 
-            // On LiveTV.sx the red LIVE badge is itself a GIF image beside
-            // the fixture title; the word LIVE may only be drawn inside the image
-            // and therefore is not present as searchable HTML text.
-            // This parser is used for the Online tab only on /allupcomingsports/1/.
-            // Accept a fixture when its own row/block contains the GIF marker.
+            // The red LIVE badge may be outside the nearest table row.
+            // Inspect both the row and the local neighborhood around this fixture.
+            int neighborhoodStart = Math.max(0, linkMatcher.start() - 1800);
+            int neighborhoodEnd = Math.min(html.length(), linkMatcher.end() + 1800);
+            String neighborhood = html.substring(neighborhoodStart, neighborhoodEnd)
+                    .toLowerCase(Locale.ROOT);
             String rowLower = rowMarkup.toLowerCase(Locale.ROOT);
-            boolean liveGif = rowLower.contains(".gif");
+            boolean liveGif = hasGifImage(rowLower) || hasGifImage(neighborhood);
             boolean live = usePreviousOnlineDetection && liveGif;
 
             if (time.isEmpty()) {
@@ -1421,6 +1422,14 @@ public class MainActivity extends Activity {
         }
 
         return result;
+    }
+
+    private boolean hasGifImage(String html) {
+        if (html == null || html.isEmpty()) return false;
+        Matcher images = Pattern.compile(
+                "(?is)<img\\b[^>]*(?:src|data-src)\\s*=\\s*[\"'][^\"']+\\.gif(?:[?#][^\"']*)?[\"'][^>]*>"
+        ).matcher(html);
+        return images.find();
     }
 
     private Match parseMatchFromArea(
