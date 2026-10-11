@@ -1954,6 +1954,17 @@ public class MainActivity extends Activity {
 
                 activePlayerUrl[0] = playerUrl;
 
+                // LiveTV's t=ifr URL is a wrapper page containing the real
+                // player iframe (playfa.st), a helper iframe and advertising frames.
+                // Do not inspect and queue every iframe as if each were a stream:
+                // load the original wrapper in the full-screen WebView so its player
+                // can initialize in its normal page/cookie/referrer context.
+                if (playerUrl.toLowerCase(Locale.US).contains("t=ifr")) {
+                    resolved[0] = true;
+                    showLiveTvWebPlayer(match, playerUrl);
+                    return;
+                }
+
                 // YouTube Browser Links are not ordinary HLS/MP4 sources.
                 // The YouTube player uses its own HTML5/MSE pipeline, so
                 // Media3 extraction cannot reliably see the actual media URL.
