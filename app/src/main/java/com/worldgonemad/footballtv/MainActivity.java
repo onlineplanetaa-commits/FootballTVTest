@@ -1384,7 +1384,8 @@ public class MainActivity extends Activity {
                 if (!isGif) {
                     continue;
                 }
-                boolean liveNamedImage = imageSrc.matches("(?s).*\\blive\\b.*")
+                boolean liveNamedImage = imageSrc.contains("cdn.livetv904.me/img/live.gif")
+                        || imageSrc.matches("(?s).*\\blive\\b.*")
                         || Pattern.compile(
                                 "(?i)(?:\\balt|\\btitle|\\baria-label|\\bclass)\\s*=\\s*['\\\"][^'\\\"]*\\blive\\b[^'\\\"]*['\\\"]")
                                 .matcher(imageTag).find();
