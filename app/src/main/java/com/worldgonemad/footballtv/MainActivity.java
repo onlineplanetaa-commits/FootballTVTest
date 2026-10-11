@@ -109,7 +109,7 @@ public class MainActivity extends Activity {
 
                     handler.postDelayed(
                             this,
-                            90 * 1000
+                            60 * 1000
                     );
                 }
             };
@@ -137,7 +137,7 @@ public class MainActivity extends Activity {
 
         handler.postDelayed(
                 refreshRunnable,
-                90 * 1000
+                60 * 1000
         );
     }
 
@@ -708,9 +708,6 @@ public class MainActivity extends Activity {
             // Restore the Online tab's previous LiveTV parsing behaviour.
             ArrayList<Match> liveResults = parseMatches(liveTvHtml, true, "https://livetv.sx");
             mergeMatches(liveResults, parseMatches(liveTv904Html, true, "https://livetv904.me"));
-            if (liveResults.size() > 80) {
-                liveResults = new ArrayList<>(liveResults.subList(0, 80));
-            }
 
             // The daily schedule uses the two fixture pages plus the LiveTV
             // schedule widget embedded on myfootball.sbs/football. Keep this
@@ -1289,7 +1286,6 @@ public class MainActivity extends Activity {
                 linkPattern.matcher(html);
 
         while (linkMatcher.find()) {
-            if (usePreviousOnlineDetection && result.size() >= 200) break;
 
             String href = linkMatcher.group(1);
             String anchorText = cleanText(linkMatcher.group(2));
@@ -1377,6 +1373,13 @@ public class MainActivity extends Activity {
                     ? html.substring(rowStart, Math.min(html.length(), rowEnd + 5))
                     : html.substring(Math.max(0, linkMatcher.start() - 350),
                             Math.min(html.length(), Math.min(afterEnd, linkMatcher.end() + 350)));
+
+            // The source page can contain mixed sports. Never label a row as
+            // football merely because its sport marker was missing or belonged
+            // to a previous row. Exclude explicit non-football markers locally.
+            if (isKnownNonFootballSport(lastAlt) || isNonFootballMarkup(rowMarkup)) {
+                continue;
+            }
 
             // Online tab: accept only LiveTV's actual LIVE GIF marker inside
             // this fixture's own row. Text, links, scores, and neighbouring rows
@@ -1599,6 +1602,39 @@ public class MainActivity extends Activity {
         }
 
         return null;
+    }
+
+    private boolean isKnownNonFootballSport(String value) {
+        if (value == null) return false;
+        String x = value.toLowerCase(Locale.ROOT);
+        return x.startsWith("basketball") || x.startsWith("баскетбол")
+                || x.startsWith("hockey") || x.startsWith("ice hockey")
+                || x.startsWith("хоккей") || x.startsWith("хокей")
+                || x.startsWith("baseball") || x.startsWith("бейсбол")
+                || x.startsWith("tennis") || x.startsWith("теннис")
+                || x.startsWith("volleyball") || x.startsWith("волейбол")
+                || x.startsWith("handball") || x.startsWith("гандбол")
+                || x.startsWith("rugby") || x.startsWith("регби")
+                || x.startsWith("cricket") || x.startsWith("крикет")
+                || x.startsWith("darts") || x.startsWith("дартс")
+                || x.startsWith("snooker") || x.startsWith("снукер")
+                || x.startsWith("table tennis") || x.startsWith("настольный теннис");
+    }
+
+    private boolean isNonFootballMarkup(String markup) {
+        if (markup == null || markup.isEmpty()) return false;
+        String x = markup.toLowerCase(Locale.ROOT);
+        return x.contains("basketball") || x.contains("баскетбол")
+                || x.contains("ice hockey") || x.contains("hockey")
+                || x.contains("хоккей") || x.contains("хокей")
+                || x.contains("baseball") || x.contains("бейсбол")
+                || x.contains("volleyball") || x.contains("волейбол")
+                || x.contains("handball") || x.contains("гандбол")
+                || x.contains("rugby") || x.contains("регби")
+                || x.contains("cricket") || x.contains("крикет")
+                || x.contains("darts") || x.contains("дартс")
+                || x.contains("snooker") || x.contains("снукер")
+                || x.contains("table tennis") || x.contains("настольный теннис");
     }
 
     private String[] splitTeams(
