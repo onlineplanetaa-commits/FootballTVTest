@@ -1266,7 +1266,18 @@ public class MainActivity extends Activity {
             // LiveTV lays out each fixture as its event link followed by
             // its LIVE GIF, kickoff time and league. Start at this exact link
             // and stop before the next event link to prevent badge leakage.
-            int eventSegmentStart = linkMatcher.start();
+            // LiveTV places the live.gif badge BEFORE the team-name link
+            // in some fixtures. Start this event's segment after the previous
+            // event anchor so its badge is included without inheriting the
+            // previous fixture's badge.
+            int previousEventHref = html.lastIndexOf("/eventinfo/", linkMatcher.start() - 1);
+            int eventSegmentStart = 0;
+            if (previousEventHref >= 0) {
+                int previousEventAnchorEnd = html.indexOf("</a>", previousEventHref);
+                if (previousEventAnchorEnd >= 0 && previousEventAnchorEnd < linkMatcher.start()) {
+                    eventSegmentStart = previousEventAnchorEnd + "</a>".length();
+                }
+            }
             int nextEventHref = html.indexOf("/eventinfo/", linkMatcher.end());
             int eventSegmentEnd = nextEventHref > linkMatcher.end()
                     ? nextEventHref
