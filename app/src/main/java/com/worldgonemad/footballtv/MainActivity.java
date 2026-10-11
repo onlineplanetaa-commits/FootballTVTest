@@ -2187,12 +2187,12 @@ public class MainActivity extends Activity {
                     view.evaluateJavascript("(function(){return document.documentElement.outerHTML;})()", value -> {
                         if (resolved[0] || resolverWebView != web) return;
                         String html = value == null ? "" : value;
-                        if (html.length() >= 2 && html.startsWith("\\\"") && html.endsWith("\\\"")) {
+                        if (html.length() >= 2 && html.startsWith("\"") && html.endsWith("\"")) {
                             html = html.substring(1, html.length() - 1)
-                                    .replace("\\\\\"", "\\\"")
-                                    .replace("\\\\\\\\", "\\\\")
-                                    .replace("\\\\n", "\\n")
-                                    .replace("\\\\r", "\\r");
+                                    .replace("\\\"", "\"")
+                                    .replace("\\\\", "\\")
+                                    .replace("\\n", "\n")
+                                    .replace("\\r", "\r");
                         }
                         ArrayList<String> browserLinks = new ArrayList<>();
                         collectWebPlayerUrls(html, match.eventUrl, browserLinks);
