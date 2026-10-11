@@ -76,7 +76,7 @@ public class MainActivity extends Activity {
     private final int LIVE = Color.rgb(90, 220, 140);
 
     private static final String PRIMARY_LIVE_TV_URL =
-            "https://livetv904.me/allupcomingsports/1/";
+            "https://livetv.sx/allupcomingsports/1/";
 
     // LiveTV schedule widget embedded on myfootball.sbs/football.
     private static final String MYFOOTBALL_SCHEDULE_URL =
@@ -699,8 +699,8 @@ public class MainActivity extends Activity {
     private void loadMatches() {
         new Thread(() -> {
             String liveTvHtml = downloadPage(PRIMARY_LIVE_TV_URL);
-            ArrayList<Match> liveResults = parseMatches(liveTvHtml, true, "https://livetv904.me");
-            ArrayList<Match> dailyResults = parseMatches(liveTvHtml, false, "https://livetv904.me");
+            ArrayList<Match> liveResults = parseMatches(liveTvHtml, true, "https://livetv.sx");
+            ArrayList<Match> dailyResults = parseMatches(liveTvHtml, false, "https://livetv.sx");
 
             if (!liveResults.isEmpty()) saveLiveMatchesCache(liveResults);
             else liveResults = readLiveMatchesCache();
@@ -901,11 +901,13 @@ public class MainActivity extends Activity {
             JSONArray array = new JSONArray(saved);
             for (int i = 0; i < array.length(); i++) {
                 JSONObject item = array.getJSONObject(i);
+                String eventUrl = item.optString("eventUrl", "");
+                if (eventUrl == null || !eventUrl.startsWith("https://livetv.sx/")) continue;
                 result.add(new Match(item.optString("league", "Футбол"),
                         item.optString("home", ""), item.optString("away", ""),
                         item.optString("time", "Сегодня"), item.optBoolean("live", false),
-                        item.optString("eventUrl", "")));
-                result.get(result.size() - 1).fallbackEventUrl = item.optString("fallbackEventUrl", "");
+                        eventUrl));
+                result.get(result.size() - 1).fallbackEventUrl = "";
             }
         } catch (Exception ignored) {}
         return result;
@@ -1123,8 +1125,7 @@ public class MainActivity extends Activity {
                     "GET"
             );
             // Bypass HTTP caches only for the LiveTV schedule sources.
-            if (address.startsWith("https://livetv.sx/")
-                    || address.startsWith("https://livetv.sx/")) {
+            if (address.startsWith("https://livetv.sx/")) {
                 connection.setUseCaches(false);
                 connection.setRequestProperty("Cache-Control", "no-cache, no-store, max-age=0");
                 connection.setRequestProperty("Pragma", "no-cache");
@@ -1155,8 +1156,6 @@ public class MainActivity extends Activity {
             );
 
             if (address.startsWith("https://livetv.sx/")) {
-                connection.setRequestProperty("Referer", "https://livetv.sx/");
-            } else if (address.startsWith("https://livetv.sx/")) {
                 connection.setRequestProperty("Referer", "https://livetv.sx/");
             }
 
@@ -1228,8 +1227,8 @@ public class MainActivity extends Activity {
             boolean usePreviousOnlineDetection
     ) {
         String lowerHtml = html == null ? "" : html.toLowerCase(Locale.US);
-        String baseHost = lowerHtml.contains("livetv904.me")
-                ? "https://livetv904.me"
+        String baseHost = lowerHtml.contains("livetv.sx")
+                ? "https://livetv.sx"
                 : "https://livetv.sx";
         return parseMatches(html, usePreviousOnlineDetection, baseHost);
     }
@@ -1689,8 +1688,8 @@ public class MainActivity extends Activity {
         if (href.startsWith("https://") || href.startsWith("http://")) return href;
         if (href.startsWith("//")) return "https:" + href;
 
-        String host = (baseHost != null && baseHost.contains("livetv904.me"))
-                ? "https://livetv904.me"
+        String host = (baseHost != null && baseHost.contains("livetv.sx"))
+                ? "https://livetv.sx"
                 : "https://livetv.sx";
 
         if (href.startsWith("/")) return host + href;
@@ -1773,7 +1772,7 @@ public class MainActivity extends Activity {
     }
 
     private String alternateEventUrl(String eventUrl) {
-        // This build deliberately resolves streams on LiveTV904 only.
+        // This build uses LiveTV.sx only.
         return "";
     }
 
@@ -1785,9 +1784,7 @@ public class MainActivity extends Activity {
         String[] p = f.substring(1).split("\\|", -1);
         if (p.length < 7) return "";
 
-        String host = eventUrl.contains("livetv904.me")
-                ? "https://livetv904.me"
-                : "https://livetv.sx";
+        String host = "https://livetv.sx";
 
         String selector = p[0];
         String provider = selector.startsWith("webplayer_")
@@ -1826,9 +1823,7 @@ public class MainActivity extends Activity {
                     .trim();
 
             if (u.startsWith("/")) {
-                String host = eventUrl.contains("livetv904.me")
-                        ? "https://livetv904.me"
-                        : "https://livetv.sx";
+                String host = "https://livetv.sx";
                 u = host + u;
             } else if (!u.startsWith("http://") && !u.startsWith("https://")) {
                 u = eventUrl.substring(0, eventUrl.indexOf("/", 8)) + "/" + u;
@@ -1885,7 +1880,7 @@ public class MainActivity extends Activity {
         if (lower.contains("/webplayer")
                 || lower.contains("/eventinfo/")
                 || lower.contains("livetv.sx/")
-                || lower.contains("livetv904.me/")) {
+                || lower.contains("livetv.sx/")) {
             return false;
         }
 
@@ -1947,7 +1942,7 @@ public class MainActivity extends Activity {
         Runnable finishNoStream = () -> {
             if (resolved[0]) return;
             String backup = alternateEventUrl(match.eventUrl);
-            if (!fallbackUsed[0] && !backup.isEmpty() && !match.eventUrl.contains("livetv904.me")) {
+            if (!fallbackUsed[0] && !backup.isEmpty() && !match.eventUrl.contains("livetv.sx")) {
                 fallbackUsed[0] = true;
                 status.setText("Проверка резервного источника...");
                 match.eventUrl = backup;
@@ -2083,7 +2078,7 @@ public class MainActivity extends Activity {
                 super.onPageStarted(view, url, favicon);
                 if (url != null && !url.isEmpty()) {
                     String top = activePlayerUrl[0];
-                    if (top.isEmpty() || url.equals(top) || !url.contains("livetv904.me/webplayer2.php")) {
+                    if (top.isEmpty() || url.equals(top) || !url.contains("livetv.sx/webplayer2.php")) {
                         activePlayerUrl[0] = url;
                     }
                 }
@@ -2422,11 +2417,11 @@ public class MainActivity extends Activity {
         if (u.startsWith("//")) {
             u = "https:" + u;
         } else if (u.startsWith("/")) {
-            u = "https://livetv904.me" + u;
+            u = "https://livetv.sx" + u;
         }
 
         // Skip normal LiveTV navigation and the event page itself.
-        if (u.startsWith("https://livetv904.me/")) {
+        if (u.startsWith("https://livetv.sx/")) {
             // Only the explicit #webplayer_* fragment is a broadcast selector.
             // Never treat ordinary LiveTV event/broadcast/player pages as a stream.
             if (!u.contains("#webplayer_")) return;
