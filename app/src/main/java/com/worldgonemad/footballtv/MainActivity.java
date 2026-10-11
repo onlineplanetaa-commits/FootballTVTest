@@ -724,6 +724,8 @@ public class MainActivity extends Activity {
 
             // Do not truncate the daily schedule: include all parsed fixtures from every source.
 
+            final boolean liveSourceNeedsWebViewFallback = liveResults.isEmpty();
+
             if (!liveResults.isEmpty()) {
                 saveLiveMatchesCache(liveResults);
             } else {
@@ -750,6 +752,11 @@ public class MainActivity extends Activity {
                 if (!playerScreen) {
                     if (listContainer == null) showMatches();
                     else renderMatches();
+                }
+                // Some LiveTV pages return an empty or anti-bot HTTP response.
+                // Retry through Android WebView so JavaScript-rendered fixtures can be parsed.
+                if (liveSourceNeedsWebViewFallback && !playerScreen) {
+                    loadMatchesViaWebView(PRIMARY_LIVE_TV_URL, НАЗАДUP_LIVE_TV_URL);
                 }
             });
         }).start();
@@ -2171,6 +2178,47 @@ public class MainActivity extends Activity {
 
         web.setWebViewClient(new WebViewClient() {
             @Override
+            public void onPageFinished(WebView view, String url) {
+                super.onPageFinished(view, url);
+                if (resolved[0] || resolverWebView != web || url == null) return;
+
+                // First visit to an event page: scrape its rendered DOM for player links.
+                if (url.equals(match.eventUrl) || url.equalsIgnoreCase(match.eventUrl)) {
+                    view.evaluateJavascript("(function(){return document.documentElement.outerHTML;})()", value -> {
+                        if (resolved[0] || resolverWebView != web) return;
+                        String html = value == null ? "" : value;
+                        if (html.length() >= 2 && html.startsWith("\\\"") && html.endsWith("\\\"")) {
+                            html = html.substring(1, html.length() - 1)
+                                    .replace("\\\\\"", "\\\"")
+                                    .replace("\\\\\\\\", "\\\\")
+                                    .replace("\\\\n", "\\n")
+                                    .replace("\\\\r", "\\r");
+                        }
+                        ArrayList<String> browserLinks = new ArrayList<>();
+                        collectWebPlayerUrls(html, match.eventUrl, browserLinks);
+                        if (!browserLinks.isEmpty()) {
+                            status.setText("Найдено ссылок: " + browserLinks.size() + ". Запуск поиска...");
+                            startCandidates(browserLinks, status, sourceCandidates, current, resolved, tryNext);
+                        } else {
+                            String backup = alternateEventUrl(match.eventUrl);
+                            if (!fallbackUsed[0] && !backup.isEmpty()) {
+                                fallbackUsed[0] = true;
+                                match.eventUrl = backup;
+                                status.setText("Проверка резервного LiveTV...");
+                                Map<String, String> backupHeaders = new HashMap<>();
+                                backupHeaders.put("User-Agent",
+                                        "Mozilla/5.0 (Linux; Android 11; Android TV) AppleWebKit/537.36 Chrome/124.0.0.0 Safari/537.36");
+                                view.loadUrl(backup, backupHeaders);
+                            } else {
+                                resolved[0] = true;
+                                status.setText("Ссылки на трансляции не найдены.");
+                            }
+                        }
+                    });
+                }
+            }
+
+            @Override
             public void onPageStarted(WebView view, String url, android.graphics.Bitmap favicon) {
                 super.onPageStarted(view, url, favicon);
                 if (url != null && !url.isEmpty()) {
@@ -2359,32 +2407,18 @@ public class MainActivity extends Activity {
                 if (!found.isEmpty()) {
                     startCandidates(found, status, sourceCandidates, current, resolved, tryNext);
                 } else {
-                    status.setText("Ссылки трансляций не найдены. Проверка резервного источника...");
-                    String backup = alternateEventUrl(match.eventUrl);
-
-                    if (!fallbackUsed[0] && !backup.isEmpty()) {
-                        fallbackUsed[0] = true;
-                        match.eventUrl = backup;
-
-                        new Thread(() -> {
-                            String backupHtml = downloadPage(backup);
-                            ArrayList<String> backupFound = new ArrayList<>();
-                            collectWebPlayerUrls(backupHtml, backup, backupFound);
-
-                            runOnUiThread(() -> {
-                                if (resolved[0] || resolverWebView != web) return;
-                                if (!backupFound.isEmpty()) {
-                                    startCandidates(backupFound, status, sourceCandidates, current, resolved, tryNext);
-                                } else {
-                                    resolved[0] = true;
-                                    status.setText("Ссылки на трансляции не найдены.");
-                                }
-                            });
-                        }).start();
-                    } else {
-                        resolved[0] = true;
-                        status.setText("Ссылки на трансляции не найдены.");
+                    // Direct HTTP can be blocked or return a shell page. Load the event in
+                    // WebView as the fallback so JavaScript-generated Browser Links are visible.
+                    status.setText("Загрузка страницы матча для поиска трансляций...");
+                    web.setVisibility(View.VISIBLE);
+                    if (web.getParent() == null) {
+                        root.addView(web, new LinearLayout.LayoutParams(-1, 0, 1f));
                     }
+                    setContentView(root);
+                    Map<String, String> eventHeaders = new HashMap<>();
+                    eventHeaders.put("User-Agent",
+                            "Mozilla/5.0 (Linux; Android 11; Android TV) AppleWebKit/537.36 Chrome/124.0.0.0 Safari/537.36");
+                    web.loadUrl(match.eventUrl, eventHeaders);
                 }
             });
         }).start();
