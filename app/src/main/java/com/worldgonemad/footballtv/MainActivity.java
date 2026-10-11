@@ -2211,34 +2211,9 @@ public class MainActivity extends Activity {
                             status.setText("Найдено ссылок: " + browserLinks.size() + ". Запуск поиска...");
                             startCandidates(browserLinks, status, sourceCandidates, current, resolved, tryNext);
                         } else {
-                            // LiveTV.sx and LiveTV904 use the same extraction path.
-                            // A page may expose Browser Links only after scripts finish, so
-                            // inspect the rendered page once more before trying the backup host.
-                            status.setText("Ссылки пока не найдены. Повторная проверка LiveTV.sx...");
-                            handler.postDelayed(() -> {
-                                if (resolved[0] || resolverWebView != web) return;
-                                view.evaluateJavascript("(function(){return document.documentElement.outerHTML;})()", retryValue -> {
-                                    if (resolved[0] || resolverWebView != web) return;
-                                    String retryHtml = retryValue == null ? "" : retryValue;
-                                    if (retryHtml.length() >= 2 && retryHtml.startsWith("\"") && retryHtml.endsWith("\"")) {
-                                        retryHtml = retryHtml.substring(1, retryHtml.length() - 1)
-                                                .replace("\\\"", "\"")
-                                                .replace("\\\\", "\\")
-                                                .replace("\\n", "\n")
-                                                .replace("\\r", "\r");
-                                    }
-                                    ArrayList<String> retryLinks = new ArrayList<>();
-                                    collectWebPlayerUrls(retryHtml, match.eventUrl, retryLinks);
-                                    if (!retryLinks.isEmpty()) {
-                                        status.setText("Найдено ссылок: " + retryLinks.size() + ". Запуск поиска...");
-                                        startCandidates(retryLinks, status, sourceCandidates, current, resolved, tryNext);
-                                    } else {
-                                        // Only after the same extractor has checked SX twice do we
-                                        // run the identical resolver against the LiveTV904 backup.
-                                        finishNoStream.run();
-                                    }
-                                });
-                            }, 2500);
+                            // Use the existing LiveTV904 resolver flow unchanged:
+                            // when the shared extractor finds no player links, try the backup host.
+                            finishNoStream.run();
                         }
                     });
                 }
