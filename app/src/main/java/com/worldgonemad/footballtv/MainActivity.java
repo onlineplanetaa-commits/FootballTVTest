@@ -1791,39 +1791,50 @@ public class MainActivity extends Activity {
     }
 
     private void collectWebPlayerUrls(String html, String eventUrl, ArrayList<String> found) {
-        if (html == null || html.isEmpty()) return;
+        if (html == null || html.isEmpty() || eventUrl == null || eventUrl.isEmpty()) return;
 
-        // Exact Browser Link targets, for example:
-        // /webplayer.php?t=ifr&c=3083550&lang=ru&eid=453410644&lid=3083550&ci=442&si=1
+        // Shared extraction logic for both providers. The requested event URL
+        // determines the provider host; unrelated HTML text never changes it.
+        String host = eventUrl.contains("livetv904.me")
+                ? "https://livetv904.me"
+                : "https://livetv.sx";
+
+        String source = html
+                .replace("\\/", "/")
+                .replace("\\u0026", "&")
+                .replace("\\x26", "&")
+                .replace("&amp;", "&")
+                .replace("&#38;", "&")
+                .replace("&#x26;", "&");
+
+        // Find direct Browser Link / iframe targets in both markup and scripts.
         Pattern wp = Pattern.compile(
-                "(?i)(?:https?:\\/\\/[^\\\"'<>\\s]+|/)?webplayer(?:2)?\\.php\\?[^\\\"'<>\\s]+"
+                "(?i)(?:https?:\\/\\/[^\\\"'<>\\s]+|/)?webplayer(?:2)?\\.php\\?[^\\\"'<>\\s)\\]}]+"
         );
-        Matcher wm = wp.matcher(html);
+        Matcher wm = wp.matcher(source);
         while (wm.find()) {
             String u = wm.group(0)
-                    .replace("\\\\/", "/")
                     .replace("&amp;", "&")
-                    .replace("\"", "")
+                    .replace("\\/", "/")
+                    .replace("\\\"", "")
+                    .replace("\\u0026", "&")
                     .trim();
 
-            if (u.startsWith("/")) {
-                String host = eventUrl.contains("livetv904.me")
-                        ? "https://livetv904.me"
-                        : "https://livetv.sx";
+            if (u.startsWith("//")) {
+                u = "https:" + u;
+            } else if (u.startsWith("/")) {
                 u = host + u;
             } else if (!u.startsWith("http://") && !u.startsWith("https://")) {
-                u = eventUrl.substring(0, eventUrl.indexOf("/", 8)) + "/" + u;
+                u = host + "/" + u;
             }
-
             if (!found.contains(u)) found.add(u);
         }
 
-        // Browser selectors are also useful because they contain all
-        // parameters needed to construct the exact webplayer.php URL.
+        // Browser selectors provide the parameters when no direct player URL exists.
         Pattern frag = Pattern.compile(
                 "(?i)#webplayer_[A-Za-z0-9_-]+(?:\\|[A-Za-z0-9._:%+~-]+)*"
         );
-        Matcher fm = frag.matcher(html);
+        Matcher fm = frag.matcher(source);
         while (fm.find()) {
             String u = webPlayerFromFragment(eventUrl, fm.group(0));
             if (!u.isEmpty() && !found.contains(u)) found.add(u);
