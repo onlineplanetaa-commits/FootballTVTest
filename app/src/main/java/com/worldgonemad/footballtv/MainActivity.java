@@ -1366,17 +1366,13 @@ public class MainActivity extends Activity {
                     : html.substring(Math.max(0, linkMatcher.start() - 1200),
                             Math.min(html.length(), Math.min(afterEnd, linkMatcher.end() + 1200)));
 
-            // The Online tab is fed only by LiveTV.sx/allupcomingsports/1/.
-            // Detect the site's GIF marker anywhere in this fixture block,
-            // including markup where the GIF is not a direct <img> child.
-            // Require the visible LIVE label in the same block so random GIFs
-            // and scheduled fixtures cannot appear as live.
+            // On LiveTV.sx the red LIVE badge is itself a GIF image beside
+            // the fixture title; the word LIVE may only be drawn inside the image
+            // and therefore is not present as searchable HTML text.
+            // This parser is used for the Online tab only on /allupcomingsports/1/.
+            // Accept a fixture when its own row/block contains the GIF marker.
             String rowLower = rowMarkup.toLowerCase(Locale.ROOT);
-            String rowText = cleanText(rowMarkup).toUpperCase(Locale.ROOT);
-            boolean hasGif = rowLower.contains(".gif");
-            boolean hasLiveLabel = Pattern.compile("\\bLIVE\\b").matcher(rowText).find()
-                    || rowText.contains("В ЭФИРЕ");
-            boolean liveGif = hasGif && hasLiveLabel;
+            boolean liveGif = rowLower.contains(".gif");
             boolean live = usePreviousOnlineDetection && liveGif;
 
             if (time.isEmpty()) {
