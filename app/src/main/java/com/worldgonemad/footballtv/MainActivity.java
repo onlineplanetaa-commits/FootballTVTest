@@ -1147,12 +1147,14 @@ public class MainActivity extends Activity {
             connection.setRequestMethod(
                     "GET"
             );
-            // Always fetch fresh LiveTV HTML instead of reusing a cached response.
-            connection.setUseCaches(false);
-            connection.setDefaultUseCaches(false);
-            connection.setRequestProperty("Cache-Control", "no-cache, no-store, max-age=0");
-            connection.setRequestProperty("Pragma", "no-cache");
-            connection.setRequestProperty("Expires", "0");
+            // Bypass HTTP caches only for the LiveTV schedule sources.
+            if (address.startsWith("https://livetv.sx/")
+                    || address.startsWith("https://livetv904.me/")) {
+                connection.setUseCaches(false);
+                connection.setRequestProperty("Cache-Control", "no-cache, no-store, max-age=0");
+                connection.setRequestProperty("Pragma", "no-cache");
+                connection.setRequestProperty("Expires", "0");
+            }
 
             connection.setConnectTimeout(
                     8000
