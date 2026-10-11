@@ -1364,17 +1364,38 @@ public class MainActivity extends Activity {
             String rowMarkup = (rowStart >= 0 && rowEnd > linkMatcher.end())
                     ? html.substring(rowStart, Math.min(html.length(), rowEnd + 5))
                     : html.substring(Math.max(0, linkMatcher.start() - 1200),
-                            Math.min(html.length(), Math.min(afterEnd, linkMatcher.end() + 1200)));
-
-            // The red LIVE badge may be outside the nearest table row.
-            // Inspect both the row and the local neighborhood around this fixture.
-            int neighborhoodStart = Math.max(0, linkMatcher.start() - 1800);
-            int neighborhoodEnd = Math.min(html.length(), linkMatcher.end() + 1800);
-            String neighborhood = html.substring(neighborhoodStart, neighborhoodEnd)
-                    .toLowerCase(Locale.ROOT);
-            String rowLower = rowMarkup.toLowerCase(Locale.ROOT);
-            boolean liveGif = hasGifImage(rowLower) || hasGifImage(neighborhood);
-            boolean live = usePreviousOnlineDetection && liveGif;
+                            Math.min(html.length(), afterEnd));
+            // LiveTV's red LIVE badge is an image (usually a GIF), not reliable
+            // visible text. Require an actual GIF image in this event row and
+            // identify it by its URL or image attributes. Do not treat a team's
+            // name, score, CSS text, or unrelated plain "LIVE" text as proof.
+            boolean liveLabel = false;
+            Matcher imageMatcher = Pattern.compile("(?is)<img\\b[^>]*>").matcher(rowMarkup);
+            while (imageMatcher.find()) {
+                String imageTag = imageMatcher.group();
+                Matcher srcMatcher = Pattern.compile(
+                        "(?i)\\bsrc\\s*=\\s*['\\\"]([^'\\\"]+)['\\\"]")
+                        .matcher(imageTag);
+                if (!srcMatcher.find()) {
+                    continue;
+                }
+                String imageSrc = srcMatcher.group(1).toLowerCase(Locale.ROOT);
+                boolean isGif = imageSrc.matches("(?s).*\\.gif(?:[?#].*)?$");
+                if (!isGif) {
+                    continue;
+                }
+                boolean liveNamedImage = imageSrc.matches("(?s).*\\blive\\b.*")
+                        || Pattern.compile(
+                                "(?i)(?:\\balt|\\btitle|\\baria-label|\\bclass)\\s*=\\s*['\\\"][^'\\\"]*\\blive\\b[^'\\\"]*['\\\"]")
+                                .matcher(imageTag).find();
+                if (liveNamedImage) {
+                    liveLabel = true;
+                    break;
+                }
+            }
+            // The Online tab is controlled solely by the GIF LIVE badge.
+            // Do not infer live status from scores, times, or finished-status text.
+            boolean live = usePreviousOnlineDetection && liveLabel;
 
             if (time.isEmpty()) {
                 time = live ? "LIVE" : "UPCOMING";
