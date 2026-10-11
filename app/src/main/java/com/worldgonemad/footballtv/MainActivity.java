@@ -687,7 +687,7 @@ public class MainActivity extends Activity {
             watch.setOnClickListener(v -> {
                 Match streamMatch = findLiveTvMatch(match);
                 if (streamMatch != null) resolveAndPlay(streamMatch);
-                else showPlayer(match, "Трансляция этого матча не найдена в LiveTV.sx / LiveTV904.");
+                else showPlayer(match, "Трансляция этого матча не найдена на LiveTV.sx.");
             });
             card.addView(watch, new LinearLayout.LayoutParams(130, 58));
         }
@@ -701,19 +701,14 @@ public class MainActivity extends Activity {
 
     private void loadMatches() {
         new Thread(() -> {
-            // Both lists come from the two LiveTV upcoming-football pages supplied by the user.
+            // Test build: LiveTV.sx is the only LiveTV fixture and event-page source.
             String liveTvHtml = downloadPage(PRIMARY_LIVE_TV_URL);
-            String liveTv904Html = downloadPage(НАЗАДUP_LIVE_TV_URL);
 
-            // Restore the Online tab's previous LiveTV parsing behaviour.
             ArrayList<Match> liveResults = parseMatches(liveTvHtml, true, "https://livetv.sx");
-            mergeMatches(liveResults, parseMatches(liveTv904Html, true, "https://livetv904.me"));
 
-            // The daily schedule uses the two fixture pages plus the LiveTV
-            // schedule widget embedded on myfootball.sbs/football. Keep this
-            // additional source isolated from the Online tab.
+            // The daily schedule may still include the independent fixture widget,
+            // but all LiveTV event pages are loaded from LiveTV.sx only.
             ArrayList<Match> dailyResults = parseMatches(liveTvHtml, false, "https://livetv.sx");
-            mergeMatches(dailyResults, parseMatches(liveTv904Html, false, "https://livetv904.me"));
             String myFootballWidgetHtml = downloadPage(MYFOOTBALL_SCHEDULE_URL);
             mergeMatches(dailyResults, parseMatches(myFootballWidgetHtml, false));
 
@@ -756,7 +751,7 @@ public class MainActivity extends Activity {
                 // Some LiveTV pages return an empty or anti-bot HTTP response.
                 // Retry through Android WebView so JavaScript-rendered fixtures can be parsed.
                 if (liveSourceNeedsWebViewFallback && !playerScreen) {
-                    loadMatchesViaWebView(PRIMARY_LIVE_TV_URL, НАЗАДUP_LIVE_TV_URL);
+                    loadMatchesViaWebView(PRIMARY_LIVE_TV_URL, PRIMARY_LIVE_TV_URL);
                 }
             });
         }).start();
@@ -984,18 +979,6 @@ public class MainActivity extends Activity {
                         && existing.away.trim().equalsIgnoreCase(candidate.away.trim());
                 if (sameUrl || sameTeams) {
                     duplicate = true;
-                    // Keep the real URL from the secondary provider as a fallback.
-                    // The first list is parsed from LiveTV.sx, so its real event URL
-                    // remains primary when both sites list the same fixture.
-                    if (existing.eventUrl != null && existing.eventUrl.contains("livetv.sx")
-                            && candidate.eventUrl != null && candidate.eventUrl.contains("livetv904.me")) {
-                        existing.fallbackEventUrl = candidate.eventUrl;
-                    } else if (existing.eventUrl != null && existing.eventUrl.contains("livetv904.me")
-                            && candidate.eventUrl != null && candidate.eventUrl.contains("livetv.sx")) {
-                        existing.fallbackEventUrl = existing.eventUrl;
-                        existing.eventUrl = candidate.eventUrl;
-                    }
-                    // Keep the live status if either source identifies the match as live.
                     if (candidate.live && !existing.live) {
                         existing.live = true;
                         existing.time = candidate.time;
@@ -1003,15 +986,7 @@ public class MainActivity extends Activity {
                     break;
                 }
             }
-            if (!duplicate) {
-                // For a fixture found only on LiveTV904, try the corresponding SX
-                // route first, but preserve the real 904 URL for the actual fallback.
-                if (candidate.eventUrl != null && candidate.eventUrl.contains("livetv904.me")) {
-                    candidate.fallbackEventUrl = candidate.eventUrl;
-                    candidate.eventUrl = candidate.eventUrl.replace("https://livetv904.me", "https://livetv.sx");
-                }
-                target.add(candidate);
-            }
+            if (!duplicate) target.add(candidate);
         }
     }
 
@@ -1839,15 +1814,7 @@ public class MainActivity extends Activity {
     }
 
     private String alternateEventUrl(Match match) {
-        if (match == null || match.eventUrl == null || match.eventUrl.isEmpty()) return "";
-        // Prefer the actual matching LiveTV904 event URL saved during list merging.
-        if (match.fallbackEventUrl != null && !match.fallbackEventUrl.isEmpty()) {
-            return match.fallbackEventUrl;
-        }
-        // Last-resort route guess only when no real 904 URL was found for this fixture.
-        if (match.eventUrl.contains("livetv.sx")) {
-            return match.eventUrl.replace("https://livetv.sx", "https://livetv904.me");
-        }
+        // SX-only test build: deliberately do not switch event pages to LiveTV904.
         return "";
     }
 
@@ -2037,7 +2004,7 @@ public class MainActivity extends Activity {
             if (!fallbackUsed[0] && !backup.isEmpty()) {
                 fallbackUsed[0] = true;
                 match.streamFallbackTried = true;
-                status.setText("Проверка резервного источника...");
+                status.setText("Повторная проверка LiveTV.sx...");
                 match.eventUrl = backup;
                 handler.postDelayed(() -> startLiveTvResolver(match), 100);
                 return;
