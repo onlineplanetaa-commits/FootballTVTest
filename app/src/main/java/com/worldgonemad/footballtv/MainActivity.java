@@ -1942,24 +1942,20 @@ public class MainActivity extends Activity {
 
                 activePlayerUrl[0] = playerUrl;
 
-                // The user-confirmed working LiveTV Browser Link is webplayer_alieztv.
-                // Open that provider directly in the full-screen WebView; do not try to
-                // extract media from a hidden 1x1 resolver view, which can leave the TV
-                // on a black screen with the Android placeholder.
                 String lowerPlayerUrl = playerUrl.toLowerCase(Locale.US);
-                if (lowerPlayerUrl.contains("t=alieztv")
-                        || lowerPlayerUrl.contains("webplayer_alieztv")) {
-                    resolved[0] = true;
-                    showLiveTvWebPlayer(match, playerUrl);
-                    return;
-                }
 
-                // Keep the generic t=ifr wrapper as a last-resort fallback. The
-                // candidate sorter below puts alieztv Browser Links ahead of ifr links.
+                // t=ifr is a wrapper around another player. Keep this WebView visible
+                // while it loads so its nested player can initialize and its network
+                // requests can be inspected for the actual HLS/MP4 stream. A hidden
+                // 1x1 WebView can leave the player uninitialized and the TV on black.
                 if (lowerPlayerUrl.contains("t=ifr")) {
-                    resolved[0] = true;
-                    showLiveTvWebPlayer(match, playerUrl);
-                    return;
+                    status.setVisibility(View.GONE);
+                    web.setVisibility(View.VISIBLE);
+                    root.removeView(web);
+                    LinearLayout.LayoutParams playerParams =
+                            new LinearLayout.LayoutParams(-1, 0, 1f);
+                    root.addView(web, playerParams);
+                    setContentView(root);
                 }
 
                 // YouTube Browser Links are not ordinary HLS/MP4 sources.
@@ -2311,20 +2307,12 @@ public class MainActivity extends Activity {
     ) {
         if (resolved[0]) return;
 
-        // Prefer the provider the user confirmed works (webplayer_alieztv).
-        // Within each provider group, prefer Ukrainian/Russian links, then other languages.
-        // This prevents a broken t=ifr wrapper from taking precedence over alieztv.
-        found.sort((a, b) -> {
-            int provider = Integer.compare(
-                    browserLinkProviderPriority(a),
-                    browserLinkProviderPriority(b)
-            );
-            if (provider != 0) return provider;
-            return Integer.compare(
-                    browserLinkLanguagePriority(a),
-                    browserLinkLanguagePriority(b)
-            );
-        });
+        // Put Ukrainian/Russian Browser Links first, then all other links.
+        // If there are no Ukrainian/Russian links, the normal links are used immediately.
+        found.sort((a, b) -> Integer.compare(
+                browserLinkLanguagePriority(a),
+                browserLinkLanguagePriority(b)
+        ));
 
         if (found.size() > 12) {
             found.subList(12, found.size()).clear();
@@ -2341,14 +2329,6 @@ public class MainActivity extends Activity {
         current[0] = 0;
         status.setText("Найдено " + sourceCandidates.size() + " ссылок. Поиск трансляции...");
         tryNext[0].run();
-    }
-
-    private int browserLinkProviderPriority(String url) {
-        if (url == null) return 2;
-        String lower = url.toLowerCase(Locale.US);
-        if (lower.contains("t=alieztv") || lower.contains("webplayer_alieztv")) return 0;
-        if (lower.contains("t=ifr")) return 2;
-        return 1;
     }
 
     private int browserLinkLanguagePriority(String url) {
