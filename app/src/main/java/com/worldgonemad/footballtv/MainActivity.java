@@ -1318,14 +1318,9 @@ public class MainActivity extends Activity {
         String league = "Футбол";
         String lowerLastAlt = lastAlt.toLowerCase(Locale.ROOT);
 
-        // Online tab: accept only events explicitly marked as football.
-        boolean footballSport = lowerLastAlt.equals("football")
-                || lowerLastAlt.startsWith("football.")
-                || lowerLastAlt.equals("футбол")
-                || lowerLastAlt.startsWith("футбол.");
-        if (usePreviousOnlineDetection && !footballSport) {
-            continue;
-        }
+        // Do not infer sport from team names or a distant sport icon.
+        // LiveTV.sx /allupcomingsports/1/ is the source selected for the
+        // Online tab; the LIVE GIF check below decides whether an event is live.
 
         if (lowerLastAlt.startsWith("football.")
                 || lowerLastAlt.equals("football")) {
