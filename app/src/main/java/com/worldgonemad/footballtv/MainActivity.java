@@ -1726,7 +1726,13 @@ public class MainActivity extends Activity {
             return;
         }
 
-        showPlayer(match, "Поиск трансляции...");
+        // Always resolve the event on LiveTV.sx first, even if the match card
+        // originally came from LiveTV904. LiveTV904 is the fallback host.
+        if (match.eventUrl.contains("livetv904.me")) {
+            match.eventUrl = match.eventUrl.replace("livetv904.me", "livetv.sx");
+        }
+
+        showPlayer(match, "Поиск трансляции на LiveTV.sx...");
         startLiveTvResolver(match);
     }
 
@@ -1911,7 +1917,7 @@ public class MainActivity extends Activity {
         Runnable finishNoStream = () -> {
             if (resolved[0]) return;
             String backup = alternateEventUrl(match.eventUrl);
-            if (!fallbackUsed[0] && !backup.isEmpty() && !match.eventUrl.contains("livetv904.me")) {
+            if (!fallbackUsed[0] && !backup.isEmpty()) {
                 fallbackUsed[0] = true;
                 status.setText("Проверка резервного источника...");
                 match.eventUrl = backup;
