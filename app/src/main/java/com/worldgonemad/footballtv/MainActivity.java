@@ -2033,7 +2033,12 @@ public class MainActivity extends Activity {
 
                                 if (!media.isEmpty() && !playbackAttemptActive[0]) {
                                     playbackAttemptActive[0] = true;
-                                    playStreamCandidates(match, media, 0, playbackAttemptActive);
+                                    playStreamCandidates(match, media, 0, playbackAttemptActive, () -> {
+                                        if (!resolved[0] && resolverWebView == web) {
+                                            playbackAttemptActive[0] = false;
+                                            tryNext[0].run();
+                                        }
+                                    });
                                 } else if (!frames.isEmpty()) {
                                     sourceCandidates.addAll(frames);
                                     tryNext[0].run();
@@ -2088,7 +2093,12 @@ public class MainActivity extends Activity {
                     }
 
                     media.add(candidate);
-                    playStreamCandidates(match, media, 0, playbackAttemptActive);
+                    playStreamCandidates(match, media, 0, playbackAttemptActive, () -> {
+                                        if (!resolved[0] && resolverWebView == web) {
+                                            playbackAttemptActive[0] = false;
+                                            tryNext[0].run();
+                                        }
+                                    });
                 }
             }
 
@@ -2160,7 +2170,12 @@ public class MainActivity extends Activity {
 
                             media.add(candidate);
                             status.setText("Трансляция найдена. Запуск плеера...");
-                            playStreamCandidates(match, media, 0, playbackAttemptActive);
+                            playStreamCandidates(match, media, 0, playbackAttemptActive, () -> {
+                                        if (!resolved[0] && resolverWebView == web) {
+                                            playbackAttemptActive[0] = false;
+                                            tryNext[0].run();
+                                        }
+                                    });
                         });
                     }
                 }
@@ -2418,9 +2433,23 @@ public class MainActivity extends Activity {
             int index,
             boolean[] playbackAttemptActive
     ) {
+        playStreamCandidates(match, streams, index, playbackAttemptActive, null);
+    }
+
+    private void playStreamCandidates(
+            Match match,
+            ArrayList<String> streams,
+            int index,
+            boolean[] playbackAttemptActive,
+            Runnable onAllCandidatesFailed
+    ) {
         if (streams == null || index >= streams.size()) {
             if (playbackAttemptActive != null) playbackAttemptActive[0] = false;
-            showPlayer(match, "Все найденные трансляции недоступны.");
+            if (onAllCandidatesFailed != null) {
+                onAllCandidatesFailed.run();
+            } else {
+                showPlayer(match, "Все найденные трансляции недоступны.");
+            }
             return;
         }
 
@@ -2517,7 +2546,12 @@ public class MainActivity extends Activity {
                         if (player != null) {
                             releasePlayerOnly();
                         }
-                        playStreamCandidates(match, streams, nextIndex, playbackAttemptActive);
+                        if (onAllCandidatesFailed != null) {
+                            if (playbackAttemptActive != null) playbackAttemptActive[0] = false;
+                            onAllCandidatesFailed.run();
+                        } else {
+                            playStreamCandidates(match, streams, nextIndex, playbackAttemptActive, null);
+                        }
                     }
                 }
         );
