@@ -1285,7 +1285,18 @@ public class MainActivity extends Activity {
         Matcher linkMatcher =
                 linkPattern.matcher(html);
 
+        int previousEventAnchorEnd = 0;
         while (linkMatcher.find()) {
+            // Bound each LIVE marker check to this event's own HTML segment,
+            // not the enclosing table row (which can contain dozens of matches).
+            int eventSegmentStart = previousEventAnchorEnd > 0
+                    ? previousEventAnchorEnd
+                    : Math.max(0, linkMatcher.start() - 1200);
+            int nextEventHref = html.indexOf("/eventinfo/", linkMatcher.end());
+            int eventSegmentEnd = nextEventHref > linkMatcher.end()
+                    ? nextEventHref
+                    : Math.min(html.length(), linkMatcher.end() + 1800);
+            previousEventAnchorEnd = linkMatcher.end();
 
             String href = linkMatcher.group(1);
             String anchorText = cleanText(linkMatcher.group(2));
@@ -1367,12 +1378,10 @@ public class MainActivity extends Activity {
             // occurrence of the word "live" in a whole table row as proof that
             // this fixture is currently playing: a row can contain links or
             // several cells for upcoming events too.
-            int rowStart = html.lastIndexOf("<tr", linkMatcher.start());
-            int rowEnd = html.indexOf("</tr>", linkMatcher.end());
-            String rowMarkup = (rowStart >= 0 && rowEnd > linkMatcher.end())
-                    ? html.substring(rowStart, Math.min(html.length(), rowEnd + 5))
-                    : html.substring(Math.max(0, linkMatcher.start() - 350),
-                            Math.min(html.length(), Math.min(afterEnd, linkMatcher.end() + 350)));
+            String rowMarkup = html.substring(
+                    Math.max(0, Math.min(eventSegmentStart, linkMatcher.start())),
+                    Math.max(linkMatcher.end(), Math.min(html.length(), eventSegmentEnd))
+            );
 
             // The source page can contain mixed sports. Never label a row as
             // football merely because its sport marker was missing or belonged
