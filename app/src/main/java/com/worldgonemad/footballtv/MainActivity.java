@@ -1347,28 +1347,33 @@ public class MainActivity extends Activity {
                 time = timeMatcher.group(1);
             }
 
-            // For the Online tab, inspect the whole HTML row because LiveTV's
-            // red LIVE badge may appear before the teams link, not after it.
-            // Daily schedule parsing remains independent of this live-only test.
+            // The LIVE badge is a small, explicit marker. Do not treat every
+            // occurrence of the word "live" in a whole table row as proof that
+            // this fixture is currently playing: a row can contain links or
+            // several cells for upcoming events too.
             int rowStart = html.lastIndexOf("<tr", linkMatcher.start());
             int rowEnd = html.indexOf("</tr>", linkMatcher.end());
             String rowMarkup = (rowStart >= 0 && rowEnd > linkMatcher.end())
                     ? html.substring(rowStart, Math.min(html.length(), rowEnd + 5))
-                    : html.substring(Math.max(0, linkMatcher.start() - 1200),
-                            Math.min(html.length(), afterEnd));
-            // LiveTV can render its live indicator as an image, CSS class,
-            // or text depending on the page version. Detect the marker within
-            // this event row, not across the whole page, so one live event cannot
-            // incorrectly mark nearby scheduled fixtures as live.
+                    : html.substring(Math.max(0, linkMatcher.start() - 350),
+                            Math.min(html.length(), Math.min(afterEnd, linkMatcher.end() + 350)));
+
             boolean liveLabel = Pattern.compile(
-                    "(?is)\\blive\\b|\\bв эфире\\b|\\bпрямой эфир\\b")
+                    "(?is)>\\s*(?:LIVE|В\\s+ЭФИРЕ|ПРЯМОЙ\\s+ЭФИР)\\s*<")
                     .matcher(rowMarkup).find();
             if (!liveLabel) {
                 Matcher imageMatcher = Pattern.compile("(?is)<img\\b[^>]*>").matcher(rowMarkup);
                 while (imageMatcher.find()) {
-                    String imageTag = imageMatcher.group();
-                    String lowerTag = imageTag.toLowerCase(Locale.ROOT);
-                    if (lowerTag.contains("live") || lowerTag.contains("в эфире")) {
+                    String imageTag = imageMatcher.group().toLowerCase(Locale.ROOT);
+                    // Require an actual LIVE-labelled image/GIF, not any URL or
+                    // player link that happens to contain the word "live".
+                    boolean liveAttribute = Pattern.compile(
+                            "(?is)(?:src|alt|title|class|id)\\s*=\\s*['\\\"][^'\\\"]*live[^'\\\"]*['\\\"]")
+                            .matcher(imageTag).find();
+                    if (liveAttribute && (imageTag.contains(".gif")
+                            || imageTag.contains("alt=")
+                            || imageTag.contains("title=")
+                            || imageTag.contains("class="))) {
                         liveLabel = true;
                         break;
                     }
