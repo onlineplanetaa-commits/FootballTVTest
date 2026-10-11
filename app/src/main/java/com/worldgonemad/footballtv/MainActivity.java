@@ -109,7 +109,7 @@ public class MainActivity extends Activity {
 
                     handler.postDelayed(
                             this,
-                            5 * 60 * 1000
+                            90 * 1000
                     );
                 }
             };
@@ -137,7 +137,7 @@ public class MainActivity extends Activity {
 
         handler.postDelayed(
                 refreshRunnable,
-                5 * 60 * 1000
+                90 * 1000
         );
     }
 
@@ -1147,6 +1147,12 @@ public class MainActivity extends Activity {
             connection.setRequestMethod(
                     "GET"
             );
+            // Always fetch fresh LiveTV HTML instead of reusing a cached response.
+            connection.setUseCaches(false);
+            connection.setDefaultUseCaches(false);
+            connection.setRequestProperty("Cache-Control", "no-cache, no-store, max-age=0");
+            connection.setRequestProperty("Pragma", "no-cache");
+            connection.setRequestProperty("Expires", "0");
 
             connection.setConnectTimeout(
                     8000
@@ -1358,28 +1364,22 @@ public class MainActivity extends Activity {
                     : html.substring(Math.max(0, linkMatcher.start() - 350),
                             Math.min(html.length(), Math.min(afterEnd, linkMatcher.end() + 350)));
 
-            boolean liveLabel = Pattern.compile(
-                    "(?is)>\\s*(?:LIVE|В\\s+ЭФИРЕ|ПРЯМОЙ\\s+ЭФИР)\\s*<")
-                    .matcher(rowMarkup).find();
-            if (!liveLabel) {
-                Matcher imageMatcher = Pattern.compile("(?is)<img\\b[^>]*>").matcher(rowMarkup);
-                while (imageMatcher.find()) {
-                    String imageTag = imageMatcher.group().toLowerCase(Locale.ROOT);
-                    // Require an actual LIVE-labelled image/GIF, not any URL or
-                    // player link that happens to contain the word "live".
-                    boolean liveAttribute = Pattern.compile(
-                            "(?is)(?:src|alt|title|class|id)\\s*=\\s*['\\\"][^'\\\"]*live[^'\\\"]*['\\\"]")
-                            .matcher(imageTag).find();
-                    if (liveAttribute && (imageTag.contains(".gif")
-                            || imageTag.contains("alt=")
-                            || imageTag.contains("title=")
-                            || imageTag.contains("class="))) {
-                        liveLabel = true;
-                        break;
-                    }
+            // Online tab: accept only LiveTV's actual LIVE GIF marker inside
+            // this fixture's own row. Text, links, scores, and neighbouring rows
+            // must never classify a scheduled match as live.
+            boolean liveGif = false;
+            Matcher imageMatcher = Pattern.compile("(?is)<img\\b[^>]*>").matcher(rowMarkup);
+            while (imageMatcher.find()) {
+                String imageTag = imageMatcher.group().toLowerCase(Locale.ROOT);
+                boolean gifImage = imageTag.matches("(?s).*\\bsrc\\s*=\\s*['\\\"][^'\\\"]+\\.gif(?:[?#][^'\\\"]*)?['\\\"].*");
+                boolean liveMarker = imageTag.contains("live")
+                        || imageTag.contains("в эфире");
+                if (gifImage && liveMarker) {
+                    liveGif = true;
+                    break;
                 }
             }
-            boolean live = usePreviousOnlineDetection && liveLabel;
+            boolean live = usePreviousOnlineDetection && liveGif;
 
             if (time.isEmpty()) {
                 time = live ? "LIVE" : "UPCOMING";
