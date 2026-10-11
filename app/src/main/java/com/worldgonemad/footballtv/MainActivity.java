@@ -2220,12 +2220,12 @@ public class MainActivity extends Activity {
                                 view.evaluateJavascript("(function(){return document.documentElement.outerHTML;})()", retryValue -> {
                                     if (resolved[0] || resolverWebView != web) return;
                                     String retryHtml = retryValue == null ? "" : retryValue;
-                                    if (retryHtml.length() >= 2 && retryHtml.startsWith("\\\"") && retryHtml.endsWith("\\\"")) {
+                                    if (retryHtml.length() >= 2 && retryHtml.startsWith("\"") && retryHtml.endsWith("\"")) {
                                         retryHtml = retryHtml.substring(1, retryHtml.length() - 1)
-                                                .replace("\\\\\"", "\\\"")
-                                                .replace("\\\\\\\\", "\\\\")
-                                                .replace("\\\\n", "\n")
-                                                .replace("\\\\r", "\r");
+                                                .replace("\\\"", "\"")
+                                                .replace("\\\\", "\\")
+                                                .replace("\\n", "\n")
+                                                .replace("\\r", "\r");
                                     }
                                     ArrayList<String> retryLinks = new ArrayList<>();
                                     collectWebPlayerUrls(retryHtml, match.eventUrl, retryLinks);
