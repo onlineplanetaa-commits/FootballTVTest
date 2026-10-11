@@ -78,9 +78,6 @@ public class MainActivity extends Activity {
     private static final String PRIMARY_LIVE_TV_URL =
             "https://livetv.sx/allupcomingsports/1/";
 
-    private static final String НАЗАДUP_LIVE_TV_URL =
-            "https://livetv904.me/allupcomingsports/1/";
-
     // LiveTV schedule widget embedded on myfootball.sbs/football.
     private static final String MYFOOTBALL_SCHEDULE_URL =
             "https://livetv.sx/export/webmasters.php?id=1157892&lang=ru&s=0";
@@ -701,18 +698,11 @@ public class MainActivity extends Activity {
 
     private void loadMatches() {
         new Thread(() -> {
-            // Read fixture listings from both sites, but keep every event/playback
-            // URL on LiveTV.sx so the resolver never sends the user to LiveTV904.
+            // Use LiveTV.sx as the only match and stream source.
             String liveTvHtml = downloadPage(PRIMARY_LIVE_TV_URL);
-            String liveTv904Html = downloadPage(НАЗАДUP_LIVE_TV_URL);
 
             ArrayList<Match> liveResults = parseMatches(liveTvHtml, true, "https://livetv.sx");
-            // Keep the real LiveTV904 event URLs as playback fallbacks. SX remains
-            // primary, but if its event page has no Browser Links, try the 904 page.
-            mergeMatches(liveResults, parseMatches(liveTv904Html, true, "https://livetv904.me"));
-
             ArrayList<Match> dailyResults = parseMatches(liveTvHtml, false, "https://livetv.sx");
-            mergeMatches(dailyResults, parseMatches(liveTv904Html, false, "https://livetv904.me"));
             String myFootballWidgetHtml = downloadPage(MYFOOTBALL_SCHEDULE_URL);
             mergeMatches(dailyResults, parseMatches(myFootballWidgetHtml, false, "https://livetv.sx"));
             mergeMatches(dailyResults, liveResults);
@@ -744,7 +734,7 @@ public class MainActivity extends Activity {
                 }
                 if (liveSourceNeedsWebViewFallback && !playerScreen) {
                     // WebView fallback is for the SX listing only; do not switch
-                    // event/playback links to LiveTV904.
+                    // event/playback links to LiveTV.sx.
                     loadMatchesViaWebView(PRIMARY_LIVE_TV_URL, PRIMARY_LIVE_TV_URL);
                 }
             });
@@ -973,15 +963,6 @@ public class MainActivity extends Activity {
                         && existing.away.trim().equalsIgnoreCase(candidate.away.trim());
                 if (sameUrl || sameTeams) {
                     duplicate = true;
-                    // Preserve the actual matching 904 URL for stream fallback.
-                    if (existing.eventUrl != null && existing.eventUrl.contains("livetv.sx")
-                            && candidate.eventUrl != null && candidate.eventUrl.contains("livetv904.me")) {
-                        existing.fallbackEventUrl = candidate.eventUrl;
-                    } else if (existing.eventUrl != null && existing.eventUrl.contains("livetv904.me")
-                            && candidate.eventUrl != null && candidate.eventUrl.contains("livetv.sx")) {
-                        existing.fallbackEventUrl = existing.eventUrl;
-                        existing.eventUrl = candidate.eventUrl;
-                    }
                     if (candidate.live && !existing.live) {
                         existing.live = true;
                         existing.time = candidate.time;
@@ -1161,7 +1142,7 @@ public class MainActivity extends Activity {
             );
             // Bypass HTTP caches only for the LiveTV schedule sources.
             if (address.startsWith("https://livetv.sx/")
-                    || address.startsWith("https://livetv904.me/")) {
+                    || address.startsWith("https://livetv.sx/")) {
                 connection.setUseCaches(false);
                 connection.setRequestProperty("Cache-Control", "no-cache, no-store, max-age=0");
                 connection.setRequestProperty("Pragma", "no-cache");
@@ -1191,8 +1172,8 @@ public class MainActivity extends Activity {
                     "en-US,en;q=0.9,ru;q=0.8"
             );
 
-            if (address.startsWith("https://livetv904.me/")) {
-                connection.setRequestProperty("Referer", "https://livetv904.me/");
+            if (address.startsWith("https://livetv.sx/")) {
+                connection.setRequestProperty("Referer", "https://livetv.sx/");
             } else if (address.startsWith("https://livetv.sx/")) {
                 connection.setRequestProperty("Referer", "https://livetv.sx/");
             }
@@ -1265,8 +1246,8 @@ public class MainActivity extends Activity {
             boolean usePreviousOnlineDetection
     ) {
         String baseHost = (html != null
-                && html.toLowerCase(Locale.US).contains("livetv904.me"))
-                ? "https://livetv904.me"
+                && html.toLowerCase(Locale.US).contains("livetv.sx"))
+                ? "https://livetv.sx"
                 : "https://livetv.sx";
         return parseMatches(html, usePreviousOnlineDetection, baseHost);
     }
@@ -1404,7 +1385,7 @@ public class MainActivity extends Activity {
 
             // A fixture is LIVE only when its own block contains an image
             // whose filename is exactly live.gif (including the known
-            // https://cdn.livetv904.me/img/live.gif URL). Do not infer LIVE
+            // https://cdn.livetv.sx/img/live.gif URL). Do not infer LIVE
             // from other GIFs, text, scores, or neighbouring fixtures.
             boolean liveGif = false;
             Matcher imageMatcher = Pattern.compile("(?is)<img\\b[^>]*>").matcher(rowMarkup);
@@ -1726,8 +1707,8 @@ public class MainActivity extends Activity {
         if (href.startsWith("https://") || href.startsWith("http://")) return href;
         if (href.startsWith("//")) return "https:" + href;
 
-        String host = (baseHost != null && baseHost.contains("livetv904.me"))
-                ? "https://livetv904.me"
+        String host = (baseHost != null && baseHost.contains("livetv.sx"))
+                ? "https://livetv.sx"
                 : "https://livetv.sx";
 
         if (href.startsWith("/")) return host + href;
@@ -1807,7 +1788,7 @@ public class MainActivity extends Activity {
 
         // Preserve the exact event URL selected by the match parser. The merged
         // schedule prefers the LiveTV.sx event when that same fixture exists there.
-        // Do not fabricate an SX URL by swapping the hostname of a LiveTV904 path:
+        // Do not fabricate an SX URL by swapping the hostname of a LiveTV.sx path:
         // the two hosts can route event pages differently. The resolver uses the
         // same Browser Link extractor on whichever real event URL is selected.
         match.streamFallbackTried = false;
@@ -1817,15 +1798,7 @@ public class MainActivity extends Activity {
     }
 
     private String alternateEventUrl(Match match) {
-        if (match == null || match.eventUrl == null || match.eventUrl.isEmpty()) return "";
-        // Prefer the actual matching LiveTV904 event URL saved while merging the lists.
-        if (match.fallbackEventUrl != null && !match.fallbackEventUrl.isEmpty()) {
-            return match.fallbackEventUrl;
-        }
-        // Last-resort fallback for a fixture that only appeared on LiveTV.sx.
-        if (match.eventUrl.contains("livetv.sx")) {
-            return match.eventUrl.replace("https://livetv.sx", "https://livetv904.me");
-        }
+        // No alternate provider: all match and stream resolution stays on LiveTV.sx.
         return "";
     }
 
@@ -1837,8 +1810,8 @@ public class MainActivity extends Activity {
         String[] p = f.substring(1).split("\\|", -1);
         if (p.length < 7) return "";
 
-        String host = eventUrl.contains("livetv904.me")
-                ? "https://livetv904.me"
+        String host = eventUrl.contains("livetv.sx")
+                ? "https://livetv.sx"
                 : "https://livetv.sx";
 
         String selector = p[0];
@@ -1890,8 +1863,8 @@ public class MainActivity extends Activity {
             if (u.startsWith("//")) {
                 u = "https:" + u;
             } else if (u.startsWith("/")) {
-                String host = eventUrl.contains("livetv904.me")
-                        ? "https://livetv904.me"
+                String host = eventUrl.contains("livetv.sx")
+                        ? "https://livetv.sx"
                         : "https://livetv.sx";
                 u = host + u;
             } else if (!u.startsWith("http://") && !u.startsWith("https://")) {
@@ -1950,7 +1923,7 @@ public class MainActivity extends Activity {
         if (lower.contains("/webplayer")
                 || lower.contains("/eventinfo/")
                 || lower.contains("livetv.sx/")
-                || lower.contains("livetv904.me/")) {
+                || lower.contains("livetv.sx/")) {
             return false;
         }
 
@@ -2011,15 +1984,6 @@ public class MainActivity extends Activity {
 
         Runnable finishNoStream = () -> {
             if (resolved[0]) return;
-            String backup = alternateEventUrl(match);
-            if (!fallbackUsed[0] && !backup.isEmpty()) {
-                fallbackUsed[0] = true;
-                match.streamFallbackTried = true;
-                status.setText("Повторная проверка LiveTV.sx...");
-                match.eventUrl = backup;
-                handler.postDelayed(() -> startLiveTvResolver(match), 100);
-                return;
-            }
             resolved[0] = true;
             status.setText("Рабочая трансляция не найдена.");
         };
@@ -2214,7 +2178,7 @@ public class MainActivity extends Activity {
                             status.setText("Найдено ссылок: " + browserLinks.size() + ". Запуск поиска...");
                             startCandidates(browserLinks, status, sourceCandidates, current, resolved, tryNext);
                         } else {
-                            // Use the existing LiveTV904 resolver flow unchanged:
+                            // Use the existing LiveTV.sx resolver flow unchanged:
                             // when the shared extractor finds no player links, try the backup host.
                             finishNoStream.run();
                         }
@@ -2227,7 +2191,7 @@ public class MainActivity extends Activity {
                 super.onPageStarted(view, url, favicon);
                 if (url != null && !url.isEmpty()) {
                     String top = activePlayerUrl[0];
-                    if (top.isEmpty() || url.equals(top) || !url.contains("livetv904.me/webplayer2.php")) {
+                    if (top.isEmpty() || url.equals(top) || !url.contains("livetv.sx/webplayer2.php")) {
                         activePlayerUrl[0] = url;
                     }
                 }
@@ -2570,11 +2534,11 @@ public class MainActivity extends Activity {
         if (u.startsWith("//")) {
             u = "https:" + u;
         } else if (u.startsWith("/")) {
-            u = "https://livetv904.me" + u;
+            u = "https://livetv.sx" + u;
         }
 
         // Skip normal LiveTV navigation and the event page itself.
-        if (u.startsWith("https://livetv904.me/")) {
+        if (u.startsWith("https://livetv.sx/")) {
             // Only the explicit #webplayer_* fragment is a broadcast selector.
             // Never treat ordinary LiveTV event/broadcast/player pages as a stream.
             if (!u.contains("#webplayer_")) return;
@@ -2766,7 +2730,7 @@ public class MainActivity extends Activity {
         playerFrame.setBackgroundColor(Color.BLACK);
         playerFrame.addView(web, new FrameLayout.LayoutParams(-1, -1));
 
-        // Keep Kyiv time above the LiveTV904 iframe video while it is playing.
+        // Keep Kyiv time above the LiveTV.sx iframe video while it is playing.
         TextView clock = createKyivClock();
         FrameLayout.LayoutParams clockParams =
                 new FrameLayout.LayoutParams(-2, -2, Gravity.TOP | Gravity.RIGHT);
