@@ -1285,18 +1285,15 @@ public class MainActivity extends Activity {
         Matcher linkMatcher =
                 linkPattern.matcher(html);
 
-        int previousEventAnchorEnd = 0;
         while (linkMatcher.find()) {
-            // Bound each LIVE marker check to this event's own HTML segment,
-            // not the enclosing table row (which can contain dozens of matches).
-            int eventSegmentStart = previousEventAnchorEnd > 0
-                    ? previousEventAnchorEnd
-                    : Math.max(0, linkMatcher.start() - 1200);
+            // LiveTV lays out each fixture as its event link followed by
+            // its LIVE GIF, kickoff time and league. Start at this exact link
+            // and stop before the next event link to prevent badge leakage.
+            int eventSegmentStart = linkMatcher.start();
             int nextEventHref = html.indexOf("/eventinfo/", linkMatcher.end());
             int eventSegmentEnd = nextEventHref > linkMatcher.end()
                     ? nextEventHref
                     : Math.min(html.length(), linkMatcher.end() + 1800);
-            previousEventAnchorEnd = linkMatcher.end();
 
             String href = linkMatcher.group(1);
             String anchorText = cleanText(linkMatcher.group(2));
