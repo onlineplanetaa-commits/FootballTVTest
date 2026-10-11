@@ -1010,6 +1010,7 @@ public class MainActivity extends Activity {
         web.setVisibility(View.GONE);
         web.setWebViewClient(new WebViewClient() {
             private boolean done = false;
+            private boolean backupTried = false;
 
             @Override
             public void onPageFinished(WebView view, String url) {
@@ -1078,17 +1079,22 @@ public class MainActivity extends Activity {
                                                             matches.addAll(result2);
                                                             if (!playerScreen) showMatches();
                                                         } else if (!playerScreen) {
-                                                            done = true;
-                                                            matchLoaderWebView = null;
-                                                            view.destroy();
-                                                            if (primaryUrl.equals(view.getUrl())) {
-                                                                try { view.stopLoading(); view.loadUrl(backupUrl); } catch (Exception ignored2) {}
+                                                            if (!backupTried && backupUrl != null && !backupUrl.isEmpty()) {
+                                                                backupTried = true;
+                                                                try {
+                                                                    view.stopLoading();
+                                                                    view.loadUrl(backupUrl);
+                                                                } catch (Exception ignored2) {
+                                                                    done = true;
+                                                                    matchLoaderWebView = null;
+                                                                    try { view.destroy(); } catch (Exception ignored3) {}
+                                                                    showError("Не удалось загрузить футбольные матчи.");
+                                                                }
                                                             } else {
-                                                                if (primaryUrl.equals(url)) {
-                        try { view.loadUrl(backupUrl); } catch (Exception ignored2) {}
-                    } else {
-                        showError("Не удалось загрузить футбольные матчи.");
-                    }
+                                                                done = true;
+                                                                matchLoaderWebView = null;
+                                                                try { view.destroy(); } catch (Exception ignored2) {}
+                                                                showError("Не удалось загрузить футбольные матчи.");
                                                             }
                                                         }
                                                     } catch (Exception ignored) {
