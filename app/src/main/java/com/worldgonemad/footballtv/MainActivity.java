@@ -2047,7 +2047,16 @@ public class MainActivity extends Activity {
                                     sourceCandidates.addAll(frames);
                                     tryNext[0].run();
                                 } else {
-                                    tryNext[0].run();
+                                    // LiveTV's t=ifr browser player may render the match through
+                                    // an iframe/MSE pipeline that exposes no direct HLS/MP4 URL.
+                                    // If extraction finds nothing, show that exact player inside
+                                    // our full-screen WebView; never launch an external browser.
+                                    if (playerUrl.toLowerCase(Locale.US).contains("t=ifr")) {
+                                        resolved[0] = true;
+                                        showLiveTvWebPlayer(match, playerUrl);
+                                    } else {
+                                        tryNext[0].run();
+                                    }
                                 }
                             }
                     );
