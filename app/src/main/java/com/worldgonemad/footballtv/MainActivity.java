@@ -707,12 +707,12 @@ public class MainActivity extends Activity {
             String liveTv904Html = downloadPage(НАЗАДUP_LIVE_TV_URL);
 
             ArrayList<Match> liveResults = parseMatches(liveTvHtml, true, "https://livetv.sx");
-            // LiveTV904 is used only as a secondary source of match names/status.
-            // Force its parsed event URLs to LiveTV.sx for the playback test.
-            mergeMatches(liveResults, parseMatches(liveTv904Html, true, "https://livetv.sx"));
+            // Keep the real LiveTV904 event URLs as playback fallbacks. SX remains
+            // primary, but if its event page has no Browser Links, try the 904 page.
+            mergeMatches(liveResults, parseMatches(liveTv904Html, true, "https://livetv904.me"));
 
             ArrayList<Match> dailyResults = parseMatches(liveTvHtml, false, "https://livetv.sx");
-            mergeMatches(dailyResults, parseMatches(liveTv904Html, false, "https://livetv.sx"));
+            mergeMatches(dailyResults, parseMatches(liveTv904Html, false, "https://livetv904.me"));
             String myFootballWidgetHtml = downloadPage(MYFOOTBALL_SCHEDULE_URL);
             mergeMatches(dailyResults, parseMatches(myFootballWidgetHtml, false, "https://livetv.sx"));
             mergeMatches(dailyResults, liveResults);
@@ -973,6 +973,15 @@ public class MainActivity extends Activity {
                         && existing.away.trim().equalsIgnoreCase(candidate.away.trim());
                 if (sameUrl || sameTeams) {
                     duplicate = true;
+                    // Preserve the actual matching 904 URL for stream fallback.
+                    if (existing.eventUrl != null && existing.eventUrl.contains("livetv.sx")
+                            && candidate.eventUrl != null && candidate.eventUrl.contains("livetv904.me")) {
+                        existing.fallbackEventUrl = candidate.eventUrl;
+                    } else if (existing.eventUrl != null && existing.eventUrl.contains("livetv904.me")
+                            && candidate.eventUrl != null && candidate.eventUrl.contains("livetv.sx")) {
+                        existing.fallbackEventUrl = existing.eventUrl;
+                        existing.eventUrl = candidate.eventUrl;
+                    }
                     if (candidate.live && !existing.live) {
                         existing.live = true;
                         existing.time = candidate.time;
@@ -1808,7 +1817,15 @@ public class MainActivity extends Activity {
     }
 
     private String alternateEventUrl(Match match) {
-        // SX-only test build: deliberately do not switch event pages to LiveTV904.
+        if (match == null || match.eventUrl == null || match.eventUrl.isEmpty()) return "";
+        // Prefer the actual matching LiveTV904 event URL saved while merging the lists.
+        if (match.fallbackEventUrl != null && !match.fallbackEventUrl.isEmpty()) {
+            return match.fallbackEventUrl;
+        }
+        // Last-resort fallback for a fixture that only appeared on LiveTV.sx.
+        if (match.eventUrl.contains("livetv.sx")) {
+            return match.eventUrl.replace("https://livetv.sx", "https://livetv904.me");
+        }
         return "";
     }
 
