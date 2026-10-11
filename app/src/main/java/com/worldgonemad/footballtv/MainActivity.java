@@ -2049,16 +2049,28 @@ public class MainActivity extends Activity {
                                         }
                                     });
                                 } else if (!frames.isEmpty()) {
-                                    sourceCandidates.addAll(frames);
-                                    tryNext[0].run();
-                                } else {
-                                    // LiveTV's t=ifr browser player may render the match through
-                                    // an iframe/MSE pipeline that exposes no direct HLS/MP4 URL.
-                                    // If extraction finds nothing, show that exact player inside
-                                    // our full-screen WebView; never launch an external browser.
+                                    // These are player-page URLs, not media streams.
+                                    // Never navigate to them as top-level candidates: doing so
+                                    // sends the user back to a website instead of playing video.
                                     if (resolvedPlayerUrl.toLowerCase(Locale.US).contains("t=ifr")) {
                                         resolved[0] = true;
-                                        showLiveTvWebPlayer(match, resolvedPlayerUrl);
+                                        web.stopLoading();
+                                        web.setVisibility(View.GONE);
+                                        status.setVisibility(View.VISIBLE);
+                                        status.setText("Вложенный плеер найден, но прямой видеопоток не обнаружен.");
+                                    } else {
+                                        sourceCandidates.addAll(frames);
+                                        tryNext[0].run();
+                                    }
+                                } else {
+                                    // Do not fall back to opening the LiveTV wrapper as a website.
+                                    // Only start playback when a real media URL was captured.
+                                    if (resolvedPlayerUrl.toLowerCase(Locale.US).contains("t=ifr")) {
+                                        resolved[0] = true;
+                                        web.stopLoading();
+                                        web.setVisibility(View.GONE);
+                                        status.setVisibility(View.VISIBLE);
+                                        status.setText("Не удалось извлечь прямой видеопоток из этого плеера.");
                                     } else {
                                         tryNext[0].run();
                                     }
