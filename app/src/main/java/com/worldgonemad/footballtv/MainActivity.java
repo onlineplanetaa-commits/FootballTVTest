@@ -1369,18 +1369,26 @@ public class MainActivity extends Activity {
             // Online tab: accept only LiveTV's actual LIVE GIF marker inside
             // this fixture's own row. Text, links, scores, and neighbouring rows
             // must never classify a scheduled match as live.
-            boolean liveGif = false;
+            // The Online tab uses only events on LiveTV.sx/allupcomingsports/1/
+            // whose own row contains the site's GIF live indicator and its LIVE label.
+            // The label can be separate text beside the GIF, not necessarily an img alt.
+            boolean hasGif = false;
+            boolean gifNamedLive = false;
             Matcher imageMatcher = Pattern.compile("(?is)<img\\b[^>]*>").matcher(rowMarkup);
             while (imageMatcher.find()) {
                 String imageTag = imageMatcher.group().toLowerCase(Locale.ROOT);
-                boolean gifImage = imageTag.matches("(?s).*\\bsrc\\s*=\\s*['\\\"][^'\\\"]+\\.gif(?:[?#][^'\\\"]*)?['\\\"].*");
-                boolean liveMarker = imageTag.contains("live")
-                        || imageTag.contains("в эфире");
-                if (gifImage && liveMarker) {
-                    liveGif = true;
-                    break;
+                boolean gifImage = Pattern.compile("\\.gif(?:[?#][^'\\\\"\\s>]*)?(?:['\\\\"\\s>])", Pattern.CASE_INSENSITIVE)
+                        .matcher(imageTag).find();
+                if (!gifImage) continue;
+                hasGif = true;
+                if (imageTag.contains("live") || imageTag.contains("в эфире")) {
+                    gifNamedLive = true;
                 }
             }
+            String rowText = cleanText(rowMarkup).toUpperCase(Locale.ROOT);
+            boolean hasLiveLabel = Pattern.compile("\\bLIVE\\b").matcher(rowText).find()
+                    || rowText.contains("В ЭФИРЕ");
+            boolean liveGif = hasGif && (gifNamedLive || hasLiveLabel);
             boolean live = usePreviousOnlineDetection && liveGif;
 
             if (time.isEmpty()) {
