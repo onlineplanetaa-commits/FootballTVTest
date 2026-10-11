@@ -1954,19 +1954,6 @@ public class MainActivity extends Activity {
 
                 activePlayerUrl[0] = playerUrl;
 
-                // LiveTV browser links are web-player pages, not direct media URLs.
-                // Let the page's own JavaScript player handle playback in a full-screen
-                // WebView instead of trying to extract an HLS/MP4 URL from a hidden view.
-                String lowerPlayerUrl = playerUrl.toLowerCase(Locale.US);
-                if ((lowerPlayerUrl.contains("livetv.sx/") || lowerPlayerUrl.contains("livetv904.me/"))
-                        && (lowerPlayerUrl.contains("/webplayer.php")
-                        || lowerPlayerUrl.contains("/webplayer2.php"))) {
-                    status.setText("Открытие веб-плеера LiveTV.sx...");
-                    resolved[0] = true;
-                    showLiveTvWebPlayer(match, playerUrl);
-                    return;
-                }
-
                 // YouTube Browser Links are not ordinary HLS/MP4 sources.
                 // The YouTube player uses its own HTML5/MSE pipeline, so
                 // Media3 extraction cannot reliably see the actual media URL.
