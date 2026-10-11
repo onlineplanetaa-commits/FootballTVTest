@@ -701,23 +701,21 @@ public class MainActivity extends Activity {
 
     private void loadMatches() {
         new Thread(() -> {
-            // Test build: LiveTV.sx is the only LiveTV fixture and event-page source.
+            // Read fixture listings from both sites, but keep every event/playback
+            // URL on LiveTV.sx so the resolver never sends the user to LiveTV904.
             String liveTvHtml = downloadPage(PRIMARY_LIVE_TV_URL);
+            String liveTv904Html = downloadPage(НАЗАДUP_LIVE_TV_URL);
 
             ArrayList<Match> liveResults = parseMatches(liveTvHtml, true, "https://livetv.sx");
+            // LiveTV904 is used only as a secondary source of match names/status.
+            // Force its parsed event URLs to LiveTV.sx for the playback test.
+            mergeMatches(liveResults, parseMatches(liveTv904Html, true, "https://livetv.sx"));
 
-            // The daily schedule may still include the independent fixture widget,
-            // but all LiveTV event pages are loaded from LiveTV.sx only.
             ArrayList<Match> dailyResults = parseMatches(liveTvHtml, false, "https://livetv.sx");
+            mergeMatches(dailyResults, parseMatches(liveTv904Html, false, "https://livetv.sx"));
             String myFootballWidgetHtml = downloadPage(MYFOOTBALL_SCHEDULE_URL);
-            mergeMatches(dailyResults, parseMatches(myFootballWidgetHtml, false));
-
-            // "Все матчи сегодня" must include every currently live match
-            // as well as fixtures from the upcoming schedule.
-            // The Online tab remains based on liveResults only.
+            mergeMatches(dailyResults, parseMatches(myFootballWidgetHtml, false, "https://livetv.sx"));
             mergeMatches(dailyResults, liveResults);
-
-            // Do not truncate the daily schedule: include all parsed fixtures from every source.
 
             final boolean liveSourceNeedsWebViewFallback = liveResults.isEmpty();
 
@@ -725,15 +723,11 @@ public class MainActivity extends Activity {
                 saveLiveMatchesCache(liveResults);
             } else {
                 liveResults = readLiveMatchesCache();
-                // Never put the daily schedule into the Online tab.
             }
 
             if (!dailyResults.isEmpty()) {
                 saveTodayMatches(dailyResults);
             } else {
-                // Keep only a previously saved daily schedule when sources fail.
-                // Never copy the live list into the daily tab: that made both tabs
-                // show the same ~50 events even when the schedule could not load.
                 dailyResults = readTodayMatchesCache();
             }
 
@@ -748,9 +742,9 @@ public class MainActivity extends Activity {
                     if (listContainer == null) showMatches();
                     else renderMatches();
                 }
-                // Some LiveTV pages return an empty or anti-bot HTTP response.
-                // Retry through Android WebView so JavaScript-rendered fixtures can be parsed.
                 if (liveSourceNeedsWebViewFallback && !playerScreen) {
+                    // WebView fallback is for the SX listing only; do not switch
+                    // event/playback links to LiveTV904.
                     loadMatchesViaWebView(PRIMARY_LIVE_TV_URL, PRIMARY_LIVE_TV_URL);
                 }
             });
