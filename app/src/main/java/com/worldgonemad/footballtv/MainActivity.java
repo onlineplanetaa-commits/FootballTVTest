@@ -76,7 +76,7 @@ public class MainActivity extends Activity {
     private final int LIVE = Color.rgb(90, 220, 140);
 
     private static final String PRIMARY_LIVE_TV_URL =
-            "https://livetv.sx/enx/allupcomingsports/1/";
+            "https://livetv.sx/enx/allupcoming/1/";
 
     // LiveTV schedule widget embedded on myfootball.sbs/football.
     private static final String MYFOOTBALL_SCHEDULE_URL =
