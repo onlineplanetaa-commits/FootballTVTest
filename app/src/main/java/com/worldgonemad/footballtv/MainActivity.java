@@ -907,6 +907,7 @@ public class MainActivity extends Activity {
                         item.optString("time", "Сегодня"), item.optBoolean("live", false),
                         item.optString("eventUrl", "")));
                 result.get(result.size() - 1).fallbackEventUrl = item.optString("fallbackEventUrl", "");
+                result.get(result.size() - 1).fallbackEventUrl = item.optString("fallbackEventUrl", "");
             }
         } catch (Exception ignored) {}
         return result;
@@ -923,6 +924,7 @@ public class MainActivity extends Activity {
                 item.put("time", match.time);
                 item.put("live", match.live);
                 item.put("eventUrl", match.eventUrl);
+                item.put("fallbackEventUrl", match.fallbackEventUrl == null ? "" : match.fallbackEventUrl);
                 array.put(item);
             }
             preferences.edit().putString("livetv_matches_cache", array.toString()).apply();
@@ -942,6 +944,7 @@ public class MainActivity extends Activity {
                         item.optString("home", ""), item.optString("away", ""),
                         item.optString("time", "Сегодня"), item.optBoolean("live", false),
                         item.optString("eventUrl", "")));
+                result.get(result.size() - 1).fallbackEventUrl = item.optString("fallbackEventUrl", "");
             }
         } catch (Exception ignored) {}
         return result;
