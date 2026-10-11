@@ -2045,35 +2045,8 @@ public class MainActivity extends Activity {
                                         }
                                     });
                                 } else if (!frames.isEmpty()) {
-                                    // The t=ifr URL is often only a wrapper. If it contains a
-                                    // real provider iframe, open that frame directly in the
-                                    // in-app WebView instead of treating the wrapper/frame as
-                                    // a native HLS candidate and then reporting a false failure.
-                                    if (resolvedPlayerUrl.toLowerCase(Locale.US).contains("t=ifr")) {
-                                        String iframePlayer = "";
-                                        for (String frameUrl : frames) {
-                                            String lowerFrame = frameUrl.toLowerCase(Locale.US);
-                                            if (lowerFrame.startsWith("http")
-                                                    && !lowerFrame.contains("doubleclick")
-                                                    && !lowerFrame.contains("googlesyndication")
-                                                    && !lowerFrame.contains("googleadservices")
-                                                    && !lowerFrame.contains("/ads/")
-                                                    && !lowerFrame.contains("about:blank")) {
-                                                if (iframePlayer.isEmpty()) iframePlayer = frameUrl;
-                                                if (!lowerFrame.contains("livetv.sx/")
-                                                        && !lowerFrame.contains("livetv904.me/")) {
-                                                    iframePlayer = frameUrl;
-                                                    break;
-                                                }
-                                            }
-                                        }
-                                        resolved[0] = true;
-                                        showLiveTvWebPlayer(match,
-                                                iframePlayer.isEmpty() ? resolvedPlayerUrl : iframePlayer);
-                                    } else {
-                                        sourceCandidates.addAll(frames);
-                                        tryNext[0].run();
-                                    }
+                                    sourceCandidates.addAll(frames);
+                                    tryNext[0].run();
                                 } else {
                                     // LiveTV's t=ifr browser player may render the match through
                                     // an iframe/MSE pipeline that exposes no direct HLS/MP4 URL.
