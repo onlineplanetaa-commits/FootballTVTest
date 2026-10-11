@@ -2211,20 +2211,12 @@ public class MainActivity extends Activity {
                             status.setText("Найдено ссылок: " + browserLinks.size() + ". Запуск поиска...");
                             startCandidates(browserLinks, status, sourceCandidates, current, resolved, tryNext);
                         } else {
-                            String backup = alternateEventUrl(match.eventUrl);
-                            if (!fallbackUsed[0] && !backup.isEmpty()) {
-                                fallbackUsed[0] = true;
-                                match.streamFallbackTried = true;
-                                match.eventUrl = backup;
-                                status.setText("Проверка резервного LiveTV...");
-                                Map<String, String> backupHeaders = new HashMap<>();
-                                backupHeaders.put("User-Agent",
-                                        "Mozilla/5.0 (Linux; Android 11; Android TV) AppleWebKit/537.36 Chrome/124.0.0.0 Safari/537.36");
-                                view.loadUrl(backup, backupHeaders);
-                            } else {
-                                resolved[0] = true;
-                                status.setText("Ссылки на трансляции не найдены.");
-                            }
+                            // Do not jump to LiveTV904 merely because the LiveTV.sx
+                            // rendered page did not expose Browser Links on this callback.
+                            // Keep the primary source selected; fallback is attempted only
+                            // after actual SX player candidates have been tried and failed.
+                            resolved[0] = true;
+                            status.setText("На LiveTV.sx не удалось найти ссылки трансляции.");
                         }
                     });
                 }
