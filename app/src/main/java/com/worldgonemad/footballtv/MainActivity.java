@@ -1737,11 +1737,9 @@ public class MainActivity extends Activity {
             return;
         }
 
-        // Always resolve the event on LiveTV.sx first, even if the match card
-        // originally came from LiveTV904. LiveTV904 is the fallback host.
-        if (match.eventUrl.contains("livetv904.me")) {
-            match.eventUrl = match.eventUrl.replace("livetv904.me", "livetv.sx");
-        }
+        // Keep the exact event URL from the provider that supplied this match.
+        // The merged match list already prefers LiveTV.sx when the event exists there.
+        // Never turn a LiveTV904 event path into a potentially unrelated LiveTV.sx path.
 
         showPlayer(match, "Поиск трансляции на LiveTV.sx...");
         startLiveTvResolver(match);
@@ -1793,13 +1791,10 @@ public class MainActivity extends Activity {
     private void collectWebPlayerUrls(String html, String eventUrl, ArrayList<String> found) {
         if (html == null || html.isEmpty() || eventUrl == null || eventUrl.isEmpty()) return;
 
-        // Shared extraction logic for both providers. The requested event URL
-        // determines the provider host; unrelated HTML text never changes it.
-        String host = eventUrl.contains("livetv904.me")
-                ? "https://livetv904.me"
-                : "https://livetv.sx";
-
+        // Use the same Browser Link and #webplayer_ extraction algorithm for both
+        // providers. The event URL only determines the host for relative links.
         String source = html
+                .replace("\\\\/", "/")
                 .replace("\\/", "/")
                 .replace("\\u0026", "&")
                 .replace("\\x26", "&")
@@ -1807,30 +1802,35 @@ public class MainActivity extends Activity {
                 .replace("&#38;", "&")
                 .replace("&#x26;", "&");
 
-        // Find direct Browser Link / iframe targets in both markup and scripts.
         Pattern wp = Pattern.compile(
-                "(?i)(?:https?:\\/\\/[^\\\"'<>\\s]+|/)?webplayer(?:2)?\\.php\\?[^\\\"'<>\\s)\\]}]+"
+                "(?i)(?:https?:\\/\\/[^\\\"'<>\\s]+|/)?webplayer(?:2)?\\.php\\?[^\\\"'<>\\s]+"
         );
         Matcher wm = wp.matcher(source);
         while (wm.find()) {
             String u = wm.group(0)
-                    .replace("&amp;", "&")
+                    .replace("\\\\/", "/")
                     .replace("\\/", "/")
+                    .replace("&amp;", "&")
                     .replace("\\\"", "")
-                    .replace("\\u0026", "&")
                     .trim();
 
             if (u.startsWith("//")) {
                 u = "https:" + u;
             } else if (u.startsWith("/")) {
+                String host = eventUrl.contains("livetv904.me")
+                        ? "https://livetv904.me"
+                        : "https://livetv.sx";
                 u = host + u;
             } else if (!u.startsWith("http://") && !u.startsWith("https://")) {
-                u = host + "/" + u;
+                int hostEnd = eventUrl.indexOf("/", 8);
+                if (hostEnd > 0) {
+                    u = eventUrl.substring(0, hostEnd) + "/" + u;
+                }
             }
+
             if (!found.contains(u)) found.add(u);
         }
 
-        // Browser selectors provide the parameters when no direct player URL exists.
         Pattern frag = Pattern.compile(
                 "(?i)#webplayer_[A-Za-z0-9_-]+(?:\\|[A-Za-z0-9._:%+~-]+)*"
         );
