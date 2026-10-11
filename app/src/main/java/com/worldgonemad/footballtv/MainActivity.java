@@ -76,7 +76,7 @@ public class MainActivity extends Activity {
     private final int LIVE = Color.rgb(90, 220, 140);
 
     private static final String PRIMARY_LIVE_TV_URL =
-            "https://livetv.sx/allupcomingsports/1/";
+            "https://livetv904.me/enx/allupcoming/";
 
     // LiveTV schedule widget embedded on myfootball.sbs/football.
     private static final String MYFOOTBALL_SCHEDULE_URL =
@@ -698,13 +698,12 @@ public class MainActivity extends Activity {
 
     private void loadMatches() {
         new Thread(() -> {
-            // Use LiveTV.sx as the only match and stream source.
+            // Restore the previously working LiveTV904 listing and parser.
+            // Use only this provider for match discovery.
             String liveTvHtml = downloadPage(PRIMARY_LIVE_TV_URL);
 
-            ArrayList<Match> liveResults = parseMatches(liveTvHtml, true, "https://livetv.sx");
-            ArrayList<Match> dailyResults = parseMatches(liveTvHtml, false, "https://livetv.sx");
-            String myFootballWidgetHtml = downloadPage(MYFOOTBALL_SCHEDULE_URL);
-            mergeMatches(dailyResults, parseMatches(myFootballWidgetHtml, false, "https://livetv.sx"));
+            ArrayList<Match> liveResults = parseMatches(liveTvHtml, true, "https://livetv904.me");
+            ArrayList<Match> dailyResults = parseMatches(liveTvHtml, false, "https://livetv904.me");
             mergeMatches(dailyResults, liveResults);
 
             final boolean liveSourceNeedsWebViewFallback = liveResults.isEmpty();
@@ -1245,9 +1244,9 @@ public class MainActivity extends Activity {
             String html,
             boolean usePreviousOnlineDetection
     ) {
-        String baseHost = (html != null
-                && html.toLowerCase(Locale.US).contains("livetv.sx"))
-                ? "https://livetv.sx"
+        String lowerHtml = html == null ? "" : html.toLowerCase(Locale.US);
+        String baseHost = lowerHtml.contains("livetv904.me")
+                ? "https://livetv904.me"
                 : "https://livetv.sx";
         return parseMatches(html, usePreviousOnlineDetection, baseHost);
     }
@@ -1707,8 +1706,8 @@ public class MainActivity extends Activity {
         if (href.startsWith("https://") || href.startsWith("http://")) return href;
         if (href.startsWith("//")) return "https:" + href;
 
-        String host = (baseHost != null && baseHost.contains("livetv.sx"))
-                ? "https://livetv.sx"
+        String host = (baseHost != null && baseHost.contains("livetv904.me"))
+                ? "https://livetv904.me"
                 : "https://livetv.sx";
 
         if (href.startsWith("/")) return host + href;
@@ -1786,15 +1785,10 @@ public class MainActivity extends Activity {
             return;
         }
 
-        // Preserve the exact event URL selected by the match parser. The merged
-        // schedule prefers the LiveTV.sx event when that same fixture exists there.
-        // Do not fabricate an SX URL by swapping the hostname of a LiveTV.sx path:
-        // the two hosts can route event pages differently. The resolver uses the
-        // same Browser Link extractor on whichever real event URL is selected.
+        // Proven LiveTV904 playback path: open the selected event page itself
+        // in the in-app WebView. LiveTV904 inserts its ltvplayer iframe there.
         match.streamFallbackTried = false;
-
-        showPlayer(match, "Поиск трансляции на LiveTV.sx...");
-        startLiveTvResolver(match);
+        showLiveTvWebPlayer(match, match.eventUrl);
     }
 
     private String alternateEventUrl(Match match) {
