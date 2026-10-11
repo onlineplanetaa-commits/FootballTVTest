@@ -706,8 +706,8 @@ public class MainActivity extends Activity {
             String liveTv904Html = downloadPage(НАЗАДUP_LIVE_TV_URL);
 
             // Restore the Online tab's previous LiveTV parsing behaviour.
-            ArrayList<Match> liveResults = parseMatches(liveTvHtml, true);
-            mergeMatches(liveResults, parseMatches(liveTv904Html, true));
+            ArrayList<Match> liveResults = parseMatches(liveTvHtml, true, "https://livetv.sx");
+            mergeMatches(liveResults, parseMatches(liveTv904Html, true, "https://livetv904.me"));
             if (liveResults.size() > 80) {
                 liveResults = new ArrayList<>(liveResults.subList(0, 80));
             }
@@ -715,8 +715,8 @@ public class MainActivity extends Activity {
             // The daily schedule uses the two fixture pages plus the LiveTV
             // schedule widget embedded on myfootball.sbs/football. Keep this
             // additional source isolated from the Online tab.
-            ArrayList<Match> dailyResults = parseMatches(liveTvHtml, false);
-            mergeMatches(dailyResults, parseMatches(liveTv904Html, false));
+            ArrayList<Match> dailyResults = parseMatches(liveTvHtml, false, "https://livetv.sx");
+            mergeMatches(dailyResults, parseMatches(liveTv904Html, false, "https://livetv904.me"));
             String myFootballWidgetHtml = downloadPage(MYFOOTBALL_SCHEDULE_URL);
             mergeMatches(dailyResults, parseMatches(myFootballWidgetHtml, false));
 
@@ -1252,6 +1252,18 @@ public class MainActivity extends Activity {
             String html,
             boolean usePreviousOnlineDetection
     ) {
+        String baseHost = (html != null
+                && html.toLowerCase(Locale.US).contains("livetv904.me"))
+                ? "https://livetv904.me"
+                : "https://livetv.sx";
+        return parseMatches(html, usePreviousOnlineDetection, baseHost);
+    }
+
+    private ArrayList<Match> parseMatches(
+            String html,
+            boolean usePreviousOnlineDetection,
+            String baseHost
+    ) {
 
         ArrayList<Match> result =
                 new ArrayList<>();
@@ -1400,7 +1412,7 @@ public class MainActivity extends Activity {
                 continue;
             }
 
-            String eventUrl = normalizeUrl(href, html);
+            String eventUrl = normalizeUrl(href, baseHost);
 
             boolean duplicate = false;
 
@@ -1638,7 +1650,7 @@ public class MainActivity extends Activity {
 
     private String normalizeUrl(
             String href,
-            String pageHtml
+            String baseHost
     ) {
         if (href == null) return "";
 
@@ -1646,8 +1658,7 @@ public class MainActivity extends Activity {
         if (href.startsWith("https://") || href.startsWith("http://")) return href;
         if (href.startsWith("//")) return "https:" + href;
 
-        String host = (pageHtml != null
-                && pageHtml.toLowerCase(Locale.US).contains("livetv904.me"))
+        String host = (baseHost != null && baseHost.contains("livetv904.me"))
                 ? "https://livetv904.me"
                 : "https://livetv.sx";
 
