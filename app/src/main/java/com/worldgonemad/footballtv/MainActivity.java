@@ -1360,7 +1360,10 @@ public class MainActivity extends Activity {
             // The source page can contain mixed sports. Never label a row as
             // football merely because its sport marker was missing or belonged
             // to a previous row. Exclude explicit non-football markers locally.
-            if (isKnownNonFootballSport(lastAlt) || isNonFootballMarkup(rowMarkup)) {
+            // Filter by the event's nearest sport marker only. The larger
+            // rowMarkup slice can include unrelated navigation/neighbor content,
+            // so searching it for words like "hockey" can discard every football fixture.
+            if (isKnownNonFootballSport(lastAlt)) {
                 continue;
             }
 
