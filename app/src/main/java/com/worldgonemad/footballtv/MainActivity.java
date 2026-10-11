@@ -1377,8 +1377,7 @@ public class MainActivity extends Activity {
             Matcher imageMatcher = Pattern.compile("(?is)<img\\b[^>]*>").matcher(rowMarkup);
             while (imageMatcher.find()) {
                 String imageTag = imageMatcher.group().toLowerCase(Locale.ROOT);
-                boolean gifImage = Pattern.compile("\\.gif(?:[?#][^'\\\\"\\s>]*)?(?:['\\\\"\\s>])", Pattern.CASE_INSENSITIVE)
-                        .matcher(imageTag).find();
+                boolean gifImage = imageTag.contains(".gif");
                 if (!gifImage) continue;
                 hasGif = true;
                 if (imageTag.contains("live") || imageTag.contains("в эфире")) {
