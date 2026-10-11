@@ -1803,15 +1803,14 @@ public class MainActivity extends Activity {
             return;
         }
 
-        // Always try LiveTV.sx first. If this match came from the cached/backup
-        // LiveTV904 list, try the equivalent path on LiveTV.sx first; LiveTV904
-        // remains the fallback if that page does not provide a working stream.
+        // Preserve the exact event URL selected by the match parser. The merged
+        // schedule prefers the LiveTV.sx event when that same fixture exists there.
+        // Do not fabricate an SX URL by swapping the hostname of a LiveTV904 path:
+        // the two hosts can route event pages differently. The resolver uses the
+        // same Browser Link extractor on whichever real event URL is selected.
         match.streamFallbackTried = false;
-        if (match.eventUrl.contains("livetv904.me")) {
-            match.eventUrl = match.eventUrl.replace("https://livetv904.me", "https://livetv.sx");
-        }
 
-        showPlayer(match, "Поиск трансляции на LiveTV.sx...");
+        showPlayer(match, "Поиск ссылок на трансляцию...");
         startLiveTvResolver(match);
     }
 
