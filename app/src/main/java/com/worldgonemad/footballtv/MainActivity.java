@@ -707,7 +707,6 @@ public class MainActivity extends Activity {
 
             // Restore the Online tab's previous LiveTV parsing behaviour.
             ArrayList<Match> liveResults = parseMatches(liveTvHtml, true);
-            mergeMatches(liveResults, parseMatches(liveTv904Html, true));
             if (liveResults.size() > 80) {
                 liveResults = new ArrayList<>(liveResults.subList(0, 80));
             }
@@ -1319,10 +1318,15 @@ public class MainActivity extends Activity {
         String league = "Футбол";
         String lowerLastAlt = lastAlt.toLowerCase(Locale.ROOT);
 
-        // All current callers supply football-only LiveTV schedule pages
-        // or the football schedule widget. Do not use the nearest image
-        // marker as a gate: that marker can belong to a previous row, and
-        // this incorrectly drops scheduled fixtures while live rows survive.
+        // Online tab: accept only events explicitly marked as football.
+        boolean footballSport = lowerLastAlt.equals("football")
+                || lowerLastAlt.startsWith("football.")
+                || lowerLastAlt.equals("футбол")
+                || lowerLastAlt.startsWith("футбол.");
+        if (usePreviousOnlineDetection && !footballSport) {
+            continue;
+        }
+
         if (lowerLastAlt.startsWith("football.")
                 || lowerLastAlt.equals("football")) {
             league = lastAlt.length() > 9
@@ -1334,6 +1338,7 @@ public class MainActivity extends Activity {
                     ? cleanText(lastAlt.substring(7))
                     : "Футбол";
         }
+
         if (league == null || league.trim().isEmpty()) {
             league = "Футбол";
         }
