@@ -1387,17 +1387,28 @@ public class MainActivity extends Activity {
                 continue;
             }
 
-            // Online tab: accept only LiveTV's actual LIVE GIF marker inside
-            // this fixture's own row. Text, links, scores, and neighbouring rows
-            // must never classify a scheduled match as live.
+            // A fixture is LIVE only when its own block contains an image
+            // whose filename is exactly live.gif (including the known
+            // https://cdn.livetv904.me/img/live.gif URL). Do not infer LIVE
+            // from other GIFs, text, scores, or neighbouring fixtures.
             boolean liveGif = false;
             Matcher imageMatcher = Pattern.compile("(?is)<img\\b[^>]*>").matcher(rowMarkup);
+            Pattern imageSrcPattern = Pattern.compile("(?is)\\bsrc\\s*=\\s*['\\\"]([^'\\\"]+)['\\\"]");
             while (imageMatcher.find()) {
-                String imageTag = imageMatcher.group().toLowerCase(Locale.ROOT);
-                boolean gifImage = imageTag.matches("(?s).*\\bsrc\\s*=\\s*['\\\"][^'\\\"]+\\.gif(?:[?#][^'\\\"]*)?['\\\"].*");
-                boolean liveMarker = imageTag.contains("live")
-                        || imageTag.contains("в эфире");
-                if (gifImage && liveMarker) {
+                Matcher srcMatcher = imageSrcPattern.matcher(imageMatcher.group());
+                if (!srcMatcher.find()) {
+                    continue;
+                }
+                String imageSrc = srcMatcher.group(1).trim().toLowerCase(Locale.ROOT);
+                int queryIndex = imageSrc.indexOf('?');
+                if (queryIndex >= 0) imageSrc = imageSrc.substring(0, queryIndex);
+                int hashIndex = imageSrc.indexOf('#');
+                if (hashIndex >= 0) imageSrc = imageSrc.substring(0, hashIndex);
+                int slashIndex = imageSrc.lastIndexOf('/');
+                String imageFilename = slashIndex >= 0
+                        ? imageSrc.substring(slashIndex + 1)
+                        : imageSrc;
+                if ("live.gif".equals(imageFilename)) {
                     liveGif = true;
                     break;
                 }
