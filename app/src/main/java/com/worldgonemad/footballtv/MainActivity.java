@@ -1363,31 +1363,20 @@ public class MainActivity extends Activity {
             int rowEnd = html.indexOf("</tr>", linkMatcher.end());
             String rowMarkup = (rowStart >= 0 && rowEnd > linkMatcher.end())
                     ? html.substring(rowStart, Math.min(html.length(), rowEnd + 5))
-                    : html.substring(Math.max(0, linkMatcher.start() - 350),
-                            Math.min(html.length(), Math.min(afterEnd, linkMatcher.end() + 350)));
+                    : html.substring(Math.max(0, linkMatcher.start() - 1200),
+                            Math.min(html.length(), Math.min(afterEnd, linkMatcher.end() + 1200)));
 
-            // Online tab: accept only LiveTV's actual LIVE GIF marker inside
-            // this fixture's own row. Text, links, scores, and neighbouring rows
-            // must never classify a scheduled match as live.
-            // The Online tab uses only events on LiveTV.sx/allupcomingsports/1/
-            // whose own row contains the site's GIF live indicator and its LIVE label.
-            // The label can be separate text beside the GIF, not necessarily an img alt.
-            boolean hasGif = false;
-            boolean gifNamedLive = false;
-            Matcher imageMatcher = Pattern.compile("(?is)<img\\b[^>]*>").matcher(rowMarkup);
-            while (imageMatcher.find()) {
-                String imageTag = imageMatcher.group().toLowerCase(Locale.ROOT);
-                boolean gifImage = imageTag.contains(".gif");
-                if (!gifImage) continue;
-                hasGif = true;
-                if (imageTag.contains("live") || imageTag.contains("в эфире")) {
-                    gifNamedLive = true;
-                }
-            }
+            // The Online tab is fed only by LiveTV.sx/allupcomingsports/1/.
+            // Detect the site's GIF marker anywhere in this fixture block,
+            // including markup where the GIF is not a direct <img> child.
+            // Require the visible LIVE label in the same block so random GIFs
+            // and scheduled fixtures cannot appear as live.
+            String rowLower = rowMarkup.toLowerCase(Locale.ROOT);
             String rowText = cleanText(rowMarkup).toUpperCase(Locale.ROOT);
+            boolean hasGif = rowLower.contains(".gif");
             boolean hasLiveLabel = Pattern.compile("\\bLIVE\\b").matcher(rowText).find()
                     || rowText.contains("В ЭФИРЕ");
-            boolean liveGif = hasGif && (gifNamedLive || hasLiveLabel);
+            boolean liveGif = hasGif && hasLiveLabel;
             boolean live = usePreviousOnlineDetection && liveGif;
 
             if (time.isEmpty()) {
