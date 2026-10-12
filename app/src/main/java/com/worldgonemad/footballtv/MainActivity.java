@@ -2130,27 +2130,6 @@ public class MainActivity extends Activity {
                 return;
             }
 
-            // Some LiveTV.sx Browser Links (especially webplayer.php?t=ifr)
-            // expose the stream only inside their own embedded player and do not
-            // publish a usable .m3u8 URL to the hidden resolver. As a last resort,
-            // open that player page visibly inside the app instead of failing.
-            String browserPlayerFallback = "";
-            for (String candidate : sourceCandidates) {
-                if (candidate == null) continue;
-                String lower = candidate.toLowerCase(Locale.US);
-                if (lower.contains("webplayer.php?")
-                        || lower.contains("webplayer2.php?")) {
-                    browserPlayerFallback = candidate;
-                    break;
-                }
-            }
-            if (!browserPlayerFallback.isEmpty()) {
-                resolved[0] = true;
-                status.setText("Открытие встроенного видеоплеера LiveTV.sx...");
-                showLiveTvWebPlayer(match, browserPlayerFallback);
-                return;
-            }
-
             // Never replace the requested video playback with the event website.
             // If no media was extracted from the event/player pages, report extraction failure.
             resolved[0] = true;
@@ -2525,10 +2504,17 @@ public class MainActivity extends Activity {
 
         // Put Ukrainian/Russian Browser Links first, then all other links.
         // If there are no Ukrainian/Russian links, the normal links are used immediately.
-        found.sort((a, b) -> Integer.compare(
-                browserLinkLanguagePriority(a),
-                browserLinkLanguagePriority(b)
-        ));
+        // Try ordinary LiveTV.sx browser players first, UA/RU first.
+        // YouTube is kept last so it cannot prevent trying the other broadcasts.
+        found.sort((a, b) -> {
+            int youtubeA = a != null && a.toLowerCase(Locale.US).contains("t=youtube") ? 1 : 0;
+            int youtubeB = b != null && b.toLowerCase(Locale.US).contains("t=youtube") ? 1 : 0;
+            if (youtubeA != youtubeB) return Integer.compare(youtubeA, youtubeB);
+            return Integer.compare(
+                    browserLinkLanguagePriority(a),
+                    browserLinkLanguagePriority(b)
+            );
+        });
 
         if (found.size() > 12) {
             found.subList(12, found.size()).clear();
