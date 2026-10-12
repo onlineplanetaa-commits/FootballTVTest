@@ -771,7 +771,11 @@ public class MainActivity extends Activity {
                 if (finished || matchLoaderWebView != web) return;
                 attempts++;
                 view.evaluateJavascript(
-                        "(function(){return document.documentElement.outerHTML;})()",
+                        "(function(){"
+                                + "var as=document.querySelectorAll('a[href*="infin.php"]');"
+                                + "for(var i=0;i<as.length;i++){try{var u=new URL(as[i].href).searchParams.get('u');"
+                                + "if(u){as[i].setAttribute('href',decodeURIComponent(u));}}catch(e){}}"
+                                + "return document.documentElement.outerHTML;})()",
                         value -> {
                             if (finished || matchLoaderWebView != web) return;
                             String html = value;
@@ -784,17 +788,13 @@ public class MainActivity extends Activity {
                                         .replace("\\r", "\r");
                             }
 
-                            ArrayList<Match> parsedInformerMatches =
+                            // The informer links wrap the real event URL in the "u" query parameter.
+                            // The JavaScript above unwraps those URLs before parsing.
+                            ArrayList<Match> informerDailyMatches =
+                                    parseMatches(html, false, "https://livetv904.me");
+                            ArrayList<Match> informerLiveMatches =
                                     parseMatches(html, true, "https://livetv904.me");
-                            // The configured informer can contain scheduled fixtures too.
-                            // The "Онлайн матчи" list must never be replaced with non-live events.
-                            ArrayList<Match> informerMatches = new ArrayList<>();
-                            for (Match candidate : parsedInformerMatches) {
-                                if (candidate != null && candidate.live) {
-                                    informerMatches.add(candidate);
-                                }
-                            }
-                            if (informerMatches.isEmpty() && attempts < 3) {
+                            if (informerDailyMatches.isEmpty() && attempts < 3) {
                                 handler.postDelayed(() -> inspectInformer(view), 1500);
                                 return;
                             }
@@ -806,14 +806,51 @@ public class MainActivity extends Activity {
                                 view.destroy();
                             } catch (Exception ignored) {}
 
-                            if (informerMatches.isEmpty()) {
-                                // No informer data: preserve existing list and cache.
+                            if (informerDailyMatches.isEmpty()) {
+                                // No informer data: preserve existing lists and caches.
                                 return;
                             }
 
-                            matches.clear();
-                            matches.addAll(informerMatches);
-                            saveLiveMatchesCache(informerMatches);
+                            // Add informer fixtures to "Все матчи сегодня", without duplicates.
+                            ArrayList<Match> mergedDaily = new ArrayList<>(todayMatches);
+                            for (Match candidate : informerDailyMatches) {
+                                if (candidate == null) continue;
+                                boolean duplicate = false;
+                                for (Match existing : mergedDaily) {
+                                    if (existing.eventUrl != null
+                                            && existing.eventUrl.equals(candidate.eventUrl)) {
+                                        duplicate = true;
+                                        break;
+                                    }
+                                }
+                                if (!duplicate) mergedDaily.add(candidate);
+                            }
+                            todayMatches.clear();
+                            todayMatches.addAll(mergedDaily);
+                            saveTodayMatches(mergedDaily);
+
+                            // Only fixtures with an explicit LIVE badge may enter "Онлайн матчи".
+                            if (!informerLiveMatches.isEmpty()) {
+                                ArrayList<Match> mergedLive = new ArrayList<>();
+                                for (Match candidate : matches) {
+                                    if (candidate != null && candidate.live) mergedLive.add(candidate);
+                                }
+                                for (Match candidate : informerLiveMatches) {
+                                    if (candidate == null || !candidate.live) continue;
+                                    boolean duplicate = false;
+                                    for (Match existing : mergedLive) {
+                                        if (existing.eventUrl != null
+                                                && existing.eventUrl.equals(candidate.eventUrl)) {
+                                            duplicate = true;
+                                            break;
+                                        }
+                                    }
+                                    if (!duplicate) mergedLive.add(candidate);
+                                }
+                                matches.clear();
+                                matches.addAll(mergedLive);
+                                saveLiveMatchesCache(mergedLive);
+                            }
                             if (!playerScreen) {
                                 if (listContainer == null) showMatches();
                                 else renderMatches();
