@@ -2227,21 +2227,21 @@ public class MainActivity extends Activity {
                                 // LiveTV.sx sometimes renders Browser Links only after JavaScript runs.
                                 // Inspect DOM links/scripts as well as media and iframe resources.
                                 Matcher lm = Pattern.compile(
-                                        "(?i)(?:LINK:|HTML:)[^\\\"'<>\\s]*#webplayer_[A-Za-z0-9_-]+(?:\\\\\\\\\\\\|[A-Za-z0-9._:%+~-]+)*|(?:LINK:)[^\\\"'<>\\s]*webplayer(?:2)?\\\\.php\\\\?[^\\\"'<>\\s]+"
+                                        "(?i)#webplayer_[A-Za-z0-9_-]+(?:\\\\|[A-Za-z0-9._:%+~-]+)*"
                                 ).matcher(decoded);
                                 while (lm.find()) {
-                                    String link = lm.group(0);
-                                    int prefix = link.startsWith("LINK:") ? 5 : 5;
-                                    link = link.substring(prefix).replace("&amp;", "&");
-                                    if (link.contains("#webplayer_")) {
-                                        int hash = link.indexOf("#webplayer_");
-                                        String player = webPlayerFromFragment(streamEventUrl, link.substring(hash));
-                                        if (!player.isEmpty() && !browserLinks.contains(player)) browserLinks.add(player);
-                                    } else {
-                                        String player = link;
-                                        if (!player.startsWith("http")) player = "https://livetv.sx/" + player.replaceFirst("^/", "");
-                                        if (!browserLinks.contains(player)) browserLinks.add(player);
-                                    }
+                                    String player = webPlayerFromFragment(streamEventUrl, lm.group(0));
+                                    if (!player.isEmpty() && !browserLinks.contains(player)) browserLinks.add(player);
+                                }
+
+                                Matcher pm = Pattern.compile(
+                                        "(?i)(?:https?://[^\\\"'<>\\s]+|/)?webplayer(?:2)?\\.php\\?[^\\\"'<>\\s]+"
+                                ).matcher(decoded);
+                                while (pm.find()) {
+                                    String player = pm.group(0).replace("\\\\/", "/").replace("&amp;", "&");
+                                    if (player.startsWith("/")) player = "https://livetv.sx" + player;
+                                    else if (!player.startsWith("http")) player = "https://livetv.sx/" + player;
+                                    if (!browserLinks.contains(player)) browserLinks.add(player);
                                 }
 
                                 Matcher mm = Pattern.compile(
