@@ -10,6 +10,7 @@ import android.os.Looper;
 import android.view.Gravity;
 import android.view.View;
 import android.net.Uri;
+import android.util.Base64;
 import android.widget.Button;
 import android.widget.LinearLayout;
 import android.widget.ImageView;
@@ -774,19 +775,21 @@ public class MainActivity extends Activity {
                         "(function(){"
                                 + "var as=document.getElementsByTagName('a');"
                                 + "for(var i=0;i<as.length;i++){try{if(as[i].href.indexOf('infin.php')<0)continue;"
-                                + "var u=new URL(as[i].href).searchParams.get('u');"
-                                + "if(u){as[i].setAttribute('href',u);}}catch(e){}}"
-                                + "return document.documentElement.outerHTML;})()",
+                                + "var m=as[i].href.match(/[?&]u=([^&]+)/);"
+                                + "if(m&&m[1]){var u=decodeURIComponent(m[1].replace(/\\+/g,'%20'));as[i].setAttribute('href',u);}}catch(e){}}"
+                                + "return btoa(unescape(encodeURIComponent(document.documentElement.outerHTML)));})()",
                         value -> {
                             if (finished || matchLoaderWebView != web) return;
-                            String html = value;
-                            if (html != null && html.length() >= 2
-                                    && html.startsWith("\"") && html.endsWith("\"")) {
-                                html = html.substring(1, html.length() - 1)
-                                        .replace("\\\"", "\"")
-                                        .replace("\\\\", "\\")
-                                        .replace("\\n", "\n")
-                                        .replace("\\r", "\r");
+                            String html = "";
+                            if (value != null && value.length() >= 2
+                                    && value.startsWith("\"") && value.endsWith("\"")) {
+                                try {
+                                    String encoded = value.substring(1, value.length() - 1);
+                                    byte[] decoded = Base64.decode(encoded, Base64.DEFAULT);
+                                    html = new String(decoded, java.nio.charset.StandardCharsets.UTF_8);
+                                } catch (Exception ignored) {
+                                    html = "";
+                                }
                             }
 
                             // The informer links wrap the real event URL in the "u" query parameter.
