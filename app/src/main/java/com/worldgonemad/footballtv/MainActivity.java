@@ -2151,13 +2151,10 @@ public class MainActivity extends Activity {
                 return;
             }
 
-            // The raw HTTP response often omits JavaScript-created Browser Links.
-            // If extraction fails, do not declare the stream dead after one hidden
-            // WebView attempt: open the actual LiveTV.sx event page visibly in-app.
-            // This lets its own scripts, cookies and player selection run normally.
+            // Never replace the requested video playback with the event website.
+            // If no media was extracted from the event/player pages, report extraction failure.
             resolved[0] = true;
-            status.setText("Открытие страницы матча LiveTV.sx...");
-            showLiveTvWebPlayer(match, streamEventUrl);
+            status.setText("Не удалось извлечь видеопоток LiveTV.sx.");
         };
 
         final Runnable[] tryNext = new Runnable[1];
@@ -2230,8 +2227,8 @@ public class MainActivity extends Activity {
                             + "var a=[];"
                             + "document.querySelectorAll('video,video source,audio source').forEach(function(e){if(e.src)a.push(e.src);});"
                             + "document.querySelectorAll('iframe,frame').forEach(function(e){if(e.src)a.push('FRAME:'+e.src);});"
-                            + "document.querySelectorAll('a[href],[data-url],[data-player],[data-href],[data-link]').forEach(function(e){var u=e.href||e.getAttribute('data-url')||e.getAttribute('data-player')||e.getAttribute('data-href')||e.getAttribute('data-link');if(u)a.push('LINK:'+u);});"
-                            + "document.querySelectorAll('script').forEach(function(e){if(e.textContent&&e.textContent.indexOf('webplayer_')>=0)a.push('HTML:'+e.textContent);});"
+                            + "document.querySelectorAll('a[href],[onclick],[data-url],[data-player],[data-href],[data-link],[data-src],[data-iframe],[data-content]').forEach(function(e){['href','onclick','data-url','data-player','data-href','data-link','data-src','data-iframe','data-content'].forEach(function(k){var v=e.getAttribute(k);if(v)a.push('LINK:'+v);});try{if(e.href&&e.href!==e.getAttribute('href'))a.push('LINK:'+e.href);}catch(x){}});"
+                            + "document.querySelectorAll('script, [id], [class]').forEach(function(e){var t=e.textContent||'';if(t.indexOf('webplayer_')>=0||t.indexOf('webplayer.php')>=0||t.indexOf('.m3u8')>=0)a.push('HTML:'+t);});"
                             + "try{performance.getEntriesByType('resource').forEach(function(e){if(e.name)a.push(e.name);});}catch(x){}"
                             + "return JSON.stringify(a);"
                             + "})()",
