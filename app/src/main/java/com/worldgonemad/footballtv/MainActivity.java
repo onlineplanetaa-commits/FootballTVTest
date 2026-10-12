@@ -2130,10 +2130,33 @@ public class MainActivity extends Activity {
                 return;
             }
 
-            // Never replace the requested video playback with the event website.
-            // If no media was extracted from the event/player pages, report extraction failure.
+            // The LiveTV browser-link URL is itself a playable in-app player wrapper.
+            // Some providers (notably t=ifr and t=alieztv) use MSE/blob URLs or nested
+            // frames, so their real media URL is invisible to a simple .m3u8/.mp4 scan.
+            // After scanning every candidate for a direct media URL, open the best actual
+            // player wrapper in the visible WebView instead of failing or showing the event page.
+            String playerFallback = "";
+            for (String candidate : sourceCandidates) {
+                if (candidate == null) continue;
+                String u = candidate.trim();
+                String lower = u.toLowerCase(Locale.US);
+                if (!lower.contains("webplayer.php") && !lower.contains("webplayer2.php")) continue;
+                if (lower.contains("t=alieztv")) {
+                    playerFallback = u;
+                    break;
+                }
+                if (playerFallback.isEmpty()) playerFallback = u;
+            }
+            if (!playerFallback.isEmpty()) {
+                resolved[0] = true;
+                status.setText("Запуск встроенного плеера LiveTV.sx...");
+                showLiveTvWebPlayer(match, playerFallback);
+                return;
+            }
+
+            // No browser-player URL was found at all; don't silently show the event page.
             resolved[0] = true;
-            status.setText("Не удалось извлечь видеопоток LiveTV.sx.");
+            status.setText("Не удалось найти плеер LiveTV.sx или извлечь видеопоток.");
         };
 
         final Runnable[] tryNext = new Runnable[1];
