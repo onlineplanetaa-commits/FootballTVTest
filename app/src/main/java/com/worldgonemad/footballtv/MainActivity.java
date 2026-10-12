@@ -2129,6 +2129,28 @@ public class MainActivity extends Activity {
                 handler.postDelayed(() -> startLiveTvResolver(match), 100);
                 return;
             }
+
+            // Some LiveTV.sx Browser Links (especially webplayer.php?t=ifr)
+            // expose the stream only inside their own embedded player and do not
+            // publish a usable .m3u8 URL to the hidden resolver. As a last resort,
+            // open that player page visibly inside the app instead of failing.
+            String iframeFallback = "";
+            for (String candidate : sourceCandidates) {
+                if (candidate == null) continue;
+                String lower = candidate.toLowerCase(Locale.US);
+                if (lower.contains("webplayer.php?t=ifr")
+                        || lower.contains("webplayer2.php?t=ifr")) {
+                    iframeFallback = candidate;
+                    break;
+                }
+            }
+            if (!iframeFallback.isEmpty()) {
+                resolved[0] = true;
+                status.setText("Открытие встроенного видеоплеера...");
+                showLiveTvWebPlayer(match, iframeFallback);
+                return;
+            }
+
             resolved[0] = true;
             status.setText("Рабочая трансляция не найдена.");
         };
