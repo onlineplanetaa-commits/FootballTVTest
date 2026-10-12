@@ -2134,20 +2134,20 @@ public class MainActivity extends Activity {
             // expose the stream only inside their own embedded player and do not
             // publish a usable .m3u8 URL to the hidden resolver. As a last resort,
             // open that player page visibly inside the app instead of failing.
-            String iframeFallback = "";
+            String browserPlayerFallback = "";
             for (String candidate : sourceCandidates) {
                 if (candidate == null) continue;
                 String lower = candidate.toLowerCase(Locale.US);
-                if (lower.contains("webplayer.php?t=ifr")
-                        || lower.contains("webplayer2.php?t=ifr")) {
-                    iframeFallback = candidate;
+                if (lower.contains("webplayer.php?")
+                        || lower.contains("webplayer2.php?")) {
+                    browserPlayerFallback = candidate;
                     break;
                 }
             }
-            if (!iframeFallback.isEmpty()) {
+            if (!browserPlayerFallback.isEmpty()) {
                 resolved[0] = true;
                 status.setText("Открытие встроенного видеоплеера...");
-                showLiveTvWebPlayer(match, iframeFallback);
+                showLiveTvWebPlayer(match, browserPlayerFallback);
                 return;
             }
 
@@ -2209,7 +2209,7 @@ public class MainActivity extends Activity {
                         + sourceCandidates.size() + "...");
 
                 Map<String, String> headers = new HashMap<>();
-                headers.put("Referer", match.eventUrl);
+                headers.put("Referer", streamEventUrl);
                 headers.put(
                         "User-Agent",
                         "Mozilla/5.0 (Linux; Android 11; Android TV) AppleWebKit/537.36 Chrome/124.0.0.0 Safari/537.36"
@@ -2865,7 +2865,7 @@ public class MainActivity extends Activity {
         // initial player request instead of loading the player as an
         // unrelated top-level page.
         Map<String, String> webHeaders = new HashMap<>();
-        webHeaders.put("Referer", match.eventUrl);
+        webHeaders.put("Referer", liveTvSxEventUrl(match.eventUrl));
         webHeaders.put(
                 "User-Agent",
                 "Mozilla/5.0 (Linux; Android 11; Android TV) AppleWebKit/537.36 Chrome/124.0.0.0 Safari/537.36"
