@@ -2184,11 +2184,11 @@ public class MainActivity extends Activity {
                     return;
                 }
 
-                // The event page is a discovery page, not a stream candidate.
-                // Load it first so JavaScript-created Browser Links can be collected.
+                // The event page is only a fallback when no real Browser Link was
+                // present in the downloaded HTML. Keep it visible instead of blacking out. 
                 if (playerUrl.equals(streamEventUrl)) {
                     activePlayerUrl[0] = streamEventUrl;
-                    status.setText("Получение Browser Links со страницы матча LiveTV.sx...");
+                    status.setText("Открытие страницы матча LiveTV.sx...");
                     Map<String, String> eventHeaders = new HashMap<>();
                     eventHeaders.put("Referer", "https://livetv.sx/");
                     eventHeaders.put("User-Agent", "Mozilla/5.0 (Linux; Android 11; Android TV) AppleWebKit/537.36 Chrome/124.0.0.0 Safari/537.36");
@@ -2592,15 +2592,17 @@ public class MainActivity extends Activity {
             runOnUiThread(() -> {
                 if (resolved[0] || resolverWebView != web) return;
 
-                // Always scan the rendered event page first. Static HTML can contain
-                // only one selector while the other Browser Links are added by JavaScript.
-                // Keep static candidates queued; the WebView scan merges in the rendered ones.
+                // Use the real Browser Links extracted from the event HTML first.
+                // Do not force the event page into the queue ahead of known player links:
+                // that caused a black screen when the rendered-page scan returned no links.
                 ArrayList<String> initialCandidates = new ArrayList<>();
-                initialCandidates.add(streamEventUrl);
                 for (String u : found) {
                     if (u != null && !u.isEmpty() && !u.equals(streamEventUrl)
                             && !initialCandidates.contains(u)) initialCandidates.add(u);
                 }
+                // Only load the event page as a last-resort browser view when the HTML
+                // contains no actual Browser Link at all.
+                if (initialCandidates.isEmpty()) initialCandidates.add(streamEventUrl);
                 startCandidates(initialCandidates, status, sourceCandidates, current, resolved, tryNext);
             });
         }).start();
