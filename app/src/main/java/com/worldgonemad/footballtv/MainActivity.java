@@ -772,9 +772,10 @@ public class MainActivity extends Activity {
                 attempts++;
                 view.evaluateJavascript(
                         "(function(){"
-                                + "var as=document.querySelectorAll('a[href*="infin.php"]');"
-                                + "for(var i=0;i<as.length;i++){try{var u=new URL(as[i].href).searchParams.get('u');"
-                                + "if(u){as[i].setAttribute('href',decodeURIComponent(u));}}catch(e){}}"
+                                + "var as=document.getElementsByTagName('a');"
+                                + "for(var i=0;i<as.length;i++){try{if(as[i].href.indexOf('infin.php')<0)continue;"
+                                + "var u=new URL(as[i].href).searchParams.get('u');"
+                                + "if(u){as[i].setAttribute('href',u);}}catch(e){}}"
                                 + "return document.documentElement.outerHTML;})()",
                         value -> {
                             if (finished || matchLoaderWebView != web) return;
