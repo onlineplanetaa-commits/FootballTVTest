@@ -2203,6 +2203,8 @@ public class MainActivity extends Activity {
                             + "var a=[];"
                             + "document.querySelectorAll('video,video source,audio source').forEach(function(e){if(e.src)a.push(e.src);});"
                             + "document.querySelectorAll('iframe,frame').forEach(function(e){if(e.src)a.push('FRAME:'+e.src);});"
+                            + "document.querySelectorAll('a[href],[data-url],[data-player],[data-href],[data-link]').forEach(function(e){var u=e.href||e.getAttribute('data-url')||e.getAttribute('data-player')||e.getAttribute('data-href')||e.getAttribute('data-link');if(u)a.push('LINK:'+u);});"
+                            + "document.querySelectorAll('script').forEach(function(e){if(e.textContent&&e.textContent.indexOf('webplayer_')>=0)a.push('HTML:'+e.textContent);});"
                             + "try{performance.getEntriesByType('resource').forEach(function(e){if(e.name)a.push(e.name);});}catch(x){}"
                             + "return JSON.stringify(a);"
                             + "})()",
@@ -2220,6 +2222,27 @@ public class MainActivity extends Activity {
 
                                 ArrayList<String> media = new ArrayList<>();
                                 ArrayList<String> frames = new ArrayList<>();
+                                ArrayList<String> browserLinks = new ArrayList<>();
+
+                                // LiveTV.sx sometimes renders Browser Links only after JavaScript runs.
+                                // Inspect DOM links/scripts as well as media and iframe resources.
+                                Matcher lm = Pattern.compile(
+                                        "(?i)(?:LINK:|HTML:)[^\\\"'<>\\s]*#webplayer_[A-Za-z0-9_-]+(?:\\\\\\\\\\\\|[A-Za-z0-9._:%+~-]+)*|(?:LINK:)[^\\\"'<>\\s]*webplayer(?:2)?\\\\.php\\\\?[^\\\"'<>\\s]+"
+                                ).matcher(decoded);
+                                while (lm.find()) {
+                                    String link = lm.group(0);
+                                    int prefix = link.startsWith("LINK:") ? 5 : 5;
+                                    link = link.substring(prefix).replace("&amp;", "&");
+                                    if (link.contains("#webplayer_")) {
+                                        int hash = link.indexOf("#webplayer_");
+                                        String player = webPlayerFromFragment(streamEventUrl, link.substring(hash));
+                                        if (!player.isEmpty() && !browserLinks.contains(player)) browserLinks.add(player);
+                                    } else {
+                                        String player = link;
+                                        if (!player.startsWith("http")) player = "https://livetv.sx/" + player.replaceFirst("^/", "");
+                                        if (!browserLinks.contains(player)) browserLinks.add(player);
+                                    }
+                                }
 
                                 Matcher mm = Pattern.compile(
                                         "(?i)https?://[^\\\"'<>\\s]+(?:\\.m3u8(?:\\?[^\\\"'<>\\s]*)?|\\.mp4(?:\\?[^\\\"'<>\\s]*)?)"
@@ -2240,6 +2263,9 @@ public class MainActivity extends Activity {
                                 if (!media.isEmpty() && !playbackAttemptActive[0]) {
                                     playbackAttemptActive[0] = true;
                                     playStreamCandidates(match, media, 0, playbackAttemptActive);
+                                } else if (!browserLinks.isEmpty()) {
+                                    sourceCandidates.addAll(browserLinks);
+                                    tryNext[0].run();
                                 } else if (!frames.isEmpty()) {
                                     sourceCandidates.addAll(frames);
                                     tryNext[0].run();
@@ -2446,30 +2472,13 @@ public class MainActivity extends Activity {
                 if (!found.isEmpty()) {
                     startCandidates(found, status, sourceCandidates, current, resolved, tryNext);
                 } else {
-                    status.setText("Ссылки трансляций не найдены. Проверка резервного источника...");
-                    String backup = alternateEventUrl(streamEventUrl);
-
-                    if (!fallbackUsed[0] && !backup.isEmpty()) {
-                        fallbackUsed[0] = true;
-                        new Thread(() -> {
-                            String backupHtml = downloadPage(backup);
-                            ArrayList<String> backupFound = new ArrayList<>();
-                            collectWebPlayerUrls(backupHtml, backup, backupFound);
-
-                            runOnUiThread(() -> {
-                                if (resolved[0] || resolverWebView != web) return;
-                                if (!backupFound.isEmpty()) {
-                                    startCandidates(backupFound, status, sourceCandidates, current, resolved, tryNext);
-                                } else {
-                                    resolved[0] = true;
-                                    status.setText("Ссылки на трансляции не найдены.");
-                                }
-                            });
-                        }).start();
-                    } else {
-                        resolved[0] = true;
-                        status.setText("Ссылки на трансляции не найдены.");
-                    }
+                    // The plain HTTP response can omit player selectors because LiveTV.sx
+                    // renders them with JavaScript. Load the event page in WebView and let
+                    // its DOM/resource scanner discover the actual Browser Link or media.
+                    status.setText("Загрузка страницы LiveTV.sx для поиска плеера...");
+                    ArrayList<String> eventPageCandidate = new ArrayList<>();
+                    eventPageCandidate.add(streamEventUrl);
+                    startCandidates(eventPageCandidate, status, sourceCandidates, current, resolved, tryNext);
                 }
             });
         }).start();
