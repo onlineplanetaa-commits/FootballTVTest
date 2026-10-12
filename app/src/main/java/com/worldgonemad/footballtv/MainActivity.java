@@ -2403,7 +2403,7 @@ public class MainActivity extends Activity {
                 super.onLoadResource(view, url);
                 if (resolved[0] || url == null) return;
 
-                if (isLikelyLiveMediaUrl(url) && !playbackAttemptActive[0]) {
+                if (false && isLikelyLiveMediaUrl(url) && !playbackAttemptActive[0]) {
                     playbackAttemptActive[0] = true;
                     ArrayList<String> media = new ArrayList<>();
                     String cookie = CookieManager.getInstance().getCookie(url);
@@ -2446,7 +2446,7 @@ public class MainActivity extends Activity {
                 if (request != null && request.getUrl() != null) {
                     String mediaUrl = request.getUrl().toString();
 
-                    if (isLikelyLiveMediaUrl(mediaUrl) && !playbackAttemptActive[0]) {
+                    if (false && isLikelyLiveMediaUrl(mediaUrl) && !playbackAttemptActive[0]) {
                         Map<String, String> requestHeaders = request.getRequestHeaders();
                         String referer = "";
                         String userAgent = "";
