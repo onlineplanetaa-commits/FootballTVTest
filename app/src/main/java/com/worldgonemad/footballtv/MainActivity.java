@@ -2267,10 +2267,20 @@ public class MainActivity extends Activity {
                                     playbackAttemptActive[0] = true;
                                     playStreamCandidates(match, media, 0, playbackAttemptActive);
                                 } else if (!browserLinks.isEmpty()) {
-                                    sourceCandidates.addAll(browserLinks);
+                                    for (String link : browserLinks) {
+                                        if (link != null && !link.isEmpty()
+                                                && !sourceCandidates.contains(link)) {
+                                            sourceCandidates.add(link);
+                                        }
+                                    }
                                     tryNext[0].run();
                                 } else if (!frames.isEmpty()) {
-                                    sourceCandidates.addAll(frames);
+                                    for (String frame : frames) {
+                                        if (frame != null && !frame.isEmpty()
+                                                && !sourceCandidates.contains(frame)) {
+                                            sourceCandidates.add(frame);
+                                        }
+                                    }
                                     tryNext[0].run();
                                 } else {
                                     tryNext[0].run();
@@ -2323,7 +2333,13 @@ public class MainActivity extends Activity {
                     }
 
                     media.add(candidate);
-                    playStreamCandidates(match, media, 0, playbackAttemptActive);
+                    playStreamCandidates(match, media, 0, playbackAttemptActive, () -> {
+                        if (!resolved[0] && resolverWebView == web) {
+                            playbackAttemptActive[0] = false;
+                            status.setText("Поток не открылся. Проверка следующей ссылки...");
+                            tryNext[0].run();
+                        }
+                    });
                 }
             }
 
@@ -2395,7 +2411,13 @@ public class MainActivity extends Activity {
 
                             media.add(candidate);
                             status.setText("Трансляция найдена. Запуск плеера...");
-                            playStreamCandidates(match, media, 0, playbackAttemptActive);
+                            playStreamCandidates(match, media, 0, playbackAttemptActive, () -> {
+                                if (!resolved[0] && resolverWebView == web) {
+                                    playbackAttemptActive[0] = false;
+                                    status.setText("Поток не открылся. Проверка следующей ссылки...");
+                                    tryNext[0].run();
+                                }
+                            });
                         });
                     }
                 }
@@ -2516,10 +2538,8 @@ public class MainActivity extends Activity {
             );
         });
 
-        if (found.size() > 12) {
-            found.subList(12, found.size()).clear();
-        }
-
+        // Keep every distinct candidate: LiveTV events often provide several
+        // player variants and later links may be the only working ones.
         if (found.isEmpty()) {
             resolved[0] = true;
             status.setText("Ссылки на трансляции не найдены.");
