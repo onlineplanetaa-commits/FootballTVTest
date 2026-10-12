@@ -2252,7 +2252,7 @@ public class MainActivity extends Activity {
                 if (lowerPlayerUrl.contains("webplayer.php") || lowerPlayerUrl.contains("webplayer2.php")) {
                     resolved[0] = true;
                     status.setText("Открытие встроенного плеера LiveTV.sx...");
-                    showLiveTvWebPlayer(match, playerUrl);
+                    showLiveTvWebPlayer(match, playerUrl, sourceCandidates, Math.max(0, current[0] - 1));
                     return;
                 }
 
@@ -2909,6 +2909,17 @@ public class MainActivity extends Activity {
     }
 
     private void showLiveTvWebPlayer(Match match, String playerUrl) {
+        ArrayList<String> onlyThisPlayer = new ArrayList<>();
+        if (playerUrl != null && !playerUrl.isEmpty()) onlyThisPlayer.add(playerUrl);
+        showLiveTvWebPlayer(match, playerUrl, onlyThisPlayer, 0);
+    }
+
+    private void showLiveTvWebPlayer(
+            Match match,
+            String playerUrl,
+            ArrayList<String> playerCandidates,
+            int playerIndex
+    ) {
         releasePlayer();
         playerScreen = true;
         youtubePlayerScreen = playerUrl != null
@@ -2943,6 +2954,21 @@ public class MainActivity extends Activity {
         FrameLayout playerFrame = new FrameLayout(this);
         playerFrame.setBackgroundColor(Color.BLACK);
         playerFrame.addView(web, new FrameLayout.LayoutParams(-1, -1));
+
+        // Let the viewer switch to every discovered Browser Link if a provider
+        // fails to start. These remain actual LiveTV player URLs, not guessed media URLs.
+        if (playerCandidates != null && playerCandidates.size() > 1) {
+            Button nextPlayer = action("СЛЕДУЮЩИЙ ПЛЕЕР  " + (playerIndex + 1) + "/" + playerCandidates.size());
+            FrameLayout.LayoutParams nextParams = new FrameLayout.LayoutParams(-2, 52, Gravity.TOP | Gravity.LEFT);
+            nextParams.setMargins(16, 16, 0, 0);
+            nextPlayer.setElevation(20f);
+            playerFrame.addView(nextPlayer, nextParams);
+            nextPlayer.setOnClickListener(v -> {
+                int nextIndex = (playerIndex + 1) % playerCandidates.size();
+                String nextUrl = playerCandidates.get(nextIndex);
+                showLiveTvWebPlayer(match, nextUrl, playerCandidates, nextIndex);
+            });
+        }
 
         // Keep Kyiv time above the LiveTV.sx iframe video while it is playing.
         TextView clock = createKyivClock();
