@@ -719,8 +719,115 @@ public class MainActivity extends Activity {
                     if (listContainer == null) showMatches();
                     else renderMatches();
                 }
+                // Try the user's configured LiveTV informer for the LIVE list.
+                // Keep the existing page/cache results if the informer cannot load.
+                loadInformerLiveMatches();
             });
         }).start();
+    }
+
+    private void loadInformerLiveMatches() {
+        if (isFinishing() || isDestroyed()) return;
+
+        if (matchLoaderWebView != null) {
+            try {
+                matchLoaderWebView.stopLoading();
+                matchLoaderWebView.destroy();
+            } catch (Exception ignored) {}
+            matchLoaderWebView = null;
+        }
+
+        WebView web = new WebView(this);
+        matchLoaderWebView = web;
+        web.getSettings().setJavaScriptEnabled(true);
+        web.getSettings().setDomStorageEnabled(true);
+        web.getSettings().setUserAgentString(
+                "Mozilla/5.0 (Linux; Android 11; Android TV) AppleWebKit/537.36 Chrome/124.0.0.0 Safari/537.36"
+        );
+        web.setVisibility(View.GONE);
+
+        final String informerHtml =
+                "<!doctype html><html><head><meta charset='utf-8'></head><body>"
+                + "<div id='3919332862f8dcab8a9c775dc372f32c'>Loading...</div>"
+                + "<script charset='utf-8'>"
+                + "livetvdt=new Date();livetvxh=livetvdt.getHours();livetvxd=livetvdt.getDate();"
+                + "livetvxm=livetvdt.getMonth();livetvxy=livetvdt.getFullYear();"
+                + "livetvfd=(livetvxh+'.'+livetvxd+'.'+livetvxm+'.'+livetvxy);"
+                + "document.write('<scr'+'ipt src=\"https://cdn.livetv904.me/informers/3273951.js?'+livetvfd+'\" charset=\"utf-8\"></scr'+'ipt>');"
+                + "</script></body></html>";
+
+        web.setWebViewClient(new WebViewClient() {
+            private boolean finished = false;
+            private int attempts = 0;
+
+            @Override
+            public void onPageFinished(WebView view, String url) {
+                super.onPageFinished(view, url);
+                if (finished) return;
+                handler.postDelayed(() -> inspectInformer(view), 1200);
+            }
+
+            private void inspectInformer(WebView view) {
+                if (finished || matchLoaderWebView != web) return;
+                attempts++;
+                view.evaluateJavascript(
+                        "(function(){return document.documentElement.outerHTML;})()",
+                        value -> {
+                            if (finished || matchLoaderWebView != web) return;
+                            String html = value;
+                            if (html != null && html.length() >= 2
+                                    && html.startsWith("\"") && html.endsWith("\"")) {
+                                html = html.substring(1, html.length() - 1)
+                                        .replace("\\\"", "\"")
+                                        .replace("\\\\", "\\")
+                                        .replace("\\n", "\n")
+                                        .replace("\\r", "\r");
+                            }
+
+                            ArrayList<Match> informerMatches =
+                                    parseMatches(html, true, "https://livetv.sx");
+                            if (informerMatches.isEmpty() && attempts < 3) {
+                                handler.postDelayed(() -> inspectInformer(view), 1500);
+                                return;
+                            }
+
+                            finished = true;
+                            matchLoaderWebView = null;
+                            try {
+                                view.stopLoading();
+                                view.destroy();
+                            } catch (Exception ignored) {}
+
+                            if (informerMatches.isEmpty()) {
+                                // No informer data: preserve existing list and cache.
+                                return;
+                            }
+
+                            matches.clear();
+                            matches.addAll(informerMatches);
+                            saveLiveMatchesCache(informerMatches);
+                            if (!playerScreen) {
+                                if (listContainer == null) showMatches();
+                                else renderMatches();
+                            }
+                        }
+                );
+            }
+
+            @Override
+            public void onReceivedError(WebView view, WebResourceRequest request,
+                                        android.webkit.WebResourceError error) {
+                super.onReceivedError(view, request, error);
+                if (request != null && request.isForMainFrame() && !finished) {
+                    finished = true;
+                    if (matchLoaderWebView == web) matchLoaderWebView = null;
+                    try { view.destroy(); } catch (Exception ignored) {}
+                    // Keep the existing LiveTV page/cache results on informer failure.
+                }
+            }
+        });
+
+        web.loadDataWithBaseURL("https://livetv.sx/", informerHtml, "text/html", "UTF-8", null);
     }
 
     private String downloadFlashscoreFeed() {
