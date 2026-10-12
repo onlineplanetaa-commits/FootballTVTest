@@ -2630,17 +2630,18 @@ public class MainActivity extends Activity {
             boolean eventB = b != null && b.toLowerCase(Locale.US).contains("/eventinfo/")
                     && !b.toLowerCase(Locale.US).contains("webplayer");
             if (eventA != eventB) return eventA ? -1 : 1;
-            // Preserve all provider types, but try AliezTV before generic iframe links
-            // when language priority is equal: LiveTV exposes it as #webplayer_alieztv|...
-            int youtubeA = a != null && a.toLowerCase(Locale.US).contains("t=youtube") ? 1 : 0;
-            int youtubeB = b != null && b.toLowerCase(Locale.US).contains("t=youtube") ? 1 : 0;
-            if (youtubeA != youtubeB) return Integer.compare(youtubeA, youtubeB);
+            // AliezTV is the primary LiveTV.sx provider: try it before every other
+            // Browser Link because it supplies working streams for many matches.
+            int aliezA = a != null && a.toLowerCase(Locale.US).contains("t=alieztv") ? 0 : 1;
+            int aliezB = b != null && b.toLowerCase(Locale.US).contains("t=alieztv") ? 0 : 1;
+            if (aliezA != aliezB) return Integer.compare(aliezA, aliezB);
+            // For remaining providers, prefer Ukrainian/Russian links, then non-YouTube.
             int langA = browserLinkLanguagePriority(a);
             int langB = browserLinkLanguagePriority(b);
             if (langA != langB) return Integer.compare(langA, langB);
-            int aliezA = a != null && a.toLowerCase(Locale.US).contains("t=alieztv") ? 0 : 1;
-            int aliezB = b != null && b.toLowerCase(Locale.US).contains("t=alieztv") ? 0 : 1;
-            return Integer.compare(aliezA, aliezB);
+            int youtubeA = a != null && a.toLowerCase(Locale.US).contains("t=youtube") ? 1 : 0;
+            int youtubeB = b != null && b.toLowerCase(Locale.US).contains("t=youtube") ? 1 : 0;
+            return Integer.compare(youtubeA, youtubeB);
         });
 
         // Keep every distinct candidate: LiveTV events often provide several
