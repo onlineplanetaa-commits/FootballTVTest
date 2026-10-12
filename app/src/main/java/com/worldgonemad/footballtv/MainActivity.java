@@ -77,7 +77,7 @@ public class MainActivity extends Activity {
     private final int LIVE = Color.rgb(90, 220, 140);
 
     private static final String PRIMARY_LIVE_TV_URL =
-            "https://livetv.sx/ua/allupcomingsports/1/";
+            "https://livetv904.me/allupcomingsports/1/";
 
     // LiveTV schedule widget embedded on myfootball.sbs/football.
     private static final String MYFOOTBALL_SCHEDULE_URL =
@@ -700,8 +700,8 @@ public class MainActivity extends Activity {
     private void loadMatches() {
         new Thread(() -> {
             String liveTvHtml = downloadPage(PRIMARY_LIVE_TV_URL);
-            ArrayList<Match> liveResults = parseMatches(liveTvHtml, true, "https://livetv.sx");
-            ArrayList<Match> dailyResults = parseMatches(liveTvHtml, false, "https://livetv.sx");
+            ArrayList<Match> liveResults = parseMatches(liveTvHtml, true, "https://livetv904.me");
+            ArrayList<Match> dailyResults = parseMatches(liveTvHtml, false, "https://livetv904.me");
 
             if (!liveResults.isEmpty()) saveLiveMatchesCache(liveResults);
             else liveResults = readLiveMatchesCache();
