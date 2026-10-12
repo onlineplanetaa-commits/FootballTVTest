@@ -2188,7 +2188,7 @@ public class MainActivity extends Activity {
                 // Load it first so JavaScript-created Browser Links can be collected.
                 if (playerUrl.equals(streamEventUrl)) {
                     activePlayerUrl[0] = streamEventUrl;
-                    status.setText("Сканирование страницы матча и JavaScript-плееров...");
+                    status.setText("Получение Browser Links со страницы матча LiveTV.sx...");
                     Map<String, String> eventHeaders = new HashMap<>();
                     eventHeaders.put("Referer", "https://livetv.sx/");
                     eventHeaders.put("User-Agent", "Mozilla/5.0 (Linux; Android 11; Android TV) AppleWebKit/537.36 Chrome/124.0.0.0 Safari/537.36");
@@ -2234,8 +2234,13 @@ public class MainActivity extends Activity {
                                     sourceCandidates.remove(streamEventUrl);
                                     current[0] = 0;
                                     if (sourceCandidates.isEmpty()) {
+                                        // Browser Links may be created or exposed only by LiveTV's own page.
+                                        // Do not stop with a false "no webplayer links" error. Open the
+                                        // actual event page in the in-app browser so its native Browser
+                                        // Links remain available to the viewer.
                                         resolved[0] = true;
-                                        status.setText("На странице матча не найдены ссылки webplayer.");
+                                        status.setText("Открытие страницы матча LiveTV.sx — Browser Links...");
+                                        showLiveTvWebPlayer(match, streamEventUrl);
                                         return;
                                     }
                                     status.setText("Найдено вариантов плеера: " + sourceCandidates.size() + ". Открытие первого...");
