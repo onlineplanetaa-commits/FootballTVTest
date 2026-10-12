@@ -2953,7 +2953,50 @@ public class MainActivity extends Activity {
         CookieManager.getInstance().setAcceptCookie(true);
         CookieManager.getInstance().setAcceptThirdPartyCookies(web, true);
 
-        web.setWebChromeClient(new WebChromeClient());
+        // LiveTV's second Browser Link commonly uses target="_blank" / window.open().
+        // Keep that link inside this same in-app player screen instead of losing the popup.
+        web.getSettings().setSupportMultipleWindows(true);
+        web.getSettings().setJavaScriptCanOpenWindowsAutomatically(true);
+        web.setWebChromeClient(new WebChromeClient() {
+            @Override
+            public boolean onCreateWindow(
+                    WebView view,
+                    boolean isDialog,
+                    boolean isUserGesture,
+                    android.os.Message resultMsg
+            ) {
+                WebView popup = new WebView(MainActivity.this);
+                popup.getSettings().setJavaScriptEnabled(true);
+                popup.getSettings().setDomStorageEnabled(true);
+                CookieManager.getInstance().setAcceptThirdPartyCookies(popup, true);
+                popup.setWebViewClient(new WebViewClient() {
+                    @Override
+                    public boolean shouldOverrideUrlLoading(WebView popupView, String url) {
+                        if (url != null && !url.isEmpty() && !"about:blank".equals(url)) {
+                            web.loadUrl(url);
+                            return true;
+                        }
+                        return false;
+                    }
+
+                    @Override
+                    public void onPageStarted(
+                            WebView popupView,
+                            String url,
+                            android.graphics.Bitmap favicon
+                    ) {
+                        if (url != null && !url.isEmpty() && !"about:blank".equals(url)) {
+                            web.loadUrl(url);
+                        }
+                    }
+                });
+                android.webkit.WebView.WebViewTransport transport =
+                        (android.webkit.WebView.WebViewTransport) resultMsg.obj;
+                transport.setWebView(popup);
+                resultMsg.sendToTarget();
+                return true;
+            }
+        });
         web.setWebViewClient(new WebViewClient());
 
         FrameLayout playerFrame = new FrameLayout(this);
