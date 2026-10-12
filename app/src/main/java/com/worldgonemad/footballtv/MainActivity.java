@@ -2454,16 +2454,14 @@ public class MainActivity extends Activity {
                 }
             }
         }
-        if (!urlFragmentCandidates.isEmpty()) {
-            startCandidates(urlFragmentCandidates, status, sourceCandidates, current, resolved, tryNext);
-            return;
-        }
-
-        // Fetch the event HTML directly. We do not wait for WebView
-        // onPageFinished before discovering Browser Links.
+        // Do not stop at the first #webplayer_* fragment. LiveTV.sx events can
+        // expose several Browser Links, and the first one may be dead. Keep the
+        // fragment candidates, then merge in every webplayer.php/webplayer2.php
+        // link found in the event HTML before trying any candidate.
         new Thread(() -> {
             String html = downloadPage(streamEventUrl);
             ArrayList<String> found = new ArrayList<>();
+            found.addAll(urlFragmentCandidates);
             collectWebPlayerUrls(html, streamEventUrl, found);
 
             runOnUiThread(() -> {
