@@ -698,15 +698,53 @@ public class MainActivity extends Activity {
 
     private void loadMatches() {
         new Thread(() -> {
+            // Use a dedicated football-only scores feed for match data.
+            // LiveTV's mixed/dynamic HTML is not reliable as the only list source.
+            ArrayList<Match> feedMatches = parseFlashscoreFeed(downloadFlashscoreFeed());
+            ArrayList<Match> liveResults = new ArrayList<>();
+            ArrayList<Match> dailyResults = new ArrayList<>();
+
+            if (!feedMatches.isEmpty()) {
+                for (Match item : feedMatches) {
+                    if (item.live) liveResults.add(item);
+                    // Keep today's fixtures and tomorrow's early fixtures in the schedule.
+                    if (!item.time.startsWith("ЗАВЕРШЁН")) dailyResults.add(item);
+                }
+            }
+
+            // Keep LiveTV's event URLs for matches it can identify, so playback
+            // still opens the correct LiveTV event page whenever possible.
             String liveTvHtml = downloadPage(PRIMARY_LIVE_TV_URL);
-            ArrayList<Match> liveResults = parseMatches(liveTvHtml, true, "https://livetv.sx");
-            ArrayList<Match> dailyResults = parseMatches(liveTvHtml, false, "https://livetv.sx");
+            ArrayList<Match> liveTvCandidates = parseMatches(liveTvHtml, true, "https://livetv.sx");
+            if (!liveTvCandidates.isEmpty()) {
+                for (Match feedMatch : liveResults) {
+                    for (Match liveTvMatch : liveTvCandidates) {
+                        boolean sameOrder = normalizeTeamForMatch(feedMatch.home).equals(normalizeTeamForMatch(liveTvMatch.home))
+                                && normalizeTeamForMatch(feedMatch.away).equals(normalizeTeamForMatch(liveTvMatch.away));
+                        boolean reverseOrder = normalizeTeamForMatch(feedMatch.home).equals(normalizeTeamForMatch(liveTvMatch.away))
+                                && normalizeTeamForMatch(feedMatch.away).equals(normalizeTeamForMatch(liveTvMatch.home));
+                        if (sameOrder || reverseOrder) {
+                            feedMatch.fallbackEventUrl = feedMatch.eventUrl;
+                            feedMatch.eventUrl = liveTvMatch.eventUrl;
+                            break;
+                        }
+                    }
+                }
+            }
 
-            if (!liveResults.isEmpty()) saveLiveMatchesCache(liveResults);
-            else liveResults = readLiveMatchesCache();
+            if (liveResults.isEmpty()) {
+                // Only use cached items that were previously marked LIVE.
+                ArrayList<Match> cached = readLiveMatchesCache();
+                for (Match item : cached) if (item.live) liveResults.add(item);
+            } else {
+                saveLiveMatchesCache(liveResults);
+            }
 
-            if (!dailyResults.isEmpty()) saveTodayMatches(dailyResults);
-            else dailyResults = readTodayMatchesCache();
+            if (dailyResults.isEmpty()) {
+                dailyResults = readTodayMatchesCache();
+            } else {
+                saveTodayMatches(dailyResults);
+            }
 
             ArrayList<Match> loadedLive = new ArrayList<>(liveResults);
             ArrayList<Match> loadedDaily = new ArrayList<>(dailyResults);
@@ -719,9 +757,6 @@ public class MainActivity extends Activity {
                     if (listContainer == null) showMatches();
                     else renderMatches();
                 }
-                // Try the user's configured LiveTV informer for the LIVE list.
-                // Keep the existing page/cache results if the informer cannot load.
-                loadInformerLiveMatches();
             });
         }).start();
     }
