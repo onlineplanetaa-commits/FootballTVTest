@@ -2581,25 +2581,53 @@ public class MainActivity extends Activity {
         // fragment candidates, then merge in every webplayer.php/webplayer2.php
         // link found in the event HTML before trying any candidate.
         new Thread(() -> {
-            String html = downloadPage(streamEventUrl);
+            // Build #294 could discover Browser Links from either LiveTV host.
+            // Keep that dual-host discovery, but normalize every actual player URL
+            // to LiveTV.sx for playback because that is the provider the user confirmed works.
             ArrayList<String> found = new ArrayList<>();
             found.addAll(urlFragmentCandidates);
-            collectWebPlayerUrls(html, streamEventUrl, found);
+
+            ArrayList<String> eventPages = new ArrayList<>();
+            eventPages.add(streamEventUrl);
+            String originalEventUrl = match.eventUrl == null ? "" : match.eventUrl;
+            if (!originalEventUrl.isEmpty() && !eventPages.contains(originalEventUrl)) {
+                eventPages.add(originalEventUrl);
+            }
+            String alternate = alternateEventUrl(streamEventUrl);
+            if (!alternate.isEmpty() && !eventPages.contains(alternate)) eventPages.add(alternate);
+
+            for (String eventPage : eventPages) {
+                String html = downloadPage(eventPage);
+                ArrayList<String> pageCandidates = new ArrayList<>();
+                collectWebPlayerUrls(html, eventPage, pageCandidates);
+                for (String u : pageCandidates) {
+                    if (u == null || u.isEmpty()) continue;
+                    String normalized = u
+                            .replace("https://livetv904.me", "https://livetv.sx")
+                            .replace("http://livetv904.me", "https://livetv.sx");
+                    if (!found.contains(normalized)) found.add(normalized);
+                }
+            }
 
             runOnUiThread(() -> {
                 if (resolved[0] || resolverWebView != web) return;
 
-                // Use the real Browser Links extracted from the event HTML first.
-                // Do not force the event page into the queue ahead of known player links:
-                // that caused a black screen when the rendered-page scan returned no links.
+                // Only actual Browser Links go into the playback queue.
+                // The event page is used for discovery, never as a player.
                 ArrayList<String> initialCandidates = new ArrayList<>();
                 for (String u : found) {
                     if (u != null && !u.isEmpty() && !u.equals(streamEventUrl)
-                            && !initialCandidates.contains(u)) initialCandidates.add(u);
+                            && !u.contains("/eventinfo/")
+                            && (u.toLowerCase(Locale.US).contains("webplayer.php")
+                                || u.toLowerCase(Locale.US).contains("webplayer2.php"))
+                            && !initialCandidates.contains(u)) {
+                        initialCandidates.add(u);
+                    }
                 }
-                // Only load the event page as a last-resort browser view when the HTML
-                // contains no actual Browser Link at all.
-                if (initialCandidates.isEmpty()) initialCandidates.add(streamEventUrl);
+                if (initialCandidates.isEmpty()) {
+                    // Keep the hidden WebView DOM/script scan as the final discovery path.
+                    initialCandidates.add(streamEventUrl);
+                }
                 startCandidates(initialCandidates, status, sourceCandidates, current, resolved, tryNext);
             });
         }).start();
