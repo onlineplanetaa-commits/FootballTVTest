@@ -1937,14 +1937,15 @@ public class MainActivity extends Activity {
         startLiveTvResolver(match);
     }
 
-    private String alternateEventUrl(String eventUrl) {
+    // Playback resolution uses LiveTV.sx only. Match-list fetching is unchanged.
+    private String liveTvSxEventUrl(String eventUrl) {
         if (eventUrl == null || eventUrl.isEmpty()) return "";
-        if (eventUrl.contains("livetv.sx")) {
-            return eventUrl.replace("https://livetv.sx", "https://livetv904.me");
-        }
-        if (eventUrl.contains("livetv904.me")) {
-            return eventUrl.replace("https://livetv904.me", "https://livetv.sx");
-        }
+        return eventUrl.replace("https://livetv904.me", "https://livetv.sx")
+                .replace("http://livetv904.me", "https://livetv.sx");
+    }
+
+    // No secondary streaming host is allowed.
+    private String alternateEventUrl(String eventUrl) {
         return "";
     }
 
@@ -2060,6 +2061,13 @@ public class MainActivity extends Activity {
     }
 
     private void startLiveTvResolver(Match match) {
+        // Do not mutate match.eventUrl: it is also used by list/favorite logic.
+        // Normalize only the stream resolver's local URL to LiveTV.sx.
+        final String streamEventUrl = liveTvSxEventUrl(match.eventUrl);
+        if (streamEventUrl.isEmpty() || !streamEventUrl.contains("livetv.sx")) {
+            showPlayer(match, "Ссылка LiveTV.sx для трансляции недоступна.");
+            return;
+        }
         releasePlayerOnly();
         playerScreen = true;
 
@@ -2113,7 +2121,7 @@ public class MainActivity extends Activity {
 
         Runnable finishNoStream = () -> {
             if (resolved[0]) return;
-            String backup = alternateEventUrl(match.eventUrl);
+            String backup = alternateEventUrl(streamEventUrl);
             if (!fallbackUsed[0] && !backup.isEmpty()) {
                 fallbackUsed[0] = true;
                 status.setText("Проверка резервного источника...");
@@ -2143,7 +2151,7 @@ public class MainActivity extends Activity {
 
                 String playerUrl = candidate.trim();
                 if (playerUrl.toLowerCase(Locale.US).startsWith("#webplayer_")) {
-                    playerUrl = webPlayerFromFragment(match.eventUrl, playerUrl);
+                    playerUrl = webPlayerFromFragment(streamEventUrl, playerUrl);
                 }
                 if (playerUrl.isEmpty()) {
                     run();
@@ -2409,12 +2417,12 @@ public class MainActivity extends Activity {
         ArrayList<String> urlFragmentCandidates = new ArrayList<>();
         if (match.eventUrl != null) {
             Pattern eventFragmentPattern = Pattern.compile(
-                    "(?i)#webplayer_[A-Za-z0-9_-]+(?:\\\\|[A-Za-z0-9._:%+~-]+)*"
+                    "(?i)#webplayer_[A-Za-z0-9_-]+(?:\\|[A-Za-z0-9._:%+~-]+)*"
             );
-            Matcher eventFragmentMatcher = eventFragmentPattern.matcher(match.eventUrl);
+            Matcher eventFragmentMatcher = eventFragmentPattern.matcher(streamEventUrl);
             while (eventFragmentMatcher.find()) {
                 String fragment = eventFragmentMatcher.group(0);
-                String playerUrl = webPlayerFromFragment(match.eventUrl, fragment);
+                String playerUrl = webPlayerFromFragment(streamEventUrl, fragment);
                 if (!playerUrl.isEmpty() && !urlFragmentCandidates.contains(playerUrl)) {
                     urlFragmentCandidates.add(playerUrl);
                 }
@@ -2428,9 +2436,9 @@ public class MainActivity extends Activity {
         // Fetch the event HTML directly. We do not wait for WebView
         // onPageFinished before discovering Browser Links.
         new Thread(() -> {
-            String html = downloadPage(match.eventUrl);
+            String html = downloadPage(streamEventUrl);
             ArrayList<String> found = new ArrayList<>();
-            collectWebPlayerUrls(html, match.eventUrl, found);
+            collectWebPlayerUrls(html, streamEventUrl, found);
 
             runOnUiThread(() -> {
                 if (resolved[0] || resolverWebView != web) return;
@@ -2439,12 +2447,10 @@ public class MainActivity extends Activity {
                     startCandidates(found, status, sourceCandidates, current, resolved, tryNext);
                 } else {
                     status.setText("Ссылки трансляций не найдены. Проверка резервного источника...");
-                    String backup = alternateEventUrl(match.eventUrl);
+                    String backup = alternateEventUrl(streamEventUrl);
 
                     if (!fallbackUsed[0] && !backup.isEmpty()) {
                         fallbackUsed[0] = true;
-                        match.eventUrl = backup;
-
                         new Thread(() -> {
                             String backupHtml = downloadPage(backup);
                             ArrayList<String> backupFound = new ArrayList<>();
