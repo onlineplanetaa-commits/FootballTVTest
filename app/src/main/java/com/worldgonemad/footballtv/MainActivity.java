@@ -77,6 +77,9 @@ public class MainActivity extends Activity {
     private final int LIVE = Color.rgb(90, 220, 140);
 
     private static final String PRIMARY_LIVE_TV_URL =
+            "https://livetv.sx/allupcomingsports/1/";
+
+    private static final String НАЗАДUP_LIVE_TV_URL =
             "https://livetv904.me/allupcomingsports/1/";
 
     // LiveTV schedule widget embedded on myfootball.sbs/football.
@@ -699,9 +702,21 @@ public class MainActivity extends Activity {
 
     private void loadMatches() {
         new Thread(() -> {
+            // Restore build #294 match-list sources and parsing; playback logic is separate.
             String liveTvHtml = downloadPage(PRIMARY_LIVE_TV_URL);
-            ArrayList<Match> liveResults = parseMatches(liveTvHtml, true, "https://livetv904.me");
-            ArrayList<Match> dailyResults = parseMatches(liveTvHtml, false, "https://livetv904.me");
+            String liveTv904Html = downloadPage(НАЗАДUP_LIVE_TV_URL);
+
+            ArrayList<Match> liveResults = parseMatches(liveTvHtml, true, "https://livetv.sx");
+            mergeMatches(liveResults, parseMatches(liveTv904Html, true, "https://livetv904.me"));
+            if (liveResults.size() > 80) {
+                liveResults = new ArrayList<>(liveResults.subList(0, 80));
+            }
+
+            ArrayList<Match> dailyResults = parseMatches(liveTvHtml, false, "https://livetv.sx");
+            mergeMatches(dailyResults, parseMatches(liveTv904Html, false, "https://livetv904.me"));
+            String widgetHtml = downloadPage(MYFOOTBALL_SCHEDULE_URL);
+            mergeMatches(dailyResults, parseMatches(widgetHtml, false, "https://livetv.sx"));
+            mergeMatches(dailyResults, liveResults);
 
             if (!liveResults.isEmpty()) saveLiveMatchesCache(liveResults);
             else liveResults = readLiveMatchesCache();
@@ -720,9 +735,6 @@ public class MainActivity extends Activity {
                     if (listContainer == null) showMatches();
                     else renderMatches();
                 }
-                // Try the user's configured LiveTV informer for the LIVE list.
-                // Keep the existing page/cache results if the informer cannot load.
-                loadInformerLiveMatches();
             });
         }).start();
     }
