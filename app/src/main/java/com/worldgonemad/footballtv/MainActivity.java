@@ -784,8 +784,16 @@ public class MainActivity extends Activity {
                                         .replace("\\r", "\r");
                             }
 
-                            ArrayList<Match> informerMatches =
+                            ArrayList<Match> parsedInformerMatches =
                                     parseMatches(html, true, "https://livetv904.me");
+                            // The configured informer can contain scheduled fixtures too.
+                            // The "Онлайн матчи" list must never be replaced with non-live events.
+                            ArrayList<Match> informerMatches = new ArrayList<>();
+                            for (Match candidate : parsedInformerMatches) {
+                                if (candidate != null && candidate.live) {
+                                    informerMatches.add(candidate);
+                                }
+                            }
                             if (informerMatches.isEmpty() && attempts < 3) {
                                 handler.postDelayed(() -> inspectInformer(view), 1500);
                                 return;
