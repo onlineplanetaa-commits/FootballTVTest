@@ -2403,6 +2403,25 @@ public class MainActivity extends Activity {
         });
         setContentView(root);
 
+        // If the event URL already includes a LiveTV Browser Link fragment
+        // (for example #webplayer_alieztv|...|ua), use it directly. The fragment
+        // is never sent in an HTTP request, so it must be read from the URL itself.
+        ArrayList<String> urlFragmentCandidates = new ArrayList<>();
+        collectWebPlayerFragments(match.eventUrl, urlFragmentCandidates);
+        if (!urlFragmentCandidates.isEmpty()) {
+            ArrayList<String> resolvedFragments = new ArrayList<>();
+            for (String fragment : urlFragmentCandidates) {
+                String playerUrl = webPlayerFromFragment(match.eventUrl, fragment);
+                if (!playerUrl.isEmpty() && !resolvedFragments.contains(playerUrl)) {
+                    resolvedFragments.add(playerUrl);
+                }
+            }
+            if (!resolvedFragments.isEmpty()) {
+                startCandidates(resolvedFragments, status, sourceCandidates, current, resolved, tryNext);
+                return;
+            }
+        }
+
         // Fetch the event HTML directly. We do not wait for WebView
         // onPageFinished before discovering Browser Links.
         new Thread(() -> {
