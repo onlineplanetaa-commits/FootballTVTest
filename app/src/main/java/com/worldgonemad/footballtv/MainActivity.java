@@ -2227,7 +2227,7 @@ public class MainActivity extends Activity {
                                 // LiveTV.sx sometimes renders Browser Links only after JavaScript runs.
                                 // Inspect DOM links/scripts as well as media and iframe resources.
                                 Matcher lm = Pattern.compile(
-                                        "(?i)#webplayer_[A-Za-z0-9_-]+(?:\\\\|[A-Za-z0-9._:%+~-]+)*"
+                                        "(?i)#webplayer_[A-Za-z0-9_-]+(?:\\|[A-Za-z0-9._:%+~-]+)*"
                                 ).matcher(decoded);
                                 while (lm.find()) {
                                     String player = webPlayerFromFragment(streamEventUrl, lm.group(0));
