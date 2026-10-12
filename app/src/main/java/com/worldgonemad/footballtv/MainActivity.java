@@ -2213,7 +2213,7 @@ public class MainActivity extends Activity {
                                                 .replace("\\\\", "\\");
                                     }
                                     ArrayList<String> discovered = new ArrayList<>();
-                                    Matcher fragments = Pattern.compile("(?i)#webplayer_[A-Za-z0-9_-]+(?:\\\\|[A-Za-z0-9._:%+~-]+)*").matcher(decoded);
+                                    Matcher fragments = Pattern.compile("(?i)#webplayer_[A-Za-z0-9_-]+(?:\\|[A-Za-z0-9._:%+~-]+)*").matcher(decoded);
                                     while (fragments.find()) {
                                         String u = webPlayerFromFragment(streamEventUrl, fragments.group(0));
                                         if (!u.isEmpty() && !discovered.contains(u)) discovered.add(u);
@@ -2621,8 +2621,10 @@ public class MainActivity extends Activity {
         // The match page is scanned first; actual player URLs are sorted after it.
         // Among players, prefer UA/RU links and keep YouTube after other providers.
         found.sort((a, b) -> {
-            boolean eventA = a != null && a.equals(liveTvSxEventUrl(a));
-            boolean eventB = b != null && b.equals(liveTvSxEventUrl(b));
+            boolean eventA = a != null && a.toLowerCase(Locale.US).contains("/eventinfo/")
+                    && !a.toLowerCase(Locale.US).contains("webplayer");
+            boolean eventB = b != null && b.toLowerCase(Locale.US).contains("/eventinfo/")
+                    && !b.toLowerCase(Locale.US).contains("webplayer");
             if (eventA != eventB) return eventA ? -1 : 1;
             int youtubeA = a != null && a.toLowerCase(Locale.US).contains("t=youtube") ? 1 : 0;
             int youtubeB = b != null && b.toLowerCase(Locale.US).contains("t=youtube") ? 1 : 0;
