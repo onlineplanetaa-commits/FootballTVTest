@@ -259,7 +259,7 @@ public class MainActivity extends Activity {
 
         TextView title =
                 label(
-                        "МАКС Футбол Онлайн",
+                        "МАКС Футбол Онлайн SX",
                         28,
                         TEXT
                 );
@@ -338,7 +338,7 @@ public class MainActivity extends Activity {
 
         TextView logo =
                 label(
-                        "МАКС Футбол Онлайн",
+                        "МАКС Футбол Онлайн SX",
                         27,
                         TEXT
                 );
@@ -2943,7 +2943,7 @@ public class MainActivity extends Activity {
         top.setGravity(Gravity.CENTER_VERTICAL);
         top.setPadding(20, 8, 20, 8);
 
-        TextView title = label("МАКС Футбол Онлайн", 19, TEXT);
+        TextView title = label("МАКС Футбол Онлайн SX", 19, TEXT);
         title.setTypeface(Typeface.DEFAULT, Typeface.BOLD);
 
         top.addView(title, new LinearLayout.LayoutParams(0, 56, 1));
@@ -3094,7 +3094,7 @@ public class MainActivity extends Activity {
 
         TextView title =
                 label(
-                        "МАКС Футбол Онлайн",
+                        "МАКС Футбол Онлайн SX",
                         28,
                         TEXT
                 );
