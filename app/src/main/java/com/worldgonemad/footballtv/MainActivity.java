@@ -1938,7 +1938,13 @@ public class MainActivity extends Activity {
     }
 
     private String alternateEventUrl(String eventUrl) {
-        // This build uses LiveTV.sx only.
+        if (eventUrl == null || eventUrl.isEmpty()) return "";
+        if (eventUrl.contains("livetv.sx")) {
+            return eventUrl.replace("https://livetv.sx", "https://livetv904.me");
+        }
+        if (eventUrl.contains("livetv904.me")) {
+            return eventUrl.replace("https://livetv904.me", "https://livetv.sx");
+        }
         return "";
     }
 
@@ -2108,7 +2114,7 @@ public class MainActivity extends Activity {
         Runnable finishNoStream = () -> {
             if (resolved[0]) return;
             String backup = alternateEventUrl(match.eventUrl);
-            if (!fallbackUsed[0] && !backup.isEmpty() && !match.eventUrl.contains("livetv.sx")) {
+            if (!fallbackUsed[0] && !backup.isEmpty()) {
                 fallbackUsed[0] = true;
                 status.setText("Проверка резервного источника...");
                 match.eventUrl = backup;
