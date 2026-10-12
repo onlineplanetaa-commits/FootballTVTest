@@ -747,15 +747,11 @@ public class MainActivity extends Activity {
         );
         web.setVisibility(View.GONE);
 
-        final String informerHtml =
-                "<!doctype html><html><head><meta charset='utf-8'></head><body>"
-                + "<div id='3919332862f8dcab8a9c775dc372f32c'>Loading...</div>"
-                + "<script charset='utf-8'>"
-                + "livetvdt=new Date();livetvxh=livetvdt.getHours();livetvxd=livetvdt.getDate();"
-                + "livetvxm=livetvdt.getMonth();livetvxy=livetvdt.getFullYear();"
-                + "livetvfd=(livetvxh+'.'+livetvxd+'.'+livetvxm+'.'+livetvxy);"
-                + "document.write('<scr'+'ipt src=\"https://cdn.livetv904.me/informers/3273951.js?'+livetvfd+'\" charset=\"utf-8\"></scr'+'ipt>');"
-                + "</script></body></html>";
+        // Load the exact webmasters informer URL supplied by the user.
+        // Loading the page itself lets WebView inspect its actual document;
+        // a cross-origin iframe embedded in our own HTML would hide its rows.
+        final String informerUrl =
+                "https://livetv.sx/export/webmasters.php?lang=ru&id=3273951";
 
         web.setWebViewClient(new WebViewClient() {
             private boolean finished = false;
@@ -795,9 +791,9 @@ public class MainActivity extends Activity {
                             // The informer links wrap the real event URL in the "u" query parameter.
                             // The JavaScript above unwraps those URLs before parsing.
                             ArrayList<Match> informerDailyMatches =
-                                    parseMatches(html, false, "https://livetv904.me");
+                                    parseMatches(html, false, "https://livetv.sx");
                             ArrayList<Match> informerLiveMatches =
-                                    parseMatches(html, true, "https://livetv904.me");
+                                    parseMatches(html, true, "https://livetv.sx");
                             if (informerDailyMatches.isEmpty() && attempts < 3) {
                                 handler.postDelayed(() -> inspectInformer(view), 1500);
                                 return;
@@ -876,7 +872,7 @@ public class MainActivity extends Activity {
             }
         });
 
-        web.loadDataWithBaseURL("https://livetv.sx/", informerHtml, "text/html", "UTF-8", null);
+        web.loadUrl(informerUrl);
     }
 
     private String downloadFlashscoreFeed() {
