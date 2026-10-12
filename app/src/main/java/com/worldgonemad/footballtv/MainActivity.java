@@ -2184,11 +2184,11 @@ public class MainActivity extends Activity {
                     return;
                 }
 
-                // The event page is only a fallback when no real Browser Link was
-                // present in the downloaded HTML. Keep it visible instead of blacking out. 
+                // The event page is a hidden discovery source only, never the video player.
+                // It may be loaded to extract Browser Links, but must not be shown as playback.
                 if (playerUrl.equals(streamEventUrl)) {
                     activePlayerUrl[0] = streamEventUrl;
-                    status.setText("Открытие страницы матча LiveTV.sx...");
+                    status.setText("Поиск Browser Links на странице матча LiveTV.sx...");
                     Map<String, String> eventHeaders = new HashMap<>();
                     eventHeaders.put("Referer", "https://livetv.sx/");
                     eventHeaders.put("User-Agent", "Mozilla/5.0 (Linux; Android 11; Android TV) AppleWebKit/537.36 Chrome/124.0.0.0 Safari/537.36");
@@ -2234,13 +2234,10 @@ public class MainActivity extends Activity {
                                     sourceCandidates.remove(streamEventUrl);
                                     current[0] = 0;
                                     if (sourceCandidates.isEmpty()) {
-                                        // Browser Links may be created or exposed only by LiveTV's own page.
-                                        // Do not stop with a false "no webplayer links" error. Open the
-                                        // actual event page in the in-app browser so its native Browser
-                                        // Links remain available to the viewer.
+                                        // Never display the event page in the playback area.
+                                        // Only a Browser Link (webplayer.php/webplayer2.php) is a player candidate.
                                         resolved[0] = true;
-                                        status.setText("Открытие страницы матча LiveTV.sx — Browser Links...");
-                                        showLiveTvWebPlayer(match, streamEventUrl);
+                                        status.setText("Не удалось извлечь Browser Links. Страница матча не будет показана вместо видео.");
                                         return;
                                     }
                                     status.setText("Найдено вариантов плеера: " + sourceCandidates.size() + ". Открытие первого...");
@@ -2625,8 +2622,8 @@ public class MainActivity extends Activity {
     ) {
         if (resolved[0]) return;
 
-        // The match page is scanned first; actual player URLs are sorted after it.
-        // Among players, prefer UA/RU links and keep YouTube after other providers.
+        // Actual Browser Links only. The event page is a hidden discovery source,
+        // never a playable candidate. Prefer UA/RU links and keep YouTube after other providers.
         found.sort((a, b) -> {
             boolean eventA = a != null && a.toLowerCase(Locale.US).contains("/eventinfo/")
                     && !a.toLowerCase(Locale.US).contains("webplayer");
