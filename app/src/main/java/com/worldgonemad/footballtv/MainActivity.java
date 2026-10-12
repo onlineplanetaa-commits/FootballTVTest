@@ -2407,19 +2407,22 @@ public class MainActivity extends Activity {
         // (for example #webplayer_alieztv|...|ua), use it directly. The fragment
         // is never sent in an HTTP request, so it must be read from the URL itself.
         ArrayList<String> urlFragmentCandidates = new ArrayList<>();
-        collectWebPlayerFragments(match.eventUrl, urlFragmentCandidates);
-        if (!urlFragmentCandidates.isEmpty()) {
-            ArrayList<String> resolvedFragments = new ArrayList<>();
-            for (String fragment : urlFragmentCandidates) {
+        if (match.eventUrl != null) {
+            Pattern eventFragmentPattern = Pattern.compile(
+                    "(?i)#webplayer_[A-Za-z0-9_-]+(?:\\\\|[A-Za-z0-9._:%+~-]+)*"
+            );
+            Matcher eventFragmentMatcher = eventFragmentPattern.matcher(match.eventUrl);
+            while (eventFragmentMatcher.find()) {
+                String fragment = eventFragmentMatcher.group(0);
                 String playerUrl = webPlayerFromFragment(match.eventUrl, fragment);
-                if (!playerUrl.isEmpty() && !resolvedFragments.contains(playerUrl)) {
-                    resolvedFragments.add(playerUrl);
+                if (!playerUrl.isEmpty() && !urlFragmentCandidates.contains(playerUrl)) {
+                    urlFragmentCandidates.add(playerUrl);
                 }
             }
-            if (!resolvedFragments.isEmpty()) {
-                startCandidates(resolvedFragments, status, sourceCandidates, current, resolved, tryNext);
-                return;
-            }
+        }
+        if (!urlFragmentCandidates.isEmpty()) {
+            startCandidates(urlFragmentCandidates, status, sourceCandidates, current, resolved, tryNext);
+            return;
         }
 
         // Fetch the event HTML directly. We do not wait for WebView
