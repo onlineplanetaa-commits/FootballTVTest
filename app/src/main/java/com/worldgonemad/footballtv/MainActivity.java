@@ -1994,8 +1994,8 @@ public class MainActivity extends Activity {
     private void collectWebPlayerUrls(String html, String eventUrl, ArrayList<String> found) {
         if (html == null || html.isEmpty()) return;
 
-        // Exact Browser Link targets, for example:
-        // /webplayer.php?t=ifr&c=3083550&lang=ru&eid=453410644&lid=3083550&ci=442&si=1
+        // Browser Links can be encoded as HTML attributes, escaped JavaScript,
+        // or relative URLs. Normalize these forms before queuing player candidates.
         Pattern wp = Pattern.compile(
                 "(?i)(?:https?:\\/\\/[^\\\"'<>\\s]+|/)?webplayer(?:2)?\\.php\\?[^\\\"'<>\\s]+"
         );
@@ -2003,22 +2003,25 @@ public class MainActivity extends Activity {
         while (wm.find()) {
             String u = wm.group(0)
                     .replace("\\\\/", "/")
+                    .replace("\\u0026", "&")
                     .replace("&amp;", "&")
-                    .replace("\"", "")
+                    .replace("\\\"", "")
                     .trim();
 
+            while (u.endsWith(",") || u.endsWith(";") || u.endsWith(")") || u.endsWith("]")) {
+                u = u.substring(0, u.length() - 1);
+            }
+
             if (u.startsWith("/")) {
-                String host = "https://livetv.sx";
-                u = host + u;
+                u = "https://livetv.sx" + u;
             } else if (!u.startsWith("http://") && !u.startsWith("https://")) {
-                u = eventUrl.substring(0, eventUrl.indexOf("/", 8)) + "/" + u;
+                u = "https://livetv.sx/" + u;
             }
 
             if (!found.contains(u)) found.add(u);
         }
 
-        // Browser selectors are also useful because they contain all
-        // parameters needed to construct the exact webplayer.php URL.
+        // Browser selectors contain all parameters needed to construct the player URL.
         Pattern frag = Pattern.compile(
                 "(?i)#webplayer_[A-Za-z0-9_-]+(?:\\|[A-Za-z0-9._:%+~-]+)*"
         );
