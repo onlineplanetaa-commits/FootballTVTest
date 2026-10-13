@@ -1958,6 +1958,13 @@ public class MainActivity extends Activity {
 
     // No secondary streaming host is allowed.
     private String alternateEventUrl(String eventUrl) {
+        if (eventUrl == null || eventUrl.isEmpty()) return "";
+        if (eventUrl.contains("livetv.sx")) {
+            return eventUrl.replace("https://livetv.sx", "https://livetv904.me");
+        }
+        if (eventUrl.contains("livetv904.me")) {
+            return eventUrl.replace("https://livetv904.me", "https://livetv.sx");
+        }
         return "";
     }
 
@@ -2076,13 +2083,6 @@ public class MainActivity extends Activity {
     }
 
     private void startLiveTvResolver(Match match) {
-        // Do not mutate match.eventUrl: it is also used by list/favorite logic.
-        // Normalize only the stream resolver's local URL to LiveTV.sx.
-        final String streamEventUrl = liveTvSxEventUrl(match.eventUrl);
-        if (streamEventUrl.isEmpty() || !streamEventUrl.contains("livetv.sx")) {
-            showPlayer(match, "Ссылка LiveTV.sx для трансляции недоступна.");
-            return;
-        }
         releasePlayerOnly();
         playerScreen = true;
 
@@ -2136,42 +2136,16 @@ public class MainActivity extends Activity {
 
         Runnable finishNoStream = () -> {
             if (resolved[0]) return;
-            String backup = alternateEventUrl(streamEventUrl);
-            if (!fallbackUsed[0] && !backup.isEmpty()) {
+            String backup = alternateEventUrl(match.eventUrl);
+            if (!fallbackUsed[0] && !backup.isEmpty() && !match.eventUrl.contains("livetv904.me")) {
                 fallbackUsed[0] = true;
                 status.setText("Проверка резервного источника...");
                 match.eventUrl = backup;
                 handler.postDelayed(() -> startLiveTvResolver(match), 100);
                 return;
             }
-
-            // The LiveTV browser-link URL is itself a playable in-app player wrapper.
-            // Some providers (notably t=ifr and t=alieztv) use MSE/blob URLs or nested
-            // frames, so their real media URL is invisible to a simple .m3u8/.mp4 scan.
-            // After scanning every candidate for a direct media URL, open the best actual
-            // player wrapper in the visible WebView instead of failing or showing the event page.
-            String playerFallback = "";
-            for (String candidate : sourceCandidates) {
-                if (candidate == null) continue;
-                String u = candidate.trim();
-                String lower = u.toLowerCase(Locale.US);
-                if (!lower.contains("webplayer.php") && !lower.contains("webplayer2.php")) continue;
-                if (lower.contains("t=alieztv")) {
-                    playerFallback = u;
-                    break;
-                }
-                if (playerFallback.isEmpty()) playerFallback = u;
-            }
-            if (!playerFallback.isEmpty()) {
-                resolved[0] = true;
-                status.setText("Запуск встроенного плеера LiveTV.sx...");
-                showLiveTvWebPlayer(match, playerFallback);
-                return;
-            }
-
-            // No browser-player URL was found at all; don't silently show the event page.
             resolved[0] = true;
-            status.setText("Не удалось найти плеер LiveTV.sx или извлечь видеопоток.");
+            status.setText("Рабочая трансляция не найдена.");
         };
 
         final Runnable[] tryNext = new Runnable[1];
@@ -2192,88 +2166,27 @@ public class MainActivity extends Activity {
 
                 String playerUrl = candidate.trim();
                 if (playerUrl.toLowerCase(Locale.US).startsWith("#webplayer_")) {
-                    playerUrl = webPlayerFromFragment(streamEventUrl, playerUrl);
+                    playerUrl = webPlayerFromFragment(match.eventUrl, playerUrl);
                 }
                 if (playerUrl.isEmpty()) {
                     run();
                     return;
                 }
 
-                // The event page is a hidden discovery source only, never the video player.
-                // It may be loaded to extract Browser Links, but must not be shown as playback.
-                if (playerUrl.equals(streamEventUrl)) {
-                    activePlayerUrl[0] = streamEventUrl;
-                    status.setText("Поиск Browser Links на странице матча LiveTV.sx...");
-                    Map<String, String> eventHeaders = new HashMap<>();
-                    eventHeaders.put("Referer", "https://livetv.sx/");
-                    eventHeaders.put("User-Agent", "Mozilla/5.0 (Linux; Android 11; Android TV) AppleWebKit/537.36 Chrome/124.0.0.0 Safari/537.36");
-                    web.stopLoading();
-                    web.loadUrl(streamEventUrl, eventHeaders);
-                    handler.postDelayed(() -> {
-                        if (resolved[0] || resolverWebView != web || playbackAttemptActive[0]) return;
-                        web.evaluateJavascript(
-                                "(function(){var a=[];"
-                                + "document.querySelectorAll('a[href],iframe[src],frame[src], [onclick], [data-url], [data-player], [data-href], [data-link], [data-src], [data-iframe], [data-content]').forEach(function(e){"
-                                + "['href','src','onclick','data-url','data-player','data-href','data-link','data-src','data-iframe','data-content'].forEach(function(k){var v=e.getAttribute(k);if(v)a.push(v);});"
-                                + "});"
-                                + "document.querySelectorAll('script').forEach(function(e){if(e.textContent)a.push(e.textContent);});"
-                                + "try{performance.getEntriesByType('resource').forEach(function(e){if(e.name)a.push(e.name);});}catch(x){}"
-                                + "return JSON.stringify(a);})()",
-                                value -> {
-                                    if (resolved[0] || resolverWebView != web) return;
-                                    String decoded = value == null ? "" : value;
-                                    if (decoded.startsWith("\"") && decoded.endsWith("\"")) {
-                                        decoded = decoded.substring(1, decoded.length() - 1)
-                                                .replace("\\\"", "\"")
-                                                .replace("\\\\", "\\");
-                                    }
-                                    ArrayList<String> discovered = new ArrayList<>();
-                                    Matcher fragments = Pattern.compile("(?i)#webplayer_[A-Za-z0-9_-]+(?:\\|[A-Za-z0-9._:%+~-]+)*").matcher(decoded);
-                                    while (fragments.find()) {
-                                        String u = webPlayerFromFragment(streamEventUrl, fragments.group(0));
-                                        if (!u.isEmpty() && !discovered.contains(u)) discovered.add(u);
-                                    }
-                                    Matcher wrappers = Pattern.compile("(?i)(?:https?://[^\\\"'<>\\s]+|/)?webplayer(?:2)?\\.php\\?[^\\\"'<>\\s]+").matcher(decoded);
-                                    while (wrappers.find()) {
-                                        String u = wrappers.group(0).replace("\\\\/", "/").replace("&amp;", "&").replace("\\u0026", "&");
-                                        if (u.startsWith("/")) u = "https://livetv.sx" + u;
-                                        else if (!u.startsWith("http")) u = "https://livetv.sx/" + u;
-                                        while (u.endsWith(",") || u.endsWith(";") || u.endsWith(")")) u = u.substring(0, u.length() - 1);
-                                        if (!discovered.contains(u)) discovered.add(u);
-                                    }
-                                    for (String u : discovered) {
-                                        if (!sourceCandidates.contains(u)) sourceCandidates.add(u);
-                                    }
-                                    // Remove the discovery page from the queue; only actual player URLs
-                                    // are counted and opened in the embedded player.
-                                    sourceCandidates.remove(streamEventUrl);
-                                    current[0] = 0;
-                                    if (sourceCandidates.isEmpty()) {
-                                        // Never display the event page in the playback area.
-                                        // Only a Browser Link (webplayer.php/webplayer2.php) is a player candidate.
-                                        resolved[0] = true;
-                                        status.setText("Не удалось извлечь Browser Links. Страница матча не будет показана вместо видео.");
-                                        return;
-                                    }
-                                    status.setText("Найдено вариантов плеера: " + sourceCandidates.size() + ". Открытие первого...");
-                                    tryNext[0].run();
-                                }
-                        );
-                    }, 6500);
-                    return;
-                }
-
-                // A webplayer URL is already the browser player. Do not try to
-                // reverse-engineer its media URL: open it in the visible in-app WebView.
-                String lowerPlayerUrl = playerUrl.toLowerCase(Locale.US);
-                if (lowerPlayerUrl.contains("webplayer.php") || lowerPlayerUrl.contains("webplayer2.php")) {
-                    resolved[0] = true;
-                    status.setText("Открытие встроенного плеера LiveTV.sx...");
-                    showLiveTvWebPlayer(match, playerUrl, sourceCandidates, Math.max(0, current[0] - 1));
-                    return;
-                }
-
                 activePlayerUrl[0] = playerUrl;
+
+                // LiveTV browser links are web-player pages, not direct media URLs.
+                // Let the page's own JavaScript player handle playback in a full-screen
+                // WebView instead of trying to extract an HLS/MP4 URL from a hidden view.
+                String lowerPlayerUrl = playerUrl.toLowerCase(Locale.US);
+                if ((lowerPlayerUrl.contains("livetv.sx/") || lowerPlayerUrl.contains("livetv904.me/"))
+                        && (lowerPlayerUrl.contains("/webplayer.php")
+                        || lowerPlayerUrl.contains("/webplayer2.php"))) {
+                    status.setText("Открытие веб-плеера LiveTV.sx...");
+                    resolved[0] = true;
+                    showLiveTvWebPlayer(match, playerUrl);
+                    return;
+                }
 
                 // YouTube Browser Links are not ordinary HLS/MP4 sources.
                 // The YouTube player uses its own HTML5/MSE pipeline, so
@@ -2302,7 +2215,7 @@ public class MainActivity extends Activity {
                         + sourceCandidates.size() + "...");
 
                 Map<String, String> headers = new HashMap<>();
-                headers.put("Referer", streamEventUrl);
+                headers.put("Referer", match.eventUrl);
                 headers.put(
                         "User-Agent",
                         "Mozilla/5.0 (Linux; Android 11; Android TV) AppleWebKit/537.36 Chrome/124.0.0.0 Safari/537.36"
@@ -2318,8 +2231,6 @@ public class MainActivity extends Activity {
                             + "var a=[];"
                             + "document.querySelectorAll('video,video source,audio source').forEach(function(e){if(e.src)a.push(e.src);});"
                             + "document.querySelectorAll('iframe,frame').forEach(function(e){if(e.src)a.push('FRAME:'+e.src);});"
-                            + "document.querySelectorAll('a[href],[onclick],[data-url],[data-player],[data-href],[data-link],[data-src],[data-iframe],[data-content]').forEach(function(e){['href','onclick','data-url','data-player','data-href','data-link','data-src','data-iframe','data-content'].forEach(function(k){var v=e.getAttribute(k);if(v)a.push('LINK:'+v);});try{if(e.href&&e.href!==e.getAttribute('href'))a.push('LINK:'+e.href);}catch(x){}});"
-                            + "document.querySelectorAll('script, [id], [class]').forEach(function(e){var t=e.textContent||'';if(t.indexOf('webplayer_')>=0||t.indexOf('webplayer.php')>=0||t.indexOf('.m3u8')>=0)a.push('HTML:'+t);});"
                             + "try{performance.getEntriesByType('resource').forEach(function(e){if(e.name)a.push(e.name);});}catch(x){}"
                             + "return JSON.stringify(a);"
                             + "})()",
@@ -2337,27 +2248,6 @@ public class MainActivity extends Activity {
 
                                 ArrayList<String> media = new ArrayList<>();
                                 ArrayList<String> frames = new ArrayList<>();
-                                ArrayList<String> browserLinks = new ArrayList<>();
-
-                                // LiveTV.sx sometimes renders Browser Links only after JavaScript runs.
-                                // Inspect DOM links/scripts as well as media and iframe resources.
-                                Matcher lm = Pattern.compile(
-                                        "(?i)#webplayer_[A-Za-z0-9_-]+(?:\\|[A-Za-z0-9._:%+~-]+)*"
-                                ).matcher(decoded);
-                                while (lm.find()) {
-                                    String player = webPlayerFromFragment(streamEventUrl, lm.group(0));
-                                    if (!player.isEmpty() && !browserLinks.contains(player)) browserLinks.add(player);
-                                }
-
-                                Matcher pm = Pattern.compile(
-                                        "(?i)(?:https?://[^\\\"'<>\\s]+|/)?webplayer(?:2)?\\.php\\?[^\\\"'<>\\s]+"
-                                ).matcher(decoded);
-                                while (pm.find()) {
-                                    String player = pm.group(0).replace("\\\\/", "/").replace("&amp;", "&");
-                                    if (player.startsWith("/")) player = "https://livetv.sx" + player;
-                                    else if (!player.startsWith("http")) player = "https://livetv.sx/" + player;
-                                    if (!browserLinks.contains(player)) browserLinks.add(player);
-                                }
 
                                 Matcher mm = Pattern.compile(
                                         "(?i)https?://[^\\\"'<>\\s]+(?:\\.m3u8(?:\\?[^\\\"'<>\\s]*)?|\\.mp4(?:\\?[^\\\"'<>\\s]*)?)"
@@ -2378,21 +2268,8 @@ public class MainActivity extends Activity {
                                 if (!media.isEmpty() && !playbackAttemptActive[0]) {
                                     playbackAttemptActive[0] = true;
                                     playStreamCandidates(match, media, 0, playbackAttemptActive);
-                                } else if (!browserLinks.isEmpty()) {
-                                    for (String link : browserLinks) {
-                                        if (link != null && !link.isEmpty()
-                                                && !sourceCandidates.contains(link)) {
-                                            sourceCandidates.add(link);
-                                        }
-                                    }
-                                    tryNext[0].run();
                                 } else if (!frames.isEmpty()) {
-                                    for (String frame : frames) {
-                                        if (frame != null && !frame.isEmpty()
-                                                && !sourceCandidates.contains(frame)) {
-                                            sourceCandidates.add(frame);
-                                        }
-                                    }
+                                    sourceCandidates.addAll(frames);
                                     tryNext[0].run();
                                 } else {
                                     tryNext[0].run();
@@ -2409,7 +2286,7 @@ public class MainActivity extends Activity {
                 super.onPageStarted(view, url, favicon);
                 if (url != null && !url.isEmpty()) {
                     String top = activePlayerUrl[0];
-                    if (top.isEmpty() || url.equals(top) || !url.contains("livetv.sx/webplayer2.php")) {
+                    if (top.isEmpty() || url.equals(top) || !url.contains("livetv904.me/webplayer2.php")) {
                         activePlayerUrl[0] = url;
                     }
                 }
@@ -2420,7 +2297,7 @@ public class MainActivity extends Activity {
                 super.onLoadResource(view, url);
                 if (resolved[0] || url == null) return;
 
-                if (false && isLikelyLiveMediaUrl(url) && !playbackAttemptActive[0]) {
+                if (isLikelyLiveMediaUrl(url) && !playbackAttemptActive[0]) {
                     playbackAttemptActive[0] = true;
                     ArrayList<String> media = new ArrayList<>();
                     String cookie = CookieManager.getInstance().getCookie(url);
@@ -2445,13 +2322,7 @@ public class MainActivity extends Activity {
                     }
 
                     media.add(candidate);
-                    playStreamCandidates(match, media, 0, playbackAttemptActive, () -> {
-                        if (!resolved[0] && resolverWebView == web) {
-                            playbackAttemptActive[0] = false;
-                            status.setText("Поток не открылся. Проверка следующей ссылки...");
-                            tryNext[0].run();
-                        }
-                    });
+                    playStreamCandidates(match, media, 0, playbackAttemptActive);
                 }
             }
 
@@ -2463,7 +2334,7 @@ public class MainActivity extends Activity {
                 if (request != null && request.getUrl() != null) {
                     String mediaUrl = request.getUrl().toString();
 
-                    if (false && isLikelyLiveMediaUrl(mediaUrl) && !playbackAttemptActive[0]) {
+                    if (isLikelyLiveMediaUrl(mediaUrl) && !playbackAttemptActive[0]) {
                         Map<String, String> requestHeaders = request.getRequestHeaders();
                         String referer = "";
                         String userAgent = "";
@@ -2523,13 +2394,7 @@ public class MainActivity extends Activity {
 
                             media.add(candidate);
                             status.setText("Трансляция найдена. Запуск плеера...");
-                            playStreamCandidates(match, media, 0, playbackAttemptActive, () -> {
-                                if (!resolved[0] && resolverWebView == web) {
-                                    playbackAttemptActive[0] = false;
-                                    status.setText("Поток не открылся. Проверка следующей ссылки...");
-                                    tryNext[0].run();
-                                }
-                            });
+                            playStreamCandidates(match, media, 0, playbackAttemptActive);
                         });
                     }
                 }
@@ -2574,76 +2439,46 @@ public class MainActivity extends Activity {
         });
         setContentView(root);
 
-        // If the event URL already includes a LiveTV Browser Link fragment
-        // (for example #webplayer_alieztv|...|ua), use it directly. The fragment
-        // is never sent in an HTTP request, so it must be read from the URL itself.
-        ArrayList<String> urlFragmentCandidates = new ArrayList<>();
-        if (match.eventUrl != null) {
-            Pattern eventFragmentPattern = Pattern.compile(
-                    "(?i)#webplayer_[A-Za-z0-9_-]+(?:\\|[A-Za-z0-9._:%+~-]+)*"
-            );
-            Matcher eventFragmentMatcher = eventFragmentPattern.matcher(streamEventUrl);
-            while (eventFragmentMatcher.find()) {
-                String fragment = eventFragmentMatcher.group(0);
-                String playerUrl = webPlayerFromFragment(streamEventUrl, fragment);
-                if (!playerUrl.isEmpty() && !urlFragmentCandidates.contains(playerUrl)) {
-                    urlFragmentCandidates.add(playerUrl);
-                }
-            }
-        }
-        // Do not stop at the first #webplayer_* fragment. LiveTV.sx events can
-        // expose several Browser Links, and the first one may be dead. Keep the
-        // fragment candidates, then merge in every webplayer.php/webplayer2.php
-        // link found in the event HTML before trying any candidate.
+        // Fetch the event HTML directly. We do not wait for WebView
+        // onPageFinished before discovering Browser Links.
         new Thread(() -> {
-            // Build #294 could discover Browser Links from either LiveTV host.
-            // Keep that dual-host discovery, but normalize every actual player URL
-            // to LiveTV.sx for playback because that is the provider the user confirmed works.
+            String html = downloadPage(match.eventUrl);
             ArrayList<String> found = new ArrayList<>();
-            found.addAll(urlFragmentCandidates);
-
-            ArrayList<String> eventPages = new ArrayList<>();
-            eventPages.add(streamEventUrl);
-            String originalEventUrl = match.eventUrl == null ? "" : match.eventUrl;
-            if (!originalEventUrl.isEmpty() && !eventPages.contains(originalEventUrl)) {
-                eventPages.add(originalEventUrl);
-            }
-            String alternate = alternateEventUrl(streamEventUrl);
-            if (!alternate.isEmpty() && !eventPages.contains(alternate)) eventPages.add(alternate);
-
-            for (String eventPage : eventPages) {
-                String html = downloadPage(eventPage);
-                ArrayList<String> pageCandidates = new ArrayList<>();
-                collectWebPlayerUrls(html, eventPage, pageCandidates);
-                for (String u : pageCandidates) {
-                    if (u == null || u.isEmpty()) continue;
-                    String normalized = u
-                            .replace("https://livetv904.me", "https://livetv.sx")
-                            .replace("http://livetv904.me", "https://livetv.sx");
-                    if (!found.contains(normalized)) found.add(normalized);
-                }
-            }
+            collectWebPlayerUrls(html, match.eventUrl, found);
 
             runOnUiThread(() -> {
                 if (resolved[0] || resolverWebView != web) return;
 
-                // Only actual Browser Links go into the playback queue.
-                // The event page is used for discovery, never as a player.
-                ArrayList<String> initialCandidates = new ArrayList<>();
-                for (String u : found) {
-                    if (u != null && !u.isEmpty() && !u.equals(streamEventUrl)
-                            && !u.contains("/eventinfo/")
-                            && (u.toLowerCase(Locale.US).contains("webplayer.php")
-                                || u.toLowerCase(Locale.US).contains("webplayer2.php"))
-                            && !initialCandidates.contains(u)) {
-                        initialCandidates.add(u);
+                if (!found.isEmpty()) {
+                    startCandidates(found, status, sourceCandidates, current, resolved, tryNext);
+                } else {
+                    status.setText("Ссылки трансляций не найдены. Проверка резервного источника...");
+                    String backup = alternateEventUrl(match.eventUrl);
+
+                    if (!fallbackUsed[0] && !backup.isEmpty()) {
+                        fallbackUsed[0] = true;
+                        match.eventUrl = backup;
+
+                        new Thread(() -> {
+                            String backupHtml = downloadPage(backup);
+                            ArrayList<String> backupFound = new ArrayList<>();
+                            collectWebPlayerUrls(backupHtml, backup, backupFound);
+
+                            runOnUiThread(() -> {
+                                if (resolved[0] || resolverWebView != web) return;
+                                if (!backupFound.isEmpty()) {
+                                    startCandidates(backupFound, status, sourceCandidates, current, resolved, tryNext);
+                                } else {
+                                    resolved[0] = true;
+                                    status.setText("Ссылки на трансляции не найдены.");
+                                }
+                            });
+                        }).start();
+                    } else {
+                        resolved[0] = true;
+                        status.setText("Ссылки на трансляции не найдены.");
                     }
                 }
-                if (initialCandidates.isEmpty()) {
-                    // Keep the hidden WebView DOM/script scan as the final discovery path.
-                    initialCandidates.add(streamEventUrl);
-                }
-                startCandidates(initialCandidates, status, sourceCandidates, current, resolved, tryNext);
             });
         }).start();
 
@@ -2665,30 +2500,17 @@ public class MainActivity extends Activity {
     ) {
         if (resolved[0]) return;
 
-        // Actual Browser Links only. The event page is a hidden discovery source,
-        // never a playable candidate. Prefer UA/RU links and keep YouTube after other providers.
-        found.sort((a, b) -> {
-            boolean eventA = a != null && a.toLowerCase(Locale.US).contains("/eventinfo/")
-                    && !a.toLowerCase(Locale.US).contains("webplayer");
-            boolean eventB = b != null && b.toLowerCase(Locale.US).contains("/eventinfo/")
-                    && !b.toLowerCase(Locale.US).contains("webplayer");
-            if (eventA != eventB) return eventA ? -1 : 1;
-            // AliezTV is the primary LiveTV.sx provider: try it before every other
-            // Browser Link because it supplies working streams for many matches.
-            int aliezA = a != null && a.toLowerCase(Locale.US).contains("t=alieztv") ? 0 : 1;
-            int aliezB = b != null && b.toLowerCase(Locale.US).contains("t=alieztv") ? 0 : 1;
-            if (aliezA != aliezB) return Integer.compare(aliezA, aliezB);
-            // For remaining providers, prefer Ukrainian/Russian links, then non-YouTube.
-            int langA = browserLinkLanguagePriority(a);
-            int langB = browserLinkLanguagePriority(b);
-            if (langA != langB) return Integer.compare(langA, langB);
-            int youtubeA = a != null && a.toLowerCase(Locale.US).contains("t=youtube") ? 1 : 0;
-            int youtubeB = b != null && b.toLowerCase(Locale.US).contains("t=youtube") ? 1 : 0;
-            return Integer.compare(youtubeA, youtubeB);
-        });
+        // Put Ukrainian/Russian Browser Links first, then all other links.
+        // If there are no Ukrainian/Russian links, the normal links are used immediately.
+        found.sort((a, b) -> Integer.compare(
+                browserLinkLanguagePriority(a),
+                browserLinkLanguagePriority(b)
+        ));
 
-        // Keep every distinct candidate: LiveTV events often provide several
-        // player variants and later links may be the only working ones.
+        if (found.size() > 12) {
+            found.subList(12, found.size()).clear();
+        }
+
         if (found.isEmpty()) {
             resolved[0] = true;
             status.setText("Ссылки на трансляции не найдены.");
