@@ -70,6 +70,7 @@ public class MainActivity extends Activity {
     private final WebView[] multiWebViews = new WebView[4];
     private final FrameLayout[] multiVideoFrames = new FrameLayout[4];
     private final TextView[] multiTitles = new TextView[4];
+    private final Button[] multiSelectButtons = new Button[4];
     private final LinearLayout[] multiCells = new LinearLayout[4];
     private int multiFocusedSlot = 0;
 
@@ -488,14 +489,10 @@ public class MainActivity extends Activity {
             LinearLayout cell = new LinearLayout(this);
             cell.setOrientation(LinearLayout.VERTICAL);
             cell.setBackground(bg(PANEL, 10));
-            cell.setFocusable(true);
-            cell.setFocusableInTouchMode(true);
-            cell.setOnFocusChangeListener((v, focused) -> {
-                if (focused) {
-                    multiFocusedSlot = slot;
-                    updateMultiBorders();
-                }
-            });
+            // The cell itself must not take DPAD focus on Android TV;
+            // otherwise the remote selects the panel instead of its SELECT button.
+            cell.setFocusable(false);
+            cell.setFocusableInTouchMode(false);
             multiCells[i] = cell;
 
             LinearLayout controls = new LinearLayout(this);
@@ -505,7 +502,16 @@ public class MainActivity extends Activity {
             multiTitles[i] = matchTitle;
             controls.addView(matchTitle, new LinearLayout.LayoutParams(0, 40, 1));
             Button select = action("ВЫБРАТЬ");
+            multiSelectButtons[i] = select;
+            select.setFocusable(true);
+            select.setFocusableInTouchMode(true);
             select.setTextSize(11);
+            select.setOnFocusChangeListener((v, focused) -> {
+                if (focused) {
+                    multiFocusedSlot = slot;
+                    updateMultiBorders();
+                }
+            });
             select.setOnClickListener(v -> chooseMultiMatch(slot));
             controls.addView(select, new LinearLayout.LayoutParams(100, 38));
             cell.addView(controls, new LinearLayout.LayoutParams(-1, 42));
@@ -524,7 +530,7 @@ public class MainActivity extends Activity {
         }
         setContentView(root);
         updateMultiBorders();
-        multiCells[0].requestFocus();
+        multiSelectButtons[0].requestFocus();
     }
 
     private void chooseMultiMatch(int slot) {
