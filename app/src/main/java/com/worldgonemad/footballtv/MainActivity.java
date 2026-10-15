@@ -398,6 +398,15 @@ public class MainActivity extends Activity {
                 new LinearLayout.LayoutParams(0, 54, 1));
         tabs.addView(sectionButton("★ Избранные матчи", SECTION_FAVORITES),
                 new LinearLayout.LayoutParams(0, 54, 1));
+        Button multiScreenButton = action("▦ Мультиэкран");
+        multiScreenButton.setTextSize(13);
+        multiScreenButton.setPadding(6, 0, 6, 0);
+        multiScreenButton.setOnFocusChangeListener((v, hasFocus) -> {
+            multiScreenButton.setBackground(bg(hasFocus ? Color.rgb(255, 205, 35) : ACCENT, 12));
+            multiScreenButton.setTextColor(hasFocus ? Color.BLACK : Color.WHITE);
+        });
+        multiScreenButton.setOnClickListener(v -> openMultiScreen());
+        tabs.addView(multiScreenButton, new LinearLayout.LayoutParams(0, 54, 1));
         root.addView(tabs);
 
         sectionTitle = label(sectionTitleText(), 22, TEXT);
@@ -418,6 +427,26 @@ public class MainActivity extends Activity {
 
         setContentView(root);
         renderMatches();
+    }
+
+    private void openMultiScreen() {
+        ArrayList<Match> visible = getVisibleMatches();
+        ArrayList<String> titles = new ArrayList<>();
+        ArrayList<String> urls = new ArrayList<>();
+        for (Match match : visible) {
+            if (match.eventUrl == null || match.eventUrl.trim().isEmpty()) continue;
+            titles.add(match.home + " — " + match.away + "  |  " + match.league);
+            urls.add(match.eventUrl);
+            if (titles.size() >= 100) break;
+        }
+        if (titles.isEmpty()) {
+            showError("Нет матчей со ссылками для мультиэкрана. Выбери раздел «Онлайн матчи» и обнови список.");
+            return;
+        }
+        android.content.Intent intent = new android.content.Intent(this, MultiScreenActivity.class);
+        intent.putStringArrayListExtra("match_titles", titles);
+        intent.putStringArrayListExtra("match_urls", urls);
+        startActivity(intent);
     }
 
     private Button sectionButton(String caption, int section) {
