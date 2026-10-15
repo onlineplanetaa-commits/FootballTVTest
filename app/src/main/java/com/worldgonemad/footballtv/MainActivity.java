@@ -65,6 +65,14 @@ public class MainActivity extends Activity {
     private boolean flashscoreScreen = false;
     private WebView flashscoreWebView;
 
+    // Multi-screen additions only; the original match list and single player stay unchanged.
+    private boolean multiScreen = false;
+    private final WebView[] multiWebViews = new WebView[4];
+    private final FrameLayout[] multiVideoFrames = new FrameLayout[4];
+    private final TextView[] multiTitles = new TextView[4];
+    private final LinearLayout[] multiCells = new LinearLayout[4];
+    private int multiFocusedSlot = 0;
+
     private final Handler handler =
             new Handler(Looper.getMainLooper());
 
@@ -364,6 +372,14 @@ public class MainActivity extends Activity {
                 )
         );
 
+
+        Button multiScreenButton = actionButton("▦ Мультиэкран");
+        multiScreenButton.setTextSize(12);
+        multiScreenButton.setOnClickListener(v -> showMultiScreen());
+        LinearLayout.LayoutParams multiButtonParams = new LinearLayout.LayoutParams(170, 54);
+        multiButtonParams.setMargins(8, 0, 12, 0);
+        header.addView(multiScreenButton, multiButtonParams);
+
         statusText =
                 label(
                         matches.size()
@@ -431,6 +447,166 @@ public class MainActivity extends Activity {
             showMatches();
         });
         return button;
+    }
+
+
+    // Four independent match windows. This section uses each match's existing LiveTV
+    // event URL and does not alter the existing single-match playback pipeline.
+    private void showMultiScreen() {
+        multiScreen = true;
+        setImmersivePlayback(false);
+        releaseMultiPlayers();
+
+        LinearLayout root = new LinearLayout(this);
+        root.setOrientation(LinearLayout.VERTICAL);
+        root.setBackgroundColor(BG);
+
+        LinearLayout header = new LinearLayout(this);
+        header.setGravity(Gravity.CENTER_VERTICAL);
+        header.setPadding(14, 4, 14, 4);
+        TextView title = label("МУЛЬТИЭКРАН — 4 МАТЧА", 20, TEXT);
+        title.setTypeface(Typeface.DEFAULT, Typeface.BOLD);
+        header.addView(title, new LinearLayout.LayoutParams(0, 48, 1));
+        Button back = actionButton("НАЗАД К МАТЧАМ");
+        back.setOnClickListener(v -> leaveMultiScreen());
+        header.addView(back, new LinearLayout.LayoutParams(190, 46));
+        root.addView(header, new LinearLayout.LayoutParams(-1, 54));
+
+        TextView hint = label("Выберите окно и матч. Для управления используйте пульт.", 12, MUTED);
+        hint.setPadding(16, 0, 16, 0);
+        root.addView(hint, new LinearLayout.LayoutParams(-1, 28));
+
+        LinearLayout top = new LinearLayout(this);
+        top.setOrientation(LinearLayout.HORIZONTAL);
+        LinearLayout bottom = new LinearLayout(this);
+        bottom.setOrientation(LinearLayout.HORIZONTAL);
+        root.addView(top, new LinearLayout.LayoutParams(-1, 0, 1));
+        root.addView(bottom, new LinearLayout.LayoutParams(-1, 0, 1));
+
+        for (int i = 0; i < 4; i++) {
+            final int slot = i;
+            LinearLayout cell = new LinearLayout(this);
+            cell.setOrientation(LinearLayout.VERTICAL);
+            cell.setBackground(bg(PANEL, 10));
+            cell.setFocusable(true);
+            cell.setFocusableInTouchMode(true);
+            cell.setOnFocusChangeListener((v, focused) -> {
+                if (focused) {
+                    multiFocusedSlot = slot;
+                    updateMultiBorders();
+                }
+            });
+            multiCells[i] = cell;
+
+            LinearLayout controls = new LinearLayout(this);
+            controls.setGravity(Gravity.CENTER_VERTICAL);
+            controls.setPadding(5, 2, 5, 2);
+            TextView matchTitle = label("Окно " + (i + 1) + " — выберите матч", 12, TEXT);
+            multiTitles[i] = matchTitle;
+            controls.addView(matchTitle, new LinearLayout.LayoutParams(0, 40, 1));
+            Button select = actionButton("ВЫБРАТЬ");
+            select.setTextSize(11);
+            select.setOnClickListener(v -> chooseMultiMatch(slot));
+            controls.addView(select, new LinearLayout.LayoutParams(100, 38));
+            cell.addView(controls, new LinearLayout.LayoutParams(-1, 42));
+
+            FrameLayout video = new FrameLayout(this);
+            video.setBackgroundColor(Color.BLACK);
+            TextView placeholder = label("Выберите матч", 14, MUTED);
+            placeholder.setGravity(Gravity.CENTER);
+            video.addView(placeholder, new FrameLayout.LayoutParams(-1, -1));
+            multiVideoFrames[i] = video;
+            cell.addView(video, new LinearLayout.LayoutParams(-1, 0, 1));
+
+            LinearLayout.LayoutParams cp = new LinearLayout.LayoutParams(0, -1, 1);
+            cp.setMargins(4, 3, 4, 3);
+            (i < 2 ? top : bottom).addView(cell, cp);
+        }
+        setContentView(root);
+        updateMultiBorders();
+        multiCells[0].requestFocus();
+    }
+
+    private void chooseMultiMatch(int slot) {
+        ArrayList<Match> available = getVisibleMatches();
+        if (available == null || available.isEmpty()) available = new ArrayList<>(matches);
+        if (available.isEmpty()) {
+            android.widget.Toast.makeText(this, "Матчи не найдены", android.widget.Toast.LENGTH_SHORT).show();
+            return;
+        }
+        final ArrayList<Match> choicesMatches = available;
+        String[] choices = new String[choicesMatches.size()];
+        for (int i = 0; i < choicesMatches.size(); i++) {
+            Match m = choicesMatches.get(i);
+            choices[i] = m.home + " — " + m.away + "  |  " + m.league;
+        }
+        new android.app.AlertDialog.Builder(this)
+                .setTitle("Матч для окна " + (slot + 1))
+                .setItems(choices, (dialog, which) -> loadMultiMatch(slot, choicesMatches.get(which)))
+                .setNegativeButton("ОТМЕНА", null)
+                .show();
+    }
+
+    private void loadMultiMatch(int slot, Match match) {
+        if (!multiScreen || slot < 0 || slot >= 4) return;
+        multiFocusedSlot = slot;
+        multiTitles[slot].setText(match.home + " — " + match.away);
+        multiVideoFrames[slot].removeAllViews();
+        String url = match.eventUrl;
+        if ((url == null || url.trim().isEmpty()) && match.fallbackEventUrl != null) {
+            url = match.fallbackEventUrl;
+        }
+        if (url == null || url.trim().isEmpty()) {
+            TextView error = label("Нет ссылки на трансляцию для этого матча", 13, MUTED);
+            error.setGravity(Gravity.CENTER);
+            multiVideoFrames[slot].addView(error, new FrameLayout.LayoutParams(-1, -1));
+            return;
+        }
+        WebView old = multiWebViews[slot];
+        if (old != null) {
+            try { old.stopLoading(); old.destroy(); } catch (Exception ignored) {}
+        }
+        WebView web = new WebView(this);
+        multiWebViews[slot] = web;
+        web.setBackgroundColor(Color.BLACK);
+        web.getSettings().setJavaScriptEnabled(true);
+        web.getSettings().setDomStorageEnabled(true);
+        web.getSettings().setMediaPlaybackRequiresUserGesture(false);
+        web.getSettings().setLoadsImagesAutomatically(true);
+        web.setWebChromeClient(new WebChromeClient());
+        web.setWebViewClient(new WebViewClient());
+        CookieManager.getInstance().setAcceptCookie(true);
+        CookieManager.getInstance().setAcceptThirdPartyCookies(web, true);
+        multiVideoFrames[slot].addView(web, new FrameLayout.LayoutParams(-1, -1));
+        web.loadUrl(url);
+        updateMultiBorders();
+    }
+
+    private void updateMultiBorders() {
+        for (int i = 0; i < multiCells.length; i++) {
+            if (multiCells[i] == null) continue;
+            GradientDrawable border = new GradientDrawable();
+            border.setColor(PANEL);
+            border.setCornerRadius(10);
+            border.setStroke(3, i == multiFocusedSlot
+                    ? Color.rgb(255, 205, 35) : Color.rgb(65, 72, 84));
+            multiCells[i].setBackground(border);
+        }
+    }
+
+    private void leaveMultiScreen() {
+        releaseMultiPlayers();
+        multiScreen = false;
+        showMatches();
+    }
+
+    private void releaseMultiPlayers() {
+        for (int i = 0; i < multiWebViews.length; i++) {
+            if (multiWebViews[i] != null) {
+                try { multiWebViews[i].stopLoading(); multiWebViews[i].destroy(); } catch (Exception ignored) {}
+                multiWebViews[i] = null;
+            }
+        }
     }
 
     private void updateSectionButtonColor(Button button, int section, boolean hasFocus) {
@@ -3115,12 +3291,15 @@ public class MainActivity extends Activity {
         );
 
         releasePlayer();
+        releaseMultiPlayers();
 
         super.onDestroy();
     }
 
     @Override
     public void onBackPressed() {
+
+        if (multiScreen) { leaveMultiScreen(); return; }
 
         if (flashscoreScreen && flashscoreWebView != null) {
             try { flashscoreWebView.stopLoading(); flashscoreWebView.destroy(); } catch (Exception ignored) {}
