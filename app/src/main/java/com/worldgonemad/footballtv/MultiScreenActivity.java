@@ -36,6 +36,10 @@ public class MultiScreenActivity extends Activity {
     private final TextView[] slotTitles = new TextView[4];
     private final FrameLayout[] slotFrames = new FrameLayout[4];
     private final View[] slotCells = new View[4];
+    private final Button[] fullscreenButtons = new Button[4];
+    private LinearLayout rowTop;
+    private LinearLayout rowBottom;
+    private boolean fullscreen = false;
     private int focusedSlot = 0;
 
     @Override
@@ -96,12 +100,12 @@ public class MultiScreenActivity extends Activity {
         hint.setPadding(16, 0, 16, 2);
         root.addView(hint, new LinearLayout.LayoutParams(-1, 28));
 
-        LinearLayout row1 = new LinearLayout(this);
-        row1.setOrientation(LinearLayout.HORIZONTAL);
-        LinearLayout row2 = new LinearLayout(this);
-        row2.setOrientation(LinearLayout.HORIZONTAL);
-        root.addView(row1, new LinearLayout.LayoutParams(-1, 0, 1));
-        root.addView(row2, new LinearLayout.LayoutParams(-1, 0, 1));
+        rowTop = new LinearLayout(this);
+        rowTop.setOrientation(LinearLayout.HORIZONTAL);
+        rowBottom = new LinearLayout(this);
+        rowBottom.setOrientation(LinearLayout.HORIZONTAL);
+        root.addView(rowTop, new LinearLayout.LayoutParams(-1, 0, 1));
+        root.addView(rowBottom, new LinearLayout.LayoutParams(-1, 0, 1));
 
         for (int i = 0; i < 4; i++) {
             final int slot = i;
@@ -132,7 +136,14 @@ public class MultiScreenActivity extends Activity {
 
             Button choose = makeButton("ВЫБРАТЬ");
             choose.setOnClickListener(v -> chooseMatch(slot));
-            controls.addView(choose, new LinearLayout.LayoutParams(112, 40));
+            controls.addView(choose, new LinearLayout.LayoutParams(104, 40));
+            Button fullscreenButton = makeButton("⛶");
+            fullscreenButton.setContentDescription("Развернуть окно на весь экран");
+            fullscreenButton.setOnClickListener(v -> toggleFullscreen(slot));
+            fullscreenButtons[i] = fullscreenButton;
+            LinearLayout.LayoutParams fullParams = new LinearLayout.LayoutParams(64, 40);
+            fullParams.setMargins(4, 0, 0, 0);
+            controls.addView(fullscreenButton, fullParams);
             cell.addView(controls, new LinearLayout.LayoutParams(-1, 44));
 
             FrameLayout frame = new FrameLayout(this);
@@ -159,7 +170,7 @@ public class MultiScreenActivity extends Activity {
 
             LinearLayout.LayoutParams cellParams = new LinearLayout.LayoutParams(0, -1, 1);
             cellParams.setMargins(4, 3, 4, 3);
-            (i < 2 ? row1 : row2).addView(cell, cellParams);
+            (i < 2 ? rowTop : rowBottom).addView(cell, cellParams);
         }
 
         setContentView(root);
@@ -179,6 +190,54 @@ public class MultiScreenActivity extends Activity {
                         i == focusedSlot ? Color.rgb(255, 205, 35) : Color.rgb(65, 72, 84)));
             }
         }
+    }
+
+    private void toggleFullscreen(int slot) {
+        if (slot < 0 || slot >= slotCells.length) return;
+        if (!fullscreen) {
+            fullscreen = true;
+            focusedSlot = slot;
+            LinearLayout selectedRow = slot < 2 ? rowTop : rowBottom;
+            LinearLayout otherRow = slot < 2 ? rowBottom : rowTop;
+            otherRow.setVisibility(View.GONE);
+            LinearLayout.LayoutParams rowParams = (LinearLayout.LayoutParams) selectedRow.getLayoutParams();
+            rowParams.height = 0;
+            rowParams.weight = 1;
+            selectedRow.setLayoutParams(rowParams);
+            for (int i = 0; i < slotCells.length; i++) {
+                if (i != slot && (i < 2) == (slot < 2)) {
+                    slotCells[i].setVisibility(View.GONE);
+                }
+            }
+            LinearLayout.LayoutParams cellParams = (LinearLayout.LayoutParams) slotCells[slot].getLayoutParams();
+            cellParams.width = -1;
+            cellParams.weight = 1;
+            slotCells[slot].setLayoutParams(cellParams);
+            fullscreenButtons[slot].setText("2×2");
+            fullscreenButtons[slot].setContentDescription("Вернуться к четырём окнам");
+        } else {
+            fullscreen = false;
+            rowTop.setVisibility(View.VISIBLE);
+            rowBottom.setVisibility(View.VISIBLE);
+            for (int i = 0; i < slotCells.length; i++) {
+                slotCells[i].setVisibility(View.VISIBLE);
+                LinearLayout.LayoutParams cellParams = (LinearLayout.LayoutParams) slotCells[i].getLayoutParams();
+                cellParams.width = 0;
+                cellParams.weight = 1;
+                slotCells[i].setLayoutParams(cellParams);
+                fullscreenButtons[i].setText("⛶");
+                fullscreenButtons[i].setContentDescription("Развернуть окно на весь экран");
+            }
+            LinearLayout.LayoutParams topParams = (LinearLayout.LayoutParams) rowTop.getLayoutParams();
+            topParams.height = 0;
+            topParams.weight = 1;
+            rowTop.setLayoutParams(topParams);
+            LinearLayout.LayoutParams bottomParams = (LinearLayout.LayoutParams) rowBottom.getLayoutParams();
+            bottomParams.height = 0;
+            bottomParams.weight = 1;
+            rowBottom.setLayoutParams(bottomParams);
+        }
+        updateSlotBorders();
     }
 
     private void chooseMatch(int slot) {
