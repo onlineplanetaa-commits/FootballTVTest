@@ -68,6 +68,9 @@ public class MainActivity extends Activity {
     // Multi-screen additions only; the original match list and single player stay unchanged.
     private boolean multiScreen = false;
     private final WebView[] multiWebViews = new WebView[4];
+    private final ExoPlayer[] multiPlayers = new ExoPlayer[4];
+    private final PlayerView[] multiPlayerViews = new PlayerView[4];
+    private final boolean[] multiStreamStarted = new boolean[4];
     private final FrameLayout[] multiVideoFrames = new FrameLayout[4];
     private final TextView[] multiTitles = new TextView[4];
     private final Button[] multiSelectButtons = new Button[4];
@@ -629,6 +632,39 @@ public class MainActivity extends Activity {
 
         web.setWebViewClient(new WebViewClient() {
             @Override
+            public void onLoadResource(WebView view, String resourceUrl) {
+                super.onLoadResource(view, resourceUrl);
+                if (!multiScreen || multiWebViews[slot] != web || multiStreamStarted[slot]) return;
+                if (isLikelyLiveMediaUrl(resourceUrl)) {
+                    Map<String, String> headers = new HashMap<>();
+                    headers.put("Referer", view.getUrl() == null ? matchEventUrl : view.getUrl());
+                    headers.put("User-Agent",
+                            "Mozilla/5.0 (Linux; Android 11; Android TV) AppleWebKit/537.36 Chrome/124.0.0.0 Safari/537.36");
+                    String cookie = CookieManager.getInstance().getCookie(resourceUrl);
+                    if (cookie != null && !cookie.isEmpty()) headers.put("Cookie", cookie);
+                    startMultiStream(slot, resourceUrl, headers);
+                }
+            }
+
+            @Override
+            public WebResourceResponse shouldInterceptRequest(WebView view, WebResourceRequest request) {
+                if (request != null && request.getUrl() != null
+                        && multiScreen && multiWebViews[slot] == web && !multiStreamStarted[slot]) {
+                    String resourceUrl = request.getUrl().toString();
+                    if (isLikelyLiveMediaUrl(resourceUrl)) {
+                        Map<String, String> headers = new HashMap<>();
+                        Map<String, String> sourceHeaders = request.getRequestHeaders();
+                        if (sourceHeaders != null) headers.putAll(sourceHeaders);
+                        if (!headers.containsKey("Referer")) {
+                            headers.put("Referer", view.getUrl() == null ? matchEventUrl : view.getUrl());
+                        }
+                        startMultiStream(slot, resourceUrl, headers);
+                    }
+                }
+                return super.shouldInterceptRequest(view, request);
+            }
+
+            @Override
             public void onPageFinished(WebView view, String loadedUrl) {
                 super.onPageFinished(view, loadedUrl);
                 if (!multiScreen || multiWebViews[slot] != web || loadedUrl == null) return;
@@ -729,7 +765,87 @@ public class MainActivity extends Activity {
                 try { multiWebViews[i].stopLoading(); multiWebViews[i].destroy(); } catch (Exception ignored) {}
                 multiWebViews[i] = null;
             }
+            if (multiPlayers[i] != null) {
+                try { multiPlayers[i].release(); } catch (Exception ignored) {}
+                multiPlayers[i] = null;
+            }
+            multiPlayerViews[i] = null;
+            multiStreamStarted[i] = false;
         }
+    }
+
+    // Start the actual media URL inside its own quadrant. Never leave the LiveTV
+    // web-player page as the visible result when a direct stream is detected.
+    private void startMultiStream(int slot, String mediaUrl, Map<String, String> requestHeaders) {
+        if (!multiScreen || slot < 0 || slot >= 4 || multiStreamStarted[slot]
+                || mediaUrl == null || !isLikelyLiveMediaUrl(mediaUrl)) return;
+        multiStreamStarted[slot] = true;
+
+        runOnUiThread(() -> {
+            if (!multiScreen || slot < 0 || slot >= 4) return;
+            WebView web = multiWebViews[slot];
+            if (web == null) return;
+
+            Map<String, String> headers = new HashMap<>();
+            if (requestHeaders != null) headers.putAll(requestHeaders);
+            if (!headers.containsKey("User-Agent")) {
+                headers.put("User-Agent",
+                        "Mozilla/5.0 (Linux; Android 11; Android TV) AppleWebKit/537.36 Chrome/124.0.0.0 Safari/537.36");
+            }
+            if (!headers.containsKey("Referer")) {
+                headers.put("Referer", web.getUrl() == null ? "" : web.getUrl());
+            }
+            try {
+                String cookie = CookieManager.getInstance().getCookie(mediaUrl);
+                if (cookie != null && !cookie.isEmpty() && !headers.containsKey("Cookie")) {
+                    headers.put("Cookie", cookie);
+                }
+            } catch (Exception ignored) {}
+
+            FrameLayout frame = multiVideoFrames[slot];
+            PlayerView video = new PlayerView(MainActivity.this);
+            video.setBackgroundColor(Color.BLACK);
+            video.setUseController(false);
+            video.setKeepScreenOn(true);
+
+            DefaultHttpDataSource.Factory http = new DefaultHttpDataSource.Factory()
+                    .setUserAgent(headers.get("User-Agent"))
+                    .setDefaultRequestProperties(headers)
+                    .setConnectTimeoutMs(20000)
+                    .setReadTimeoutMs(30000)
+                    .setAllowCrossProtocolRedirects(true);
+
+            ExoPlayer exo = new ExoPlayer.Builder(MainActivity.this)
+                    .setMediaSourceFactory(
+                            new androidx.media3.exoplayer.source.DefaultMediaSourceFactory(http))
+                    .build();
+            multiPlayers[slot] = exo;
+            multiPlayerViews[slot] = video;
+            video.setPlayer(exo);
+
+            exo.addListener(new androidx.media3.common.Player.Listener() {
+                @Override
+                public void onPlayerError(androidx.media3.common.PlaybackException error) {
+                    if (!multiScreen || multiPlayers[slot] != exo) return;
+                    TextView failed = label("Не удалось запустить видеопоток", 12, MUTED);
+                    failed.setGravity(Gravity.CENTER);
+                    frame.removeAllViews();
+                    frame.addView(failed, new FrameLayout.LayoutParams(-1, -1));
+                    try { exo.release(); } catch (Exception ignored) {}
+                    multiPlayers[slot] = null;
+                    multiPlayerViews[slot] = null;
+                }
+            });
+
+            frame.removeAllViews();
+            frame.addView(video, new FrameLayout.LayoutParams(-1, -1));
+            try { web.stopLoading(); web.destroy(); } catch (Exception ignored) {}
+            multiWebViews[slot] = null;
+
+            exo.setMediaItem(new MediaItem.Builder().setUri(Uri.parse(mediaUrl)).build());
+            exo.prepare();
+            exo.play();
+        });
     }
 
     private void updateSectionButtonColor(Button button, int section, boolean hasFocus) {
