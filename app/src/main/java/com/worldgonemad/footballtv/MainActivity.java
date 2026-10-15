@@ -373,7 +373,7 @@ public class MainActivity extends Activity {
         );
 
 
-        Button multiScreenButton = actionButton("▦ Мультиэкран");
+        Button multiScreenButton = action("▦ Мультиэкран");
         multiScreenButton.setTextSize(12);
         multiScreenButton.setOnClickListener(v -> showMultiScreen());
         LinearLayout.LayoutParams multiButtonParams = new LinearLayout.LayoutParams(170, 54);
@@ -467,7 +467,7 @@ public class MainActivity extends Activity {
         TextView title = label("МУЛЬТИЭКРАН — 4 МАТЧА", 20, TEXT);
         title.setTypeface(Typeface.DEFAULT, Typeface.BOLD);
         header.addView(title, new LinearLayout.LayoutParams(0, 48, 1));
-        Button back = actionButton("НАЗАД К МАТЧАМ");
+        Button back = action("НАЗАД К МАТЧАМ");
         back.setOnClickListener(v -> leaveMultiScreen());
         header.addView(back, new LinearLayout.LayoutParams(190, 46));
         root.addView(header, new LinearLayout.LayoutParams(-1, 54));
@@ -504,7 +504,7 @@ public class MainActivity extends Activity {
             TextView matchTitle = label("Окно " + (i + 1) + " — выберите матч", 12, TEXT);
             multiTitles[i] = matchTitle;
             controls.addView(matchTitle, new LinearLayout.LayoutParams(0, 40, 1));
-            Button select = actionButton("ВЫБРАТЬ");
+            Button select = action("ВЫБРАТЬ");
             select.setTextSize(11);
             select.setOnClickListener(v -> chooseMultiMatch(slot));
             controls.addView(select, new LinearLayout.LayoutParams(100, 38));
