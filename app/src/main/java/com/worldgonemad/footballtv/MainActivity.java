@@ -558,20 +558,28 @@ public class MainActivity extends Activity {
         multiFocusedSlot = slot;
         multiTitles[slot].setText(match.home + " — " + match.away);
         multiVideoFrames[slot].removeAllViews();
-        String url = match.eventUrl;
-        if ((url == null || url.trim().isEmpty()) && match.fallbackEventUrl != null) {
-            url = match.fallbackEventUrl;
+
+        String eventUrl = match.eventUrl;
+        if ((eventUrl == null || eventUrl.trim().isEmpty())
+                && match.fallbackEventUrl != null) {
+            eventUrl = match.fallbackEventUrl;
         }
-        if (url == null || url.trim().isEmpty()) {
+        if (eventUrl == null || eventUrl.trim().isEmpty()) {
             TextView error = label("Нет ссылки на трансляцию для этого матча", 13, MUTED);
             error.setGravity(Gravity.CENTER);
             multiVideoFrames[slot].addView(error, new FrameLayout.LayoutParams(-1, -1));
             return;
         }
+        final String matchEventUrl = eventUrl;
         WebView old = multiWebViews[slot];
         if (old != null) {
             try { old.stopLoading(); old.destroy(); } catch (Exception ignored) {}
         }
+
+        TextView status = label("Поиск трансляции...", 12, MUTED);
+        status.setGravity(Gravity.CENTER);
+        multiVideoFrames[slot].addView(status, new FrameLayout.LayoutParams(-1, -1));
+
         WebView web = new WebView(this);
         multiWebViews[slot] = web;
         web.setBackgroundColor(Color.BLACK);
@@ -579,13 +587,122 @@ public class MainActivity extends Activity {
         web.getSettings().setDomStorageEnabled(true);
         web.getSettings().setMediaPlaybackRequiresUserGesture(false);
         web.getSettings().setLoadsImagesAutomatically(true);
+        web.getSettings().setAllowContentAccess(true);
+        web.getSettings().setMixedContentMode(
+                android.webkit.WebSettings.MIXED_CONTENT_COMPATIBILITY_MODE);
         web.setWebChromeClient(new WebChromeClient());
-        web.setWebViewClient(new WebViewClient());
         CookieManager.getInstance().setAcceptCookie(true);
         CookieManager.getInstance().setAcceptThirdPartyCookies(web, true);
+
+        final ArrayList<String> candidates = new ArrayList<>();
+        final int[] candidateIndex = {0};
+        final boolean[] eventPageInspected = {false};
+        final boolean[] candidateStarted = {false};
+
+        Runnable[] tryNext = new Runnable[1];
+        tryNext[0] = () -> {
+            if (!multiScreen || multiWebViews[slot] != web) return;
+            if (candidateIndex[0] >= candidates.size()) {
+                status.setText("Рабочая ссылка не найдена");
+                return;
+            }
+            String candidate = candidates.get(candidateIndex[0]++).trim();
+            if (candidate.isEmpty()) {
+                tryNext[0].run();
+                return;
+            }
+            if (candidate.toLowerCase(Locale.US).startsWith("#webplayer_")) {
+                candidate = webPlayerFromFragment(matchEventUrl, candidate);
+            }
+            if (candidate.isEmpty()) {
+                tryNext[0].run();
+                return;
+            }
+            candidateStarted[0] = true;
+            status.setVisibility(View.GONE);
+            Map<String, String> headers = new HashMap<>();
+            headers.put("Referer", matchEventUrl);
+            headers.put("User-Agent",
+                    "Mozilla/5.0 (Linux; Android 11; Android TV) AppleWebKit/537.36 Chrome/124.0.0.0 Safari/537.36");
+            web.loadUrl(candidate, headers);
+        };
+
+        web.setWebViewClient(new WebViewClient() {
+            @Override
+            public void onPageFinished(WebView view, String loadedUrl) {
+                super.onPageFinished(view, loadedUrl);
+                if (!multiScreen || multiWebViews[slot] != web || loadedUrl == null) return;
+                if (loadedUrl.equalsIgnoreCase(matchEventUrl) && !eventPageInspected[0]) {
+                    eventPageInspected[0] = true;
+                    view.evaluateJavascript("(function(){return document.documentElement.outerHTML;})()", value -> {
+                        if (!multiScreen || multiWebViews[slot] != web) return;
+                        String html = value == null ? "" : value;
+                        if (html.length() >= 2 && html.startsWith("\"") && html.endsWith("\"")) {
+                            html = html.substring(1, html.length() - 1)
+                                    .replace("\\\"", "\"")
+                                    .replace("\\\\", "\\")
+                                    .replace("\\n", "\n")
+                                    .replace("\\r", "\r");
+                        }
+                        ArrayList<String> found = new ArrayList<>();
+                        collectWebPlayerUrls(html, matchEventUrl, found);
+                        if (!found.isEmpty()) {
+                            found.sort((a, b) -> Integer.compare(
+                                    browserLinkLanguagePriority(a),
+                                    browserLinkLanguagePriority(b)));
+                            if (found.size() > 12) found.subList(12, found.size()).clear();
+                            candidates.clear();
+                            candidates.addAll(found);
+                            candidateIndex[0] = 0;
+                            tryNext[0].run();
+                        } else {
+                            status.setVisibility(View.VISIBLE);
+                            status.setText("Ссылки трансляции не найдены");
+                        }
+                    });
+                }
+            }
+
+            @Override
+            public void onReceivedError(WebView view, WebResourceRequest request,
+                    android.webkit.WebResourceError error) {
+                super.onReceivedError(view, request, error);
+                if (request != null && request.isForMainFrame()
+                        && candidateStarted[0] && multiScreen && multiWebViews[slot] == web) {
+                    tryNext[0].run();
+                }
+            }
+        });
+
         multiVideoFrames[slot].addView(web, new FrameLayout.LayoutParams(-1, -1));
-        web.loadUrl(url);
         updateMultiBorders();
+
+        // Match the working single-player flow: extract Browser Links from the event page
+        // first, then use the rendered event page only if direct extraction returns nothing.
+        new Thread(() -> {
+            String html = downloadPage(matchEventUrl);
+            ArrayList<String> found = new ArrayList<>();
+            collectWebPlayerUrls(html, matchEventUrl, found);
+            runOnUiThread(() -> {
+                if (!multiScreen || multiWebViews[slot] != web) return;
+                if (!found.isEmpty()) {
+                    found.sort((a, b) -> Integer.compare(
+                            browserLinkLanguagePriority(a),
+                            browserLinkLanguagePriority(b)));
+                    if (found.size() > 12) found.subList(12, found.size()).clear();
+                    candidates.clear();
+                    candidates.addAll(found);
+                    tryNext[0].run();
+                } else {
+                    status.setVisibility(View.VISIBLE);
+                    status.setText("Загрузка страницы матча...");
+                    Map<String, String> headers = new HashMap<>();
+                    headers.put("User-Agent",
+                            "Mozilla/5.0 (Linux; Android 11; Android TV) AppleWebKit/537.36 Chrome/124.0.0.0 Safari/537.36");
+                    web.loadUrl(matchEventUrl, headers);
+                }
+            });
+        }).start();
     }
 
     private void updateMultiBorders() {
