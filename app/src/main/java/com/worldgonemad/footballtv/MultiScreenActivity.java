@@ -269,7 +269,7 @@ public class MultiScreenActivity extends Activity {
         webViews[slot].requestFocus();
     }
 
-    private void setImmersive(boolean enabled) {
+    public void setImmersive(boolean enabled) {
         View decor = getWindow().getDecorView();
         if (enabled) {
             decor.setSystemUiVisibility(View.SYSTEM_UI_FLAG_FULLSCREEN | View.SYSTEM_UI_FLAG_HIDE_NAVIGATION | View.SYSTEM_UI_FLAG_IMMERSIVE_STICKY);
