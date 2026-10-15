@@ -35,6 +35,7 @@ public class MultiScreenActivity extends Activity {
     private final WebView[] webViews = new WebView[4];
     private final TextView[] slotTitles = new TextView[4];
     private final FrameLayout[] slotFrames = new FrameLayout[4];
+    private final View[] slotCells = new View[4];
     private int focusedSlot = 0;
 
     @Override
@@ -106,6 +107,7 @@ public class MultiScreenActivity extends Activity {
             final int slot = i;
             LinearLayout cell = new LinearLayout(this);
             cell.setOrientation(LinearLayout.VERTICAL);
+            slotCells[i] = cell;
             cell.setBackground(rounded(PANEL, i == focusedSlot ? ACCENT : Color.rgb(65, 72, 84)));
             cell.setFocusable(true);
             cell.setFocusableInTouchMode(true);
@@ -171,12 +173,10 @@ public class MultiScreenActivity extends Activity {
     }
 
     private void updateSlotBorders() {
-        for (int i = 0; i < slotFrames.length; i++) {
-            if (slotFrames[i] != null && slotFrames[i].getParent() != null) {
-                View cell = (View) slotFrames[i].getParent().getParent();
-                if (cell != null) {
-                    cell.setBackground(rounded(PANEL, i == focusedSlot ? Color.rgb(255, 205, 35) : Color.rgb(65, 72, 84)));
-                }
+        for (int i = 0; i < slotCells.length; i++) {
+            if (slotCells[i] != null) {
+                slotCells[i].setBackground(rounded(PANEL,
+                        i == focusedSlot ? Color.rgb(255, 205, 35) : Color.rgb(65, 72, 84)));
             }
         }
     }
@@ -221,11 +221,6 @@ public class MultiScreenActivity extends Activity {
 
     @Override
     public void onBackPressed() {
-        for (WebView web : webViews) {
-            if (web != null) {
-                try { web.stopLoading(); web.loadUrl("about:blank"); web.destroy(); } catch (Exception ignored) {}
-            }
-        }
         finish();
     }
 
