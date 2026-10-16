@@ -76,6 +76,10 @@ public class MainActivity extends Activity {
     private final Button[] multiSelectButtons = new Button[4];
     private final LinearLayout[] multiCells = new LinearLayout[4];
     private int multiFocusedSlot = 0;
+    private boolean multiFullscreen = false;
+    private int multiFullscreenSlot = -1;
+    private LinearLayout multiRoot;
+    private FrameLayout multiFullscreenRoot;
 
     private final Handler handler =
             new Handler(Looper.getMainLooper());
@@ -517,6 +521,19 @@ public class MainActivity extends Activity {
             });
             select.setOnClickListener(v -> chooseMultiMatch(slot));
             controls.addView(select, new LinearLayout.LayoutParams(100, 38));
+
+            Button full = action("\u26f6");
+            full.setContentDescription("Полноэкранный режим");
+            full.setTextSize(13);
+            full.setPadding(4, 0, 4, 0);
+            full.setOnFocusChangeListener((v, focused) -> {
+                if (focused) {
+                    multiFocusedSlot = slot;
+                    updateMultiBorders();
+                }
+            });
+            full.setOnClickListener(v -> enterMultiFullscreen(slot));
+            controls.addView(full, new LinearLayout.LayoutParams(64, 38));
             cell.addView(controls, new LinearLayout.LayoutParams(-1, 42));
 
             FrameLayout video = new FrameLayout(this);
@@ -531,6 +548,7 @@ public class MainActivity extends Activity {
             cp.setMargins(4, 3, 4, 3);
             (i < 2 ? top : bottom).addView(cell, cp);
         }
+        multiRoot = root;
         setContentView(root);
         updateMultiBorders();
         multiSelectButtons[0].requestFocus();
@@ -751,9 +769,78 @@ public class MainActivity extends Activity {
                     ? Color.rgb(255, 205, 35) : Color.rgb(65, 72, 84));
             multiCells[i].setBackground(border);
         }
+        updateMultiAudio();
+    }
+
+    // Only the focused window keeps its sound; every other window is muted.
+    private void updateMultiAudio() {
+        for (int i = 0; i < multiPlayers.length; i++) {
+            if (multiPlayers[i] != null) {
+                try {
+                    multiPlayers[i].setVolume(i == multiFocusedSlot ? 1f : 0f);
+                } catch (Exception ignored) {}
+            }
+            if (multiWebViews[i] != null) {
+                String js = "(function(){var m=" + (i == multiFocusedSlot ? "false" : "true")
+                        + ";document.querySelectorAll('video,audio').forEach(function(e){e.muted=m;});})()";
+                try { multiWebViews[i].evaluateJavascript(js, null); } catch (Exception ignored) {}
+            }
+        }
+    }
+
+    private void enterMultiFullscreen(int slot) {
+        if (!multiScreen || slot < 0 || slot >= 4) return;
+        if (multiPlayers[slot] == null || multiPlayerViews[slot] == null) {
+            android.widget.Toast.makeText(this, "Трансляция ещё не запущена",
+                    android.widget.Toast.LENGTH_SHORT).show();
+            return;
+        }
+        multiFocusedSlot = slot;
+        multiFullscreen = true;
+        multiFullscreenSlot = slot;
+        PlayerView video = multiPlayerViews[slot];
+        if (video.getParent() instanceof FrameLayout) {
+            ((FrameLayout) video.getParent()).removeAllViews();
+        }
+        FrameLayout fs = new FrameLayout(this);
+        fs.setBackgroundColor(Color.BLACK);
+        fs.addView(video, new FrameLayout.LayoutParams(-1, -1));
+        multiFullscreenRoot = fs;
+        setContentView(fs);
+        setImmersivePlayback(true);
+        updateMultiAudio();
+    }
+
+    private void exitMultiFullscreen() {
+        if (!multiFullscreen) return;
+        multiFullscreen = false;
+        int slot = multiFullscreenSlot;
+        multiFullscreenSlot = -1;
+        if (multiFullscreenRoot != null) {
+            multiFullscreenRoot.removeAllViews();
+        }
+        multiFullscreenRoot = null;
+        if (multiScreen && slot >= 0 && slot < 4
+                && multiVideoFrames[slot] != null && multiPlayerViews[slot] != null) {
+            multiVideoFrames[slot].removeAllViews();
+            multiVideoFrames[slot].addView(multiPlayerViews[slot],
+                    new FrameLayout.LayoutParams(-1, -1));
+        }
+        setImmersivePlayback(false);
+        if (multiScreen) {
+            if (multiRoot != null) {
+                setContentView(multiRoot);
+            }
+            if (slot >= 0 && slot < 4 && multiSelectButtons[slot] != null) {
+                multiSelectButtons[slot].requestFocus();
+            }
+            updateMultiAudio();
+        }
     }
 
     private void leaveMultiScreen() {
+        multiFullscreen = false;
+        multiFullscreenSlot = -1;
         releaseMultiPlayers();
         multiScreen = false;
         showMatches();
@@ -827,6 +914,7 @@ public class MainActivity extends Activity {
                 @Override
                 public void onPlayerError(androidx.media3.common.PlaybackException error) {
                     if (!multiScreen || multiPlayers[slot] != exo) return;
+                    if (multiFullscreen && multiFullscreenSlot == slot) exitMultiFullscreen();
                     TextView failed = label("Не удалось запустить видеопоток", 12, MUTED);
                     failed.setGravity(Gravity.CENTER);
                     frame.removeAllViews();
@@ -845,6 +933,7 @@ public class MainActivity extends Activity {
             exo.setMediaItem(new MediaItem.Builder().setUri(Uri.parse(mediaUrl)).build());
             exo.prepare();
             exo.play();
+            updateMultiAudio();
         });
     }
 
@@ -3333,6 +3422,12 @@ public class MainActivity extends Activity {
 
     @Override
     public boolean dispatchKeyEvent(android.view.KeyEvent event) {
+        if (multiScreen && multiFullscreen
+                && event.getAction() == android.view.KeyEvent.ACTION_DOWN
+                && event.getKeyCode() == android.view.KeyEvent.KEYCODE_BACK) {
+            exitMultiFullscreen();
+            return true;
+        }
         if (youtubePlayerScreen && resolverWebView != null) {
             try {
                 if (resolverWebView.dispatchKeyEvent(event)) {
@@ -3538,6 +3633,7 @@ public class MainActivity extends Activity {
     @Override
     public void onBackPressed() {
 
+        if (multiScreen && multiFullscreen) { exitMultiFullscreen(); return; }
         if (multiScreen) { leaveMultiScreen(); return; }
 
         if (flashscoreScreen && flashscoreWebView != null) {
