@@ -381,13 +381,6 @@ public class MainActivity extends Activity {
         );
 
 
-        Button multiScreenButton = action("▦ Мультиэкран");
-        multiScreenButton.setTextSize(12);
-        multiScreenButton.setOnClickListener(v -> showMultiScreen());
-        LinearLayout.LayoutParams multiButtonParams = new LinearLayout.LayoutParams(170, 54);
-        multiButtonParams.setMargins(8, 0, 12, 0);
-        header.addView(multiScreenButton, multiButtonParams);
-
         statusText =
                 label(
                         matches.size()
@@ -3100,6 +3093,34 @@ public class MainActivity extends Activity {
             boolean[] playbackAttemptActive,
             Runnable onAllCandidatesFailed
     ) {
+        // Let the viewer choose a detected direct stream before automatic fallback starts.
+        // If a chosen stream fails, the existing retry logic continues with the following ones.
+        if (index == 0 && streams != null && streams.size() > 1) {
+            final String[] choices = new String[streams.size()];
+            for (int i = 0; i < streams.size(); i++) {
+                String item = streams.get(i) == null ? "" : streams.get(i);
+                String lower = item.toLowerCase(Locale.US);
+                String language = "";
+                if (lower.contains("ukrain") || lower.contains("/ua/") || lower.contains("ukr")) language = " 🇺🇦";
+                else if (lower.contains("russian") || lower.contains("/ru/") || lower.contains("rus")) language = " 🇷🇺";
+                else if (lower.contains("english") || lower.contains("eng")) language = " 🇬🇧";
+                else if (lower.contains("arab") || lower.contains("ara")) language = " 🇸🇦";
+                else if (lower.contains("spanish") || lower.contains("esp")) language = " 🇪🇸";
+                else if (lower.contains("portugu") || lower.contains("por")) language = " 🇵🇹";
+                else if (lower.contains("french") || lower.contains("fra")) language = " 🇫🇷";
+                else if (lower.contains("german") || lower.contains("deu")) language = " 🇩🇪";
+                choices[i] = "Поток " + (i + 1) + language;
+            }
+            new android.app.AlertDialog.Builder(this)
+                    .setTitle("Выберите поток")
+                    .setItems(choices, (dialog, which) ->
+                            playStreamCandidates(match, streams, which, playbackAttemptActive, onAllCandidatesFailed))
+                    .setOnCancelListener(dialog -> {
+                        if (playbackAttemptActive != null) playbackAttemptActive[0] = false;
+                    })
+                    .show();
+            return;
+        }
         if (streams == null || index >= streams.size()) {
             if (playbackAttemptActive != null) playbackAttemptActive[0] = false;
             if (onAllCandidatesFailed != null) {
