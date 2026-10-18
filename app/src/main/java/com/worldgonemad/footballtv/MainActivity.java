@@ -2690,26 +2690,34 @@ public class MainActivity extends Activity {
                 super.onPageFinished(view, url);
                 if (resolved[0] || resolverWebView != web || url == null) return;
 
-                // First visit to an event page: scrape its rendered DOM for player links.
+                // Extract only actual #webplayer_ entries from the rendered Browser Links DOM.
+                // Country is read from the flag icon belonging to each individual row.
                 if (url.equals(match.eventUrl) || url.equalsIgnoreCase(match.eventUrl)) {
-                    view.evaluateJavascript("(function(){return document.documentElement.outerHTML;})()", value -> {
+                    view.evaluateJavascript(browserLinksDomScript(), value -> {
                         if (resolved[0] || resolverWebView != web) return;
-                        String html = value == null ? "" : value;
-                        if (html.length() >= 2 && html.startsWith("\"") && html.endsWith("\"")) {
-                            html = html.substring(1, html.length() - 1)
-                                    .replace("\\\"", "\"")
-                                    .replace("\\\\", "\\")
-                                    .replace("\\n", "\n")
-                                    .replace("\\r", "\r");
-                        }
+                        String json = decodeJavascriptString(value);
                         ArrayList<String> browserLinks = new ArrayList<>();
-                        collectWebPlayerUrls(html, match.eventUrl, browserLinks);
+                        browserLinkCountryFlags.clear();
+                        try {
+                            JSONArray items = new JSONArray(json);
+                            for (int i = 0; i < items.length(); i++) {
+                                JSONObject item = items.optJSONObject(i);
+                                if (item == null) continue;
+                                String fragment = item.optString("fragment", "");
+                                String flag = item.optString("flag", "🌐");
+                                if (!fragment.toLowerCase(Locale.US).startsWith("#webplayer_")) continue;
+                                if (!browserLinks.contains(fragment)) browserLinks.add(fragment);
+                                if (!"🌐".equals(flag)) browserLinkCountryFlags.put(fragment, flag);
+                            }
+                        } catch (Exception ignored) {
+                        }
                         if (!browserLinks.isEmpty()) {
-                            status.setText("Найдено ссылок: " + browserLinks.size() + ". Запуск поиска...");
+                            status.setText("Найдено ссылок Browser Links: " + browserLinks.size());
                             startCandidates(browserLinks, status, sourceCandidates, current, resolved, tryNext);
                         } else {
-                            // Use the existing LiveTV904 resolver flow unchanged:
-                            // when the shared extractor finds no player links, try the backup host.
+                            // Fall back to the original HTML parser only if the DOM selector
+                            // did not expose Browser Links. Never include AceStream URLs.
+                            String html = view.getTitle() == null ? "" : view.getTitle();
                             finishNoStream.run();
                         }
                     });
@@ -2892,34 +2900,17 @@ public class MainActivity extends Activity {
         });
         setContentView(root);
 
-        // Fetch the event HTML directly. We do not wait for WebView
-        // onPageFinished before discovering Browser Links.
-        new Thread(() -> {
-            String html = downloadPage(match.eventUrl);
-            ArrayList<String> found = new ArrayList<>();
-            collectWebPlayerUrls(html, match.eventUrl, found);
-
-            runOnUiThread(() -> {
-                if (resolved[0] || resolverWebView != web) return;
-
-                if (!found.isEmpty()) {
-                    startCandidates(found, status, sourceCandidates, current, resolved, tryNext);
-                } else {
-                    // Direct HTTP can be blocked or return a shell page. Load the event in
-                    // WebView as the fallback so JavaScript-generated Browser Links are visible.
-                    status.setText("Загрузка страницы матча для поиска трансляций...");
-                    web.setVisibility(View.VISIBLE);
-                    if (web.getParent() == null) {
-                        root.addView(web, new LinearLayout.LayoutParams(-1, 0, 1f));
-                    }
-                    setContentView(root);
-                    Map<String, String> eventHeaders = new HashMap<>();
-                    eventHeaders.put("User-Agent",
-                            "Mozilla/5.0 (Linux; Android 11; Android TV) AppleWebKit/537.36 Chrome/124.0.0.0 Safari/537.36");
-                    web.loadUrl(match.eventUrl, eventHeaders);
-                }
-            });
-        }).start();
+        // Load the event in WebView so each Browser Link can be paired with its
+        // real flag icon from the rendered page, rather than guessing from "|ua".
+        status.setText("Загрузка страницы матча и флагов трансляций...");
+        web.setVisibility(View.VISIBLE);
+        if (web.getParent() == null) {
+            root.addView(web, new LinearLayout.LayoutParams(1, 1));
+        }
+        Map<String, String> eventHeaders = new HashMap<>();
+        eventHeaders.put("User-Agent",
+                "Mozilla/5.0 (Linux; Android 11; Android TV) AppleWebKit/537.36 Chrome/124.0.0.0 Safari/537.36");
+        web.loadUrl(match.eventUrl, eventHeaders);
 
         // Never leave the user on the loading message for minutes.
         handler.postDelayed(() -> {
@@ -2939,11 +2930,7 @@ public class MainActivity extends Activity {
     ) {
         if (resolved[0]) return;
 
-        // Keep the website's order, but sort Ukrainian/Russian options first.
-        found.sort((a, b) -> Integer.compare(
-                browserLinkLanguagePriority(a),
-                browserLinkLanguagePriority(b)
-        ));
+        // Preserve the exact order shown under Browser Links on LiveTV.sx.
 
         if (found.isEmpty()) {
             resolved[0] = true;
@@ -2977,115 +2964,49 @@ public class MainActivity extends Activity {
         status.setText("Найдено вариантов: " + found.size() + ". Выберите трансляцию.");
     }
 
+    private String decodeJavascriptString(String value) {
+        if (value == null || value.isEmpty() || "null".equals(value)) return "";
+        String decoded = value;
+        if (decoded.length() >= 2 && decoded.startsWith("\"") && decoded.endsWith("\"")) {
+            decoded = decoded.substring(1, decoded.length() - 1)
+                    .replace("\\\"", "\"")
+                    .replace("\\\\", "\\")
+                    .replace("\\n", "\n")
+                    .replace("\\r", "\r");
+        }
+        return decoded;
+    }
+
+    private String browserLinksDomScript() {
+        return "(function(){"
+                + "function codeFromText(v){v=(v||'').toLowerCase();"
+                + "var map={ua:'🇺🇦',uk:'🇺🇦',ukraine:'🇺🇦',ru:'🇷🇺',russia:'🇷🇺',hr:'🇭🇷',croatia:'🇭🇷',pt:'🇵🇹',portugal:'🇵🇹',"
+                + "gb:'🇬🇧',ukr:'🇺🇦',us:'🇺🇸',es:'🇪🇸',de:'🇩🇪',it:'🇮🇹',fr:'🇫🇷',pl:'🇵🇱',tr:'🇹🇷',nl:'🇳🇱',be:'🇧🇪',"
+                + "cz:'🇨🇿',sk:'🇸🇰',ro:'🇷🇴',hu:'🇭🇺',gr:'🇬🇷',rs:'🇷🇸',ba:'🇧🇦',si:'🇸🇮',bg:'🇧🇬',se:'🇸🇪',no:'🇳🇴',"
+                + "dk:'🇩🇰',fi:'🇫🇮',at:'🇦🇹',ch:'🇨🇭',mx:'🇲🇽',br:'🇧🇷',ar:'🇦🇷',jp:'🇯🇵',kr:'🇰🇷',cn:'🇨🇳',au:'🇦🇺'};"
+                + "for(var k in map){if(k.length>2&&v.indexOf(k)>=0)return map[k];}"
+                + "var m=v.match(/(?:flag(?:-icon)?[-_ ]|country[-_ ])(ua|uk|ru|hr|pt|gb|us|es|de|it|fr|pl|tr|nl|be|cz|sk|ro|hu|gr|rs|ba|si|bg|se|no|dk|fi|at|ch|mx|br|ar|jp|kr|cn|au)\\\\b/i);"
+                + "if(m){var c=m[1].toLowerCase();return map[c]||'🌐';}"
+                + "m=v.match(/(?:^|[/_])(ua|uk|ru|hr|pt|gb|us|es|de|it|fr|pl|tr|nl|be|cz|sk|ro|hu|gr|rs|ba|si|bg|se|no|dk|fi|at|ch|mx|br|ar|jp|kr|cn|au)\\\\.(?:gif|png|svg|webp)/i);"
+                + "if(m){var c=m[1].toLowerCase();return map[c]||'🌐';}return '🌐';}"
+                + "function flagFor(a){var n=a;for(var depth=0;n&&depth<6;depth++,n=n.parentElement){"
+                + "var list=[n];if(n.querySelectorAll){var kids=n.querySelectorAll('img,[class*=flag],[class*=country],[title],[alt],[data-country],[data-flag]');"
+                + "for(var z=0;z<kids.length&&z<20;z++)list.push(kids[z]);}"
+                + "for(var q=0;q<list.length;q++){var e=list[q];var v=[e.className||'',e.getAttribute&&e.getAttribute('src')||'',e.getAttribute&&e.getAttribute('alt')||'',"
+                + "e.getAttribute&&e.getAttribute('title')||'',e.getAttribute&&e.getAttribute('data-country')||'',e.getAttribute&&e.getAttribute('data-flag')||'',"
+                + "e.getAttribute&&e.getAttribute('style')||''].join(' ');if(!/(flag|country|\\.gif|\\.png|\\.svg|background|ukraine|russia|croatia|portugal)/i.test(v))continue;"
+                + "var f=codeFromText(v);if(f!=='🌐')return f;}}return '🌐';}"
+                + "var nodes=document.querySelectorAll('a[href*=\"#webplayer_\"],a[onclick*=\"webplayer_\"]');var out=[];var seen={};"
+                + "for(var i=0;i<nodes.length;i++){var a=nodes[i],raw=(a.getAttribute('href')||'')+' '+(a.getAttribute('onclick')||'');"
+                + "var m=raw.match(/#webplayer_[A-Za-z0-9_-]+(?:\\\\|[A-Za-z0-9._:%+~-]+)*/i);if(!m)continue;"
+                + "var frag=m[0].replace(/&amp;/g,'&');if(seen[frag])continue;seen[frag]=1;"
+                + "out.push({fragment:frag,flag:flagFor(a)});}return JSON.stringify(out);})()";
+    }
+
     private String browserLinkDisplayLabel(String url, int number) {
         String flag = browserLinkCountryFlags.get(url);
         if (flag == null || flag.isEmpty()) flag = "🌐";
         return flag + "  Трансляция " + number;
-    }
-
-    // Read the flag attached to this specific Browser Link in the event HTML.
-    // The trailing "|ua" in #webplayer_... is the page language, not broadcaster country.
-    private String browserLinkFlagNear(String html, int start, int end) {
-        if (html == null || html.isEmpty()) return "🌐";
-        int left = Math.max(0, start - 1400);
-        int right = Math.min(html.length(), end + 1400);
-        String area = html.substring(left, right);
-
-        String bestFlag = "🌐";
-        int bestDistance = Integer.MAX_VALUE;
-        Pattern tagPattern = Pattern.compile("(?is)<(?:img|span|i|div|td|a)[^>]{0,700}>");
-        Matcher tags = tagPattern.matcher(area);
-        while (tags.find()) {
-            String tag = tags.group();
-            String low = tag.toLowerCase(Locale.US);
-            if (!(low.contains("flag") || low.contains("country")
-                    || low.contains("alt=") || low.contains("title="))) continue;
-
-            String flag = flagFromFlagMarkup(tag);
-            if ("🌐".equals(flag)) continue;
-            int absolute = left + tags.start();
-            int distance = absolute < start ? start - absolute : absolute > end ? absolute - end : 0;
-            if (distance < bestDistance) {
-                bestDistance = distance;
-                bestFlag = flag;
-            }
-        }
-        return bestFlag;
-    }
-
-    private String flagFromFlagMarkup(String markup) {
-        if (markup == null) return "🌐";
-        String value = markup.toLowerCase(Locale.US);
-
-        Matcher code = Pattern.compile(
-                "(?:flag(?:-icon)?[-_/ ]|country[-_/ ])(ua|uk|ru|hr|pt|gb|us|es|de|it|fr|pl|tr|nl|be|cz|sk|ro|hu|gr|rs|ba|si|bg|se|no|dk|fi|at|ch|mx|br|ar|jp|kr|cn|au)(?:\\b|[-_./ ])",
-                Pattern.CASE_INSENSITIVE).matcher(value);
-        if (code.find()) return countryCodeToFlag(code.group(1));
-
-        Matcher pathCode = Pattern.compile(
-                "(?:/|\\\\|_)(ua|uk|ru|hr|pt|gb|us|es|de|it|fr|pl|tr|nl|be|cz|sk|ro|hu|gr|rs|ba|si|bg|se|no|dk|fi|at|ch|mx|br|ar|jp|kr|cn|au)\\.(?:gif|png|svg|webp)",
-                Pattern.CASE_INSENSITIVE).matcher(value);
-        if (pathCode.find() && (value.contains("flag") || value.contains("country"))) {
-            return countryCodeToFlag(pathCode.group(1));
-        }
-
-        String[] names = {"ukraine", "russia", "croatia", "portugal", "england", "united kingdom",
-                "united states", "spain", "germany", "italy", "france", "poland", "turkey",
-                "netherlands", "belgium", "czech", "slovakia", "romania", "hungary", "greece",
-                "serbia", "bosnia", "slovenia", "bulgaria", "sweden", "norway", "denmark",
-                "finland", "austria", "switzerland", "mexico", "brazil", "argentina", "japan",
-                "korea", "china", "australia"};
-        String[] codes = {"ua", "ru", "hr", "pt", "gb", "gb", "us", "es", "de", "it", "fr", "pl",
-                "tr", "nl", "be", "cz", "sk", "ro", "hu", "gr", "rs", "ba", "si", "bg", "se",
-                "no", "dk", "fi", "at", "ch", "mx", "br", "ar", "jp", "kr", "cn", "au"};
-        for (int i = 0; i < names.length; i++) {
-            if (value.contains(names[i])) return countryCodeToFlag(codes[i]);
-        }
-        return "🌐";
-    }
-
-    private String countryCodeToFlag(String rawCode) {
-        if (rawCode == null) return "🌐";
-        String code = rawCode.toLowerCase(Locale.US);
-        switch (code) {
-            case "ua": case "uk": return "🇺🇦";
-            case "ru": return "🇷🇺";
-            case "hr": return "🇭🇷";
-            case "pt": return "🇵🇹";
-            case "gb": return "🇬🇧";
-            case "us": return "🇺🇸";
-            case "es": return "🇪🇸";
-            case "de": return "🇩🇪";
-            case "it": return "🇮🇹";
-            case "fr": return "🇫🇷";
-            case "pl": return "🇵🇱";
-            case "tr": return "🇹🇷";
-            case "nl": return "🇳🇱";
-            case "be": return "🇧🇪";
-            case "cz": return "🇨🇿";
-            case "sk": return "🇸🇰";
-            case "ro": return "🇷🇴";
-            case "hu": return "🇭🇺";
-            case "gr": return "🇬🇷";
-            case "rs": return "🇷🇸";
-            case "ba": return "🇧🇦";
-            case "si": return "🇸🇮";
-            case "bg": return "🇧🇬";
-            case "se": return "🇸🇪";
-            case "no": return "🇳🇴";
-            case "dk": return "🇩🇰";
-            case "fi": return "🇫🇮";
-            case "at": return "🇦🇹";
-            case "ch": return "🇨🇭";
-            case "mx": return "🇲🇽";
-            case "br": return "🇧🇷";
-            case "ar": return "🇦🇷";
-            case "jp": return "🇯🇵";
-            case "kr": return "🇰🇷";
-            case "cn": return "🇨🇳";
-            case "au": return "🇦🇺";
-            default: return "🌐";
-        }
     }
     private int browserLinkLanguagePriority(String url) {
         if (url == null) return 2;
