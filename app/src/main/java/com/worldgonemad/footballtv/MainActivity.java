@@ -2480,11 +2480,8 @@ public class MainActivity extends Activity {
     ) {
         if (resolved[0]) return;
 
-        // The event page's Browser Links menu has six entries. Do not sort by
-        // "lang=ua": that is the page language, not the broadcaster's country.
-        if (found.size() > 6) {
-            found.subList(6, found.size()).clear();
-        }
+        // Keep every detected Browser Link. The number varies by match.
+        // Do not sort by "lang=ua": that is the page language, not broadcaster country.
 
         if (found.isEmpty()) {
             resolved[0] = true;
