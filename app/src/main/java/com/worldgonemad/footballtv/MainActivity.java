@@ -2931,16 +2931,11 @@ public class MainActivity extends Activity {
     ) {
         if (resolved[0]) return;
 
-        // Put Ukrainian/Russian Browser Links first, then all other links.
-        // If there are no Ukrainian/Russian links, the normal links are used immediately.
+        // Keep the website's order, but sort Ukrainian/Russian options first.
         found.sort((a, b) -> Integer.compare(
                 browserLinkLanguagePriority(a),
                 browserLinkLanguagePriority(b)
         ));
-
-        if (found.size() > 12) {
-            found.subList(12, found.size()).clear();
-        }
 
         if (found.isEmpty()) {
             resolved[0] = true;
@@ -2948,11 +2943,60 @@ public class MainActivity extends Activity {
             return;
         }
 
-        sourceCandidates.clear();
-        sourceCandidates.addAll(found);
-        current[0] = 0;
-        status.setText("Найдено " + sourceCandidates.size() + " ссылок. Поиск трансляции...");
-        tryNext[0].run();
+        // The old resolver immediately opened the first link, so viewers could not
+        // choose among LiveTV.sx Browser Links. Let the TV remote choose one first.
+        // Keep every detected option visible; do not silently truncate the list to 12.
+        String[] labels = new String[found.size()];
+        for (int i = 0; i < found.size(); i++) {
+            labels[i] = browserLinkDisplayLabel(found.get(i), i + 1);
+        }
+
+        new android.app.AlertDialog.Builder(this)
+                .setTitle("Выберите трансляцию")
+                .setItems(labels, (dialog, which) -> {
+                    if (resolved[0]) return;
+                    String selected = found.get(which);
+                    sourceCandidates.clear();
+                    sourceCandidates.add(selected);
+                    current[0] = 0;
+                    status.setText("Запуск выбранной трансляции...");
+                    tryNext[0].run();
+                })
+                .setOnCancelListener(dialog -> {
+                    if (!resolved[0]) status.setText("Выбор трансляции отменён.");
+                })
+                .show();
+        status.setText("Найдено вариантов: " + found.size() + ". Выберите трансляцию.");
+    }
+
+    private String browserLinkDisplayLabel(String url, int number) {
+        String lower = url == null ? "" : url.toLowerCase(Locale.US);
+        String lang = "";
+
+        if (lower.startsWith("#webplayer_")) {
+            String[] parts = lower.substring(1).split("\\|", -1);
+            if (parts.length >= 7) lang = parts[6];
+        }
+        if (lang.isEmpty()) {
+            Matcher m = Pattern.compile("[?&](?:lang|language)=([^&]+)", Pattern.CASE_INSENSITIVE)
+                    .matcher(lower);
+            if (m.find()) lang = m.group(1);
+        }
+
+        String flag;
+        if ("ua".equals(lang) || "uk".equals(lang) || "ukr".equals(lang)
+                || "ukrainian".equals(lang)) flag = "🇺🇦";
+        else if ("ru".equals(lang) || "rus".equals(lang) || "russian".equals(lang)) flag = "🇷🇺";
+        else if ("en".equals(lang) || "eng".equals(lang) || "english".equals(lang)) flag = "🇬🇧";
+        else if ("es".equals(lang) || "spa".equals(lang) || "spanish".equals(lang)) flag = "🇪🇸";
+        else if ("pt".equals(lang) || "por".equals(lang) || "portuguese".equals(lang)) flag = "🇵🇹";
+        else if ("de".equals(lang) || "ger".equals(lang) || "german".equals(lang)) flag = "🇩🇪";
+        else if ("it".equals(lang) || "ita".equals(lang) || "italian".equals(lang)) flag = "🇮🇹";
+        else if ("fr".equals(lang) || "fra".equals(lang) || "french".equals(lang)) flag = "🇫🇷";
+        else flag = "🌐";
+
+        String language = lang.isEmpty() ? "" : " · " + lang.toUpperCase(Locale.US);
+        return flag + "  Трансляция " + number + language;
     }
 
     private int browserLinkLanguagePriority(String url) {
