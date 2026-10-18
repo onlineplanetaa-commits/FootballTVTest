@@ -10,7 +10,6 @@ import android.os.Looper;
 import android.view.Gravity;
 import android.view.View;
 import android.net.Uri;
-import android.util.Base64;
 import android.widget.Button;
 import android.widget.LinearLayout;
 import android.widget.ImageView;
@@ -57,6 +56,8 @@ public class MainActivity extends Activity {
     private ExoPlayer player;
     private PlayerView playerView;
     private WebView resolverWebView;
+    // Country flags parsed from each Browser Link's own HTML entry.
+    private final HashMap<String, String> browserLinkCountryFlags = new HashMap<>();
     private WebView matchLoaderWebView;
     private boolean youtubePlayerScreen = false;
 
@@ -65,6 +66,22 @@ public class MainActivity extends Activity {
     private boolean playerScreen = false;
     private boolean flashscoreScreen = false;
     private WebView flashscoreWebView;
+
+    // Multi-screen additions only; the original match list and single player stay unchanged.
+    private boolean multiScreen = false;
+    private final WebView[] multiWebViews = new WebView[4];
+    private final ExoPlayer[] multiPlayers = new ExoPlayer[4];
+    private final PlayerView[] multiPlayerViews = new PlayerView[4];
+    private final boolean[] multiStreamStarted = new boolean[4];
+    private final FrameLayout[] multiVideoFrames = new FrameLayout[4];
+    private final TextView[] multiTitles = new TextView[4];
+    private final Button[] multiSelectButtons = new Button[4];
+    private final LinearLayout[] multiCells = new LinearLayout[4];
+    private int multiFocusedSlot = 0;
+    private boolean multiFullscreen = false;
+    private int multiFullscreenSlot = -1;
+    private LinearLayout multiRoot;
+    private FrameLayout multiFullscreenRoot;
 
     private final Handler handler =
             new Handler(Looper.getMainLooper());
@@ -262,7 +279,7 @@ public class MainActivity extends Activity {
 
         TextView title =
                 label(
-                        "МАКС Футбол Онлайн SX",
+                        "МАКС Футбол Онлайн",
                         28,
                         TEXT
                 );
@@ -341,7 +358,7 @@ public class MainActivity extends Activity {
 
         TextView logo =
                 label(
-                        "МАКС Футбол Онлайн SX",
+                        "МАКС Футбол Онлайн",
                         27,
                         TEXT
                 );
@@ -364,6 +381,7 @@ public class MainActivity extends Activity {
                         1
                 )
         );
+
 
         statusText =
                 label(
@@ -432,6 +450,486 @@ public class MainActivity extends Activity {
             showMatches();
         });
         return button;
+    }
+
+
+    // Four independent match windows. This section uses each match's existing LiveTV
+    // event URL and does not alter the existing single-match playback pipeline.
+    private void showMultiScreen() {
+        multiScreen = true;
+        setImmersivePlayback(false);
+        releaseMultiPlayers();
+
+        LinearLayout root = new LinearLayout(this);
+        root.setOrientation(LinearLayout.VERTICAL);
+        root.setBackgroundColor(BG);
+
+        LinearLayout header = new LinearLayout(this);
+        header.setGravity(Gravity.CENTER_VERTICAL);
+        header.setPadding(14, 4, 14, 4);
+        TextView title = label("МУЛЬТИЭКРАН — 4 МАТЧА", 20, TEXT);
+        title.setTypeface(Typeface.DEFAULT, Typeface.BOLD);
+        header.addView(title, new LinearLayout.LayoutParams(0, 48, 1));
+        Button back = action("НАЗАД К МАТЧАМ");
+        back.setOnClickListener(v -> leaveMultiScreen());
+        header.addView(back, new LinearLayout.LayoutParams(190, 46));
+        root.addView(header, new LinearLayout.LayoutParams(-1, 54));
+
+        TextView hint = label("Выберите окно и матч. Для управления используйте пульт.", 12, MUTED);
+        hint.setPadding(16, 0, 16, 0);
+        root.addView(hint, new LinearLayout.LayoutParams(-1, 28));
+
+        LinearLayout top = new LinearLayout(this);
+        top.setOrientation(LinearLayout.HORIZONTAL);
+        LinearLayout bottom = new LinearLayout(this);
+        bottom.setOrientation(LinearLayout.HORIZONTAL);
+        root.addView(top, new LinearLayout.LayoutParams(-1, 0, 1));
+        root.addView(bottom, new LinearLayout.LayoutParams(-1, 0, 1));
+
+        for (int i = 0; i < 4; i++) {
+            final int slot = i;
+            LinearLayout cell = new LinearLayout(this);
+            cell.setOrientation(LinearLayout.VERTICAL);
+            cell.setBackground(bg(PANEL, 10));
+            // The cell itself must not take DPAD focus on Android TV;
+            // otherwise the remote selects the panel instead of its SELECT button.
+            cell.setFocusable(false);
+            cell.setFocusableInTouchMode(false);
+            multiCells[i] = cell;
+
+            LinearLayout controls = new LinearLayout(this);
+            controls.setGravity(Gravity.CENTER_VERTICAL);
+            controls.setPadding(5, 2, 5, 2);
+            TextView matchTitle = label("Окно " + (i + 1) + " — выберите матч", 12, TEXT);
+            multiTitles[i] = matchTitle;
+            controls.addView(matchTitle, new LinearLayout.LayoutParams(0, 40, 1));
+            Button select = action("ВЫБРАТЬ");
+            multiSelectButtons[i] = select;
+            select.setFocusable(true);
+            select.setFocusableInTouchMode(true);
+            select.setTextSize(11);
+            select.setOnFocusChangeListener((v, focused) -> {
+                if (focused) {
+                    multiFocusedSlot = slot;
+                    updateMultiBorders();
+                }
+            });
+            select.setOnClickListener(v -> chooseMultiMatch(slot));
+            controls.addView(select, new LinearLayout.LayoutParams(100, 38));
+
+            Button full = action("\u26f6");
+            full.setContentDescription("Полноэкранный режим");
+            full.setTextSize(13);
+            full.setPadding(4, 0, 4, 0);
+            full.setOnFocusChangeListener((v, focused) -> {
+                if (focused) {
+                    multiFocusedSlot = slot;
+                    updateMultiBorders();
+                }
+            });
+            full.setOnClickListener(v -> enterMultiFullscreen(slot));
+            controls.addView(full, new LinearLayout.LayoutParams(64, 38));
+            cell.addView(controls, new LinearLayout.LayoutParams(-1, 42));
+
+            FrameLayout video = new FrameLayout(this);
+            video.setBackgroundColor(Color.BLACK);
+            TextView placeholder = label("Выберите матч", 14, MUTED);
+            placeholder.setGravity(Gravity.CENTER);
+            video.addView(placeholder, new FrameLayout.LayoutParams(-1, -1));
+            multiVideoFrames[i] = video;
+            cell.addView(video, new LinearLayout.LayoutParams(-1, 0, 1));
+
+            LinearLayout.LayoutParams cp = new LinearLayout.LayoutParams(0, -1, 1);
+            cp.setMargins(4, 3, 4, 3);
+            (i < 2 ? top : bottom).addView(cell, cp);
+        }
+        multiRoot = root;
+        setContentView(root);
+        updateMultiBorders();
+        multiSelectButtons[0].requestFocus();
+    }
+
+    private void chooseMultiMatch(int slot) {
+        ArrayList<Match> available = getVisibleMatches();
+        if (available == null || available.isEmpty()) available = new ArrayList<>(matches);
+        if (available.isEmpty()) {
+            android.widget.Toast.makeText(this, "Матчи не найдены", android.widget.Toast.LENGTH_SHORT).show();
+            return;
+        }
+        final ArrayList<Match> choicesMatches = available;
+        String[] choices = new String[choicesMatches.size()];
+        for (int i = 0; i < choicesMatches.size(); i++) {
+            Match m = choicesMatches.get(i);
+            choices[i] = m.home + " — " + m.away + "  |  " + m.league;
+        }
+        new android.app.AlertDialog.Builder(this)
+                .setTitle("Матч для окна " + (slot + 1))
+                .setItems(choices, (dialog, which) -> loadMultiMatch(slot, choicesMatches.get(which)))
+                .setNegativeButton("ОТМЕНА", null)
+                .show();
+    }
+
+    private void loadMultiMatch(int slot, Match match) {
+        if (!multiScreen || slot < 0 || slot >= 4) return;
+        multiFocusedSlot = slot;
+        multiTitles[slot].setText(match.home + " — " + match.away);
+        multiVideoFrames[slot].removeAllViews();
+
+        String eventUrl = match.eventUrl;
+        if ((eventUrl == null || eventUrl.trim().isEmpty())
+                && match.fallbackEventUrl != null) {
+            eventUrl = match.fallbackEventUrl;
+        }
+        if (eventUrl == null || eventUrl.trim().isEmpty()) {
+            TextView error = label("Нет ссылки на трансляцию для этого матча", 13, MUTED);
+            error.setGravity(Gravity.CENTER);
+            multiVideoFrames[slot].addView(error, new FrameLayout.LayoutParams(-1, -1));
+            return;
+        }
+        final String matchEventUrl = eventUrl;
+        WebView old = multiWebViews[slot];
+        if (old != null) {
+            try { old.stopLoading(); old.destroy(); } catch (Exception ignored) {}
+        }
+
+        TextView status = label("Поиск трансляции...", 12, MUTED);
+        status.setGravity(Gravity.CENTER);
+        multiVideoFrames[slot].addView(status, new FrameLayout.LayoutParams(-1, -1));
+
+        WebView web = new WebView(this);
+        multiWebViews[slot] = web;
+        web.setBackgroundColor(Color.BLACK);
+        web.getSettings().setJavaScriptEnabled(true);
+        web.getSettings().setDomStorageEnabled(true);
+        web.getSettings().setMediaPlaybackRequiresUserGesture(false);
+        web.getSettings().setLoadsImagesAutomatically(true);
+        web.getSettings().setAllowContentAccess(true);
+        web.getSettings().setMixedContentMode(
+                android.webkit.WebSettings.MIXED_CONTENT_COMPATIBILITY_MODE);
+        web.setWebChromeClient(new WebChromeClient());
+        CookieManager.getInstance().setAcceptCookie(true);
+        CookieManager.getInstance().setAcceptThirdPartyCookies(web, true);
+
+        final ArrayList<String> candidates = new ArrayList<>();
+        final int[] candidateIndex = {0};
+        final boolean[] eventPageInspected = {false};
+        final boolean[] candidateStarted = {false};
+
+        Runnable[] tryNext = new Runnable[1];
+        tryNext[0] = () -> {
+            if (!multiScreen || multiWebViews[slot] != web) return;
+            if (candidateIndex[0] >= candidates.size()) {
+                status.setText("Рабочая ссылка не найдена");
+                return;
+            }
+            String candidate = candidates.get(candidateIndex[0]++).trim();
+            if (candidate.isEmpty()) {
+                tryNext[0].run();
+                return;
+            }
+            if (candidate.toLowerCase(Locale.US).startsWith("#webplayer_")) {
+                candidate = webPlayerFromFragment(matchEventUrl, candidate);
+            }
+            if (candidate.isEmpty()) {
+                tryNext[0].run();
+                return;
+            }
+            candidateStarted[0] = true;
+            status.setVisibility(View.GONE);
+            Map<String, String> headers = new HashMap<>();
+            headers.put("Referer", matchEventUrl);
+            headers.put("User-Agent",
+                    "Mozilla/5.0 (Linux; Android 11; Android TV) AppleWebKit/537.36 Chrome/124.0.0.0 Safari/537.36");
+            web.loadUrl(candidate, headers);
+        };
+
+        web.setWebViewClient(new WebViewClient() {
+            @Override
+            public void onLoadResource(WebView view, String resourceUrl) {
+                super.onLoadResource(view, resourceUrl);
+                if (!multiScreen || multiWebViews[slot] != web || multiStreamStarted[slot]) return;
+                if (isLikelyLiveMediaUrl(resourceUrl)) {
+                    Map<String, String> headers = new HashMap<>();
+                    headers.put("Referer", view.getUrl() == null ? matchEventUrl : view.getUrl());
+                    headers.put("User-Agent",
+                            "Mozilla/5.0 (Linux; Android 11; Android TV) AppleWebKit/537.36 Chrome/124.0.0.0 Safari/537.36");
+                    String cookie = CookieManager.getInstance().getCookie(resourceUrl);
+                    if (cookie != null && !cookie.isEmpty()) headers.put("Cookie", cookie);
+                    startMultiStream(slot, resourceUrl, headers);
+                }
+            }
+
+            @Override
+            public WebResourceResponse shouldInterceptRequest(WebView view, WebResourceRequest request) {
+                if (request != null && request.getUrl() != null
+                        && multiScreen && multiWebViews[slot] == web && !multiStreamStarted[slot]) {
+                    String resourceUrl = request.getUrl().toString();
+                    if (isLikelyLiveMediaUrl(resourceUrl)) {
+                        Map<String, String> headers = new HashMap<>();
+                        Map<String, String> sourceHeaders = request.getRequestHeaders();
+                        if (sourceHeaders != null) headers.putAll(sourceHeaders);
+                        if (!headers.containsKey("Referer")) {
+                            headers.put("Referer", view.getUrl() == null ? matchEventUrl : view.getUrl());
+                        }
+                        startMultiStream(slot, resourceUrl, headers);
+                    }
+                }
+                return super.shouldInterceptRequest(view, request);
+            }
+
+            @Override
+            public void onPageFinished(WebView view, String loadedUrl) {
+                super.onPageFinished(view, loadedUrl);
+                if (!multiScreen || multiWebViews[slot] != web || loadedUrl == null) return;
+                if (loadedUrl.equalsIgnoreCase(matchEventUrl) && !eventPageInspected[0]) {
+                    eventPageInspected[0] = true;
+                    view.evaluateJavascript("(function(){return document.documentElement.outerHTML;})()", value -> {
+                        if (!multiScreen || multiWebViews[slot] != web) return;
+                        String html = value == null ? "" : value;
+                        if (html.length() >= 2 && html.startsWith("\"") && html.endsWith("\"")) {
+                            html = html.substring(1, html.length() - 1)
+                                    .replace("\\\"", "\"")
+                                    .replace("\\\\", "\\")
+                                    .replace("\\n", "\n")
+                                    .replace("\\r", "\r");
+                        }
+                        ArrayList<String> found = new ArrayList<>();
+                        collectWebPlayerUrls(html, matchEventUrl, found);
+                        if (!found.isEmpty()) {
+                            found.sort((a, b) -> Integer.compare(
+                                    browserLinkLanguagePriority(a),
+                                    browserLinkLanguagePriority(b)));
+                            if (found.size() > 12) found.subList(12, found.size()).clear();
+                            candidates.clear();
+                            candidates.addAll(found);
+                            candidateIndex[0] = 0;
+                            tryNext[0].run();
+                        } else {
+                            status.setVisibility(View.VISIBLE);
+                            status.setText("Ссылки трансляции не найдены");
+                        }
+                    });
+                }
+            }
+
+            @Override
+            public void onReceivedError(WebView view, WebResourceRequest request,
+                    android.webkit.WebResourceError error) {
+                super.onReceivedError(view, request, error);
+                if (request != null && request.isForMainFrame()
+                        && candidateStarted[0] && multiScreen && multiWebViews[slot] == web) {
+                    tryNext[0].run();
+                }
+            }
+        });
+
+        multiVideoFrames[slot].addView(web, new FrameLayout.LayoutParams(-1, -1));
+        updateMultiBorders();
+
+        // Match the working single-player flow: extract Browser Links from the event page
+        // first, then use the rendered event page only if direct extraction returns nothing.
+        new Thread(() -> {
+            String html = downloadPage(matchEventUrl);
+            ArrayList<String> found = new ArrayList<>();
+            collectWebPlayerUrls(html, matchEventUrl, found);
+            runOnUiThread(() -> {
+                if (!multiScreen || multiWebViews[slot] != web) return;
+                if (!found.isEmpty()) {
+                    found.sort((a, b) -> Integer.compare(
+                            browserLinkLanguagePriority(a),
+                            browserLinkLanguagePriority(b)));
+                    if (found.size() > 12) found.subList(12, found.size()).clear();
+                    candidates.clear();
+                    candidates.addAll(found);
+                    tryNext[0].run();
+                } else {
+                    status.setVisibility(View.VISIBLE);
+                    status.setText("Загрузка страницы матча...");
+                    Map<String, String> headers = new HashMap<>();
+                    headers.put("User-Agent",
+                            "Mozilla/5.0 (Linux; Android 11; Android TV) AppleWebKit/537.36 Chrome/124.0.0.0 Safari/537.36");
+                    web.loadUrl(matchEventUrl, headers);
+                }
+            });
+        }).start();
+    }
+
+    private void updateMultiBorders() {
+        for (int i = 0; i < multiCells.length; i++) {
+            if (multiCells[i] == null) continue;
+            GradientDrawable border = new GradientDrawable();
+            border.setColor(PANEL);
+            border.setCornerRadius(10);
+            border.setStroke(3, i == multiFocusedSlot
+                    ? Color.rgb(255, 205, 35) : Color.rgb(65, 72, 84));
+            multiCells[i].setBackground(border);
+        }
+        updateMultiAudio();
+    }
+
+    // Only the focused window keeps its sound; every other window is muted.
+    private void updateMultiAudio() {
+        for (int i = 0; i < multiPlayers.length; i++) {
+            if (multiPlayers[i] != null) {
+                try {
+                    multiPlayers[i].setVolume(i == multiFocusedSlot ? 1f : 0f);
+                } catch (Exception ignored) {}
+            }
+            if (multiWebViews[i] != null) {
+                String js = "(function(){var m=" + (i == multiFocusedSlot ? "false" : "true")
+                        + ";document.querySelectorAll('video,audio').forEach(function(e){e.muted=m;});})()";
+                try { multiWebViews[i].evaluateJavascript(js, null); } catch (Exception ignored) {}
+            }
+        }
+    }
+
+    private void enterMultiFullscreen(int slot) {
+        if (!multiScreen || slot < 0 || slot >= 4) return;
+        if (multiPlayers[slot] == null || multiPlayerViews[slot] == null) {
+            android.widget.Toast.makeText(this, "Трансляция ещё не запущена",
+                    android.widget.Toast.LENGTH_SHORT).show();
+            return;
+        }
+        multiFocusedSlot = slot;
+        multiFullscreen = true;
+        multiFullscreenSlot = slot;
+        PlayerView video = multiPlayerViews[slot];
+        if (video.getParent() instanceof FrameLayout) {
+            ((FrameLayout) video.getParent()).removeAllViews();
+        }
+        FrameLayout fs = new FrameLayout(this);
+        fs.setBackgroundColor(Color.BLACK);
+        fs.addView(video, new FrameLayout.LayoutParams(-1, -1));
+        multiFullscreenRoot = fs;
+        setContentView(fs);
+        setImmersivePlayback(true);
+        updateMultiAudio();
+    }
+
+    private void exitMultiFullscreen() {
+        if (!multiFullscreen) return;
+        multiFullscreen = false;
+        int slot = multiFullscreenSlot;
+        multiFullscreenSlot = -1;
+        if (multiFullscreenRoot != null) {
+            multiFullscreenRoot.removeAllViews();
+        }
+        multiFullscreenRoot = null;
+        if (multiScreen && slot >= 0 && slot < 4
+                && multiVideoFrames[slot] != null && multiPlayerViews[slot] != null) {
+            multiVideoFrames[slot].removeAllViews();
+            multiVideoFrames[slot].addView(multiPlayerViews[slot],
+                    new FrameLayout.LayoutParams(-1, -1));
+        }
+        setImmersivePlayback(false);
+        if (multiScreen) {
+            if (multiRoot != null) {
+                setContentView(multiRoot);
+            }
+            if (slot >= 0 && slot < 4 && multiSelectButtons[slot] != null) {
+                multiSelectButtons[slot].requestFocus();
+            }
+            updateMultiAudio();
+        }
+    }
+
+    private void leaveMultiScreen() {
+        multiFullscreen = false;
+        multiFullscreenSlot = -1;
+        releaseMultiPlayers();
+        multiScreen = false;
+        showMatches();
+    }
+
+    private void releaseMultiPlayers() {
+        for (int i = 0; i < multiWebViews.length; i++) {
+            if (multiWebViews[i] != null) {
+                try { multiWebViews[i].stopLoading(); multiWebViews[i].destroy(); } catch (Exception ignored) {}
+                multiWebViews[i] = null;
+            }
+            if (multiPlayers[i] != null) {
+                try { multiPlayers[i].release(); } catch (Exception ignored) {}
+                multiPlayers[i] = null;
+            }
+            multiPlayerViews[i] = null;
+            multiStreamStarted[i] = false;
+        }
+    }
+
+    // Start the actual media URL inside its own quadrant. Never leave the LiveTV
+    // web-player page as the visible result when a direct stream is detected.
+    private void startMultiStream(int slot, String mediaUrl, Map<String, String> requestHeaders) {
+        if (!multiScreen || slot < 0 || slot >= 4 || multiStreamStarted[slot]
+                || mediaUrl == null || !isLikelyLiveMediaUrl(mediaUrl)) return;
+        multiStreamStarted[slot] = true;
+
+        runOnUiThread(() -> {
+            if (!multiScreen || slot < 0 || slot >= 4) return;
+            WebView web = multiWebViews[slot];
+            if (web == null) return;
+
+            Map<String, String> headers = new HashMap<>();
+            if (requestHeaders != null) headers.putAll(requestHeaders);
+            if (!headers.containsKey("User-Agent")) {
+                headers.put("User-Agent",
+                        "Mozilla/5.0 (Linux; Android 11; Android TV) AppleWebKit/537.36 Chrome/124.0.0.0 Safari/537.36");
+            }
+            if (!headers.containsKey("Referer")) {
+                headers.put("Referer", web.getUrl() == null ? "" : web.getUrl());
+            }
+            try {
+                String cookie = CookieManager.getInstance().getCookie(mediaUrl);
+                if (cookie != null && !cookie.isEmpty() && !headers.containsKey("Cookie")) {
+                    headers.put("Cookie", cookie);
+                }
+            } catch (Exception ignored) {}
+
+            FrameLayout frame = multiVideoFrames[slot];
+            PlayerView video = new PlayerView(MainActivity.this);
+            video.setBackgroundColor(Color.BLACK);
+            video.setUseController(false);
+            video.setKeepScreenOn(true);
+
+            DefaultHttpDataSource.Factory http = new DefaultHttpDataSource.Factory()
+                    .setUserAgent(headers.get("User-Agent"))
+                    .setDefaultRequestProperties(headers)
+                    .setConnectTimeoutMs(20000)
+                    .setReadTimeoutMs(30000)
+                    .setAllowCrossProtocolRedirects(true);
+
+            ExoPlayer exo = new ExoPlayer.Builder(MainActivity.this)
+                    .setMediaSourceFactory(
+                            new androidx.media3.exoplayer.source.DefaultMediaSourceFactory(http))
+                    .build();
+            multiPlayers[slot] = exo;
+            multiPlayerViews[slot] = video;
+            video.setPlayer(exo);
+
+            exo.addListener(new androidx.media3.common.Player.Listener() {
+                @Override
+                public void onPlayerError(androidx.media3.common.PlaybackException error) {
+                    if (!multiScreen || multiPlayers[slot] != exo) return;
+                    if (multiFullscreen && multiFullscreenSlot == slot) exitMultiFullscreen();
+                    TextView failed = label("Не удалось запустить видеопоток", 12, MUTED);
+                    failed.setGravity(Gravity.CENTER);
+                    frame.removeAllViews();
+                    frame.addView(failed, new FrameLayout.LayoutParams(-1, -1));
+                    try { exo.release(); } catch (Exception ignored) {}
+                    multiPlayers[slot] = null;
+                    multiPlayerViews[slot] = null;
+                }
+            });
+
+            frame.removeAllViews();
+            frame.addView(video, new FrameLayout.LayoutParams(-1, -1));
+            try { web.stopLoading(); web.destroy(); } catch (Exception ignored) {}
+            multiWebViews[slot] = null;
+
+            exo.setMediaItem(new MediaItem.Builder().setUri(Uri.parse(mediaUrl)).build());
+            exo.prepare();
+            exo.play();
+            updateMultiAudio();
+        });
     }
 
     private void updateSectionButtonColor(Button button, int section, boolean hasFocus) {
@@ -702,27 +1200,41 @@ public class MainActivity extends Activity {
 
     private void loadMatches() {
         new Thread(() -> {
-            // Restore build #294 match-list sources and parsing; playback logic is separate.
+            // Test build: LiveTV.sx is the only LiveTV fixture and event-page source.
             String liveTvHtml = downloadPage(PRIMARY_LIVE_TV_URL);
-            String liveTv904Html = downloadPage(НАЗАДUP_LIVE_TV_URL);
 
             ArrayList<Match> liveResults = parseMatches(liveTvHtml, true, "https://livetv.sx");
-            mergeMatches(liveResults, parseMatches(liveTv904Html, true, "https://livetv904.me"));
-            if (liveResults.size() > 80) {
-                liveResults = new ArrayList<>(liveResults.subList(0, 80));
-            }
 
+            // The daily schedule may still include the independent fixture widget,
+            // but all LiveTV event pages are loaded from LiveTV.sx only.
             ArrayList<Match> dailyResults = parseMatches(liveTvHtml, false, "https://livetv.sx");
-            mergeMatches(dailyResults, parseMatches(liveTv904Html, false, "https://livetv904.me"));
-            String widgetHtml = downloadPage(MYFOOTBALL_SCHEDULE_URL);
-            mergeMatches(dailyResults, parseMatches(widgetHtml, false, "https://livetv.sx"));
+            String myFootballWidgetHtml = downloadPage(MYFOOTBALL_SCHEDULE_URL);
+            mergeMatches(dailyResults, parseMatches(myFootballWidgetHtml, false));
+
+            // "Все матчи сегодня" must include every currently live match
+            // as well as fixtures from the upcoming schedule.
+            // The Online tab remains based on liveResults only.
             mergeMatches(dailyResults, liveResults);
 
-            if (!liveResults.isEmpty()) saveLiveMatchesCache(liveResults);
-            else liveResults = readLiveMatchesCache();
+            // Do not truncate the daily schedule: include all parsed fixtures from every source.
 
-            if (!dailyResults.isEmpty()) saveTodayMatches(dailyResults);
-            else dailyResults = readTodayMatchesCache();
+            final boolean liveSourceNeedsWebViewFallback = liveResults.isEmpty();
+
+            if (!liveResults.isEmpty()) {
+                saveLiveMatchesCache(liveResults);
+            } else {
+                liveResults = readLiveMatchesCache();
+                // Never put the daily schedule into the Online tab.
+            }
+
+            if (!dailyResults.isEmpty()) {
+                saveTodayMatches(dailyResults);
+            } else {
+                // Keep only a previously saved daily schedule when sources fail.
+                // Never copy the live list into the daily tab: that made both tabs
+                // show the same ~50 events even when the schedule could not load.
+                dailyResults = readTodayMatchesCache();
+            }
 
             ArrayList<Match> loadedLive = new ArrayList<>(liveResults);
             ArrayList<Match> loadedDaily = new ArrayList<>(dailyResults);
@@ -735,156 +1247,13 @@ public class MainActivity extends Activity {
                     if (listContainer == null) showMatches();
                     else renderMatches();
                 }
+                // Some LiveTV pages return an empty or anti-bot HTTP response.
+                // Retry through Android WebView so JavaScript-rendered fixtures can be parsed.
+                if (liveSourceNeedsWebViewFallback && !playerScreen) {
+                    loadMatchesViaWebView(PRIMARY_LIVE_TV_URL, PRIMARY_LIVE_TV_URL);
+                }
             });
         }).start();
-    }
-
-    private void loadInformerLiveMatches() {
-        if (isFinishing() || isDestroyed()) return;
-
-        if (matchLoaderWebView != null) {
-            try {
-                matchLoaderWebView.stopLoading();
-                matchLoaderWebView.destroy();
-            } catch (Exception ignored) {}
-            matchLoaderWebView = null;
-        }
-
-        WebView web = new WebView(this);
-        matchLoaderWebView = web;
-        web.getSettings().setJavaScriptEnabled(true);
-        web.getSettings().setDomStorageEnabled(true);
-        web.getSettings().setUserAgentString(
-                "Mozilla/5.0 (Linux; Android 11; Android TV) AppleWebKit/537.36 Chrome/124.0.0.0 Safari/537.36"
-        );
-        web.setVisibility(View.GONE);
-
-        // Load the exact webmasters informer URL supplied by the user.
-        // Loading the page itself lets WebView inspect its actual document;
-        // a cross-origin iframe embedded in our own HTML would hide its rows.
-        final String informerUrl =
-                "https://livetv.sx/export/webmasters.php?lang=ru&id=3273951";
-
-        web.setWebViewClient(new WebViewClient() {
-            private boolean finished = false;
-            private int attempts = 0;
-
-            @Override
-            public void onPageFinished(WebView view, String url) {
-                super.onPageFinished(view, url);
-                if (finished) return;
-                handler.postDelayed(() -> inspectInformer(view), 1200);
-            }
-
-            private void inspectInformer(WebView view) {
-                if (finished || matchLoaderWebView != web) return;
-                attempts++;
-                view.evaluateJavascript(
-                        "(function(){"
-                                + "var as=document.getElementsByTagName('a');"
-                                + "for(var i=0;i<as.length;i++){try{if(as[i].href.indexOf('infin.php')<0)continue;"
-                                + "var m=as[i].href.match(/[?&]u=([^&]+)/);"
-                                + "if(m&&m[1]){var u=decodeURIComponent(m[1].replace(/\\+/g,'%20'));as[i].setAttribute('href',u);}}catch(e){}}"
-                                + "return btoa(unescape(encodeURIComponent(document.documentElement.outerHTML)));})()",
-                        value -> {
-                            if (finished || matchLoaderWebView != web) return;
-                            String html = "";
-                            if (value != null && value.length() >= 2
-                                    && value.startsWith("\"") && value.endsWith("\"")) {
-                                try {
-                                    String encoded = value.substring(1, value.length() - 1);
-                                    byte[] decoded = Base64.decode(encoded, Base64.DEFAULT);
-                                    html = new String(decoded, java.nio.charset.StandardCharsets.UTF_8);
-                                } catch (Exception ignored) {
-                                    html = "";
-                                }
-                            }
-
-                            // The informer links wrap the real event URL in the "u" query parameter.
-                            // The JavaScript above unwraps those URLs before parsing.
-                            ArrayList<Match> informerDailyMatches =
-                                    parseMatches(html, false, "https://livetv.sx");
-                            ArrayList<Match> informerLiveMatches =
-                                    parseMatches(html, true, "https://livetv.sx");
-                            if (informerDailyMatches.isEmpty() && attempts < 3) {
-                                handler.postDelayed(() -> inspectInformer(view), 1500);
-                                return;
-                            }
-
-                            finished = true;
-                            matchLoaderWebView = null;
-                            try {
-                                view.stopLoading();
-                                view.destroy();
-                            } catch (Exception ignored) {}
-
-                            if (informerDailyMatches.isEmpty()) {
-                                // No informer data: preserve existing lists and caches.
-                                return;
-                            }
-
-                            // Add informer fixtures to "Все матчи сегодня", without duplicates.
-                            ArrayList<Match> mergedDaily = new ArrayList<>(todayMatches);
-                            for (Match candidate : informerDailyMatches) {
-                                if (candidate == null) continue;
-                                boolean duplicate = false;
-                                for (Match existing : mergedDaily) {
-                                    if (existing.eventUrl != null
-                                            && existing.eventUrl.equals(candidate.eventUrl)) {
-                                        duplicate = true;
-                                        break;
-                                    }
-                                }
-                                if (!duplicate) mergedDaily.add(candidate);
-                            }
-                            todayMatches.clear();
-                            todayMatches.addAll(mergedDaily);
-                            saveTodayMatches(mergedDaily);
-
-                            // Only fixtures with an explicit LIVE badge may enter "Онлайн матчи".
-                            if (!informerLiveMatches.isEmpty()) {
-                                ArrayList<Match> mergedLive = new ArrayList<>();
-                                for (Match candidate : matches) {
-                                    if (candidate != null && candidate.live) mergedLive.add(candidate);
-                                }
-                                for (Match candidate : informerLiveMatches) {
-                                    if (candidate == null || !candidate.live) continue;
-                                    boolean duplicate = false;
-                                    for (Match existing : mergedLive) {
-                                        if (existing.eventUrl != null
-                                                && existing.eventUrl.equals(candidate.eventUrl)) {
-                                            duplicate = true;
-                                            break;
-                                        }
-                                    }
-                                    if (!duplicate) mergedLive.add(candidate);
-                                }
-                                matches.clear();
-                                matches.addAll(mergedLive);
-                                saveLiveMatchesCache(mergedLive);
-                            }
-                            if (!playerScreen) {
-                                if (listContainer == null) showMatches();
-                                else renderMatches();
-                            }
-                        }
-                );
-            }
-
-            @Override
-            public void onReceivedError(WebView view, WebResourceRequest request,
-                                        android.webkit.WebResourceError error) {
-                super.onReceivedError(view, request, error);
-                if (request != null && request.isForMainFrame() && !finished) {
-                    finished = true;
-                    if (matchLoaderWebView == web) matchLoaderWebView = null;
-                    try { view.destroy(); } catch (Exception ignored) {}
-                    // Keep the existing LiveTV page/cache results on informer failure.
-                }
-            }
-        });
-
-        web.loadUrl(informerUrl);
     }
 
     private String downloadFlashscoreFeed() {
@@ -1065,13 +1434,11 @@ public class MainActivity extends Activity {
             JSONArray array = new JSONArray(saved);
             for (int i = 0; i < array.length(); i++) {
                 JSONObject item = array.getJSONObject(i);
-                String eventUrl = item.optString("eventUrl", "");
-                if (eventUrl == null || !eventUrl.startsWith("https://livetv.sx/")) continue;
                 result.add(new Match(item.optString("league", "Футбол"),
                         item.optString("home", ""), item.optString("away", ""),
                         item.optString("time", "Сегодня"), item.optBoolean("live", false),
-                        eventUrl));
-                result.get(result.size() - 1).fallbackEventUrl = "";
+                        item.optString("eventUrl", "")));
+                result.get(result.size() - 1).fallbackEventUrl = item.optString("fallbackEventUrl", "");
             }
         } catch (Exception ignored) {}
         return result;
@@ -1289,7 +1656,8 @@ public class MainActivity extends Activity {
                     "GET"
             );
             // Bypass HTTP caches only for the LiveTV schedule sources.
-            if (address.startsWith("https://livetv.sx/")) {
+            if (address.startsWith("https://livetv.sx/")
+                    || address.startsWith("https://livetv904.me/")) {
                 connection.setUseCaches(false);
                 connection.setRequestProperty("Cache-Control", "no-cache, no-store, max-age=0");
                 connection.setRequestProperty("Pragma", "no-cache");
@@ -1319,7 +1687,9 @@ public class MainActivity extends Activity {
                     "en-US,en;q=0.9,ru;q=0.8"
             );
 
-            if (address.startsWith("https://livetv.sx/")) {
+            if (address.startsWith("https://livetv904.me/")) {
+                connection.setRequestProperty("Referer", "https://livetv904.me/");
+            } else if (address.startsWith("https://livetv.sx/")) {
                 connection.setRequestProperty("Referer", "https://livetv.sx/");
             }
 
@@ -1390,9 +1760,9 @@ public class MainActivity extends Activity {
             String html,
             boolean usePreviousOnlineDetection
     ) {
-        String lowerHtml = html == null ? "" : html.toLowerCase(Locale.US);
-        String baseHost = lowerHtml.contains("livetv.sx")
-                ? "https://livetv.sx"
+        String baseHost = (html != null
+                && html.toLowerCase(Locale.US).contains("livetv904.me"))
+                ? "https://livetv904.me"
                 : "https://livetv.sx";
         return parseMatches(html, usePreviousOnlineDetection, baseHost);
     }
@@ -1430,18 +1800,7 @@ public class MainActivity extends Activity {
             // LiveTV lays out each fixture as its event link followed by
             // its LIVE GIF, kickoff time and league. Start at this exact link
             // and stop before the next event link to prevent badge leakage.
-            // LiveTV places the live.gif badge BEFORE the team-name link
-            // in some fixtures. Start this event's segment after the previous
-            // event anchor so its badge is included without inheriting the
-            // previous fixture's badge.
-            int previousEventHref = html.lastIndexOf("/eventinfo/", linkMatcher.start() - 1);
-            int eventSegmentStart = 0;
-            if (previousEventHref >= 0) {
-                int previousEventAnchorEnd = html.indexOf("</a>", previousEventHref);
-                if (previousEventAnchorEnd >= 0 && previousEventAnchorEnd < linkMatcher.start()) {
-                    eventSegmentStart = previousEventAnchorEnd + "</a>".length();
-                }
-            }
+            int eventSegmentStart = linkMatcher.start();
             int nextEventHref = html.indexOf("/eventinfo/", linkMatcher.end());
             int eventSegmentEnd = nextEventHref > linkMatcher.end()
                     ? nextEventHref
@@ -1535,16 +1894,13 @@ public class MainActivity extends Activity {
             // The source page can contain mixed sports. Never label a row as
             // football merely because its sport marker was missing or belonged
             // to a previous row. Exclude explicit non-football markers locally.
-            // Filter by the event's nearest sport marker only. The larger
-            // rowMarkup slice can include unrelated navigation/neighbor content,
-            // so searching it for words like "hockey" can discard every football fixture.
-            if (isKnownNonFootballSport(lastAlt)) {
+            if (isKnownNonFootballSport(lastAlt) || isNonFootballMarkup(rowMarkup)) {
                 continue;
             }
 
             // A fixture is LIVE only when its own block contains an image
             // whose filename is exactly live.gif (including the known
-            // https://cdn.livetv.sx/img/live.gif URL). Do not infer LIVE
+            // https://cdn.livetv904.me/img/live.gif URL). Do not infer LIVE
             // from other GIFs, text, scores, or neighbouring fixtures.
             boolean liveGif = false;
             Matcher imageMatcher = Pattern.compile("(?is)<img\\b[^>]*>").matcher(rowMarkup);
@@ -1866,8 +2222,8 @@ public class MainActivity extends Activity {
         if (href.startsWith("https://") || href.startsWith("http://")) return href;
         if (href.startsWith("//")) return "https:" + href;
 
-        String host = (baseHost != null && baseHost.contains("livetv.sx"))
-                ? "https://livetv.sx"
+        String host = (baseHost != null && baseHost.contains("livetv904.me"))
+                ? "https://livetv904.me"
                 : "https://livetv.sx";
 
         if (href.startsWith("/")) return host + href;
@@ -1945,26 +2301,19 @@ public class MainActivity extends Activity {
             return;
         }
 
-        showPlayer(match, "Поиск трансляции...");
+        // Preserve the exact event URL selected by the match parser. The merged
+        // schedule prefers the LiveTV.sx event when that same fixture exists there.
+        // Do not fabricate an SX URL by swapping the hostname of a LiveTV904 path:
+        // the two hosts can route event pages differently. The resolver uses the
+        // same Browser Link extractor on whichever real event URL is selected.
+        match.streamFallbackTried = false;
+
+        showPlayer(match, "Поиск трансляции на LiveTV.sx...");
         startLiveTvResolver(match);
     }
 
-    // Playback resolution uses LiveTV.sx only. Match-list fetching is unchanged.
-    private String liveTvSxEventUrl(String eventUrl) {
-        if (eventUrl == null || eventUrl.isEmpty()) return "";
-        return eventUrl.replace("https://livetv904.me", "https://livetv.sx")
-                .replace("http://livetv904.me", "https://livetv.sx");
-    }
-
-    // No secondary streaming host is allowed.
-    private String alternateEventUrl(String eventUrl) {
-        if (eventUrl == null || eventUrl.isEmpty()) return "";
-        if (eventUrl.contains("livetv.sx")) {
-            return eventUrl.replace("https://livetv.sx", "https://livetv904.me");
-        }
-        if (eventUrl.contains("livetv904.me")) {
-            return eventUrl.replace("https://livetv904.me", "https://livetv.sx");
-        }
+    private String alternateEventUrl(Match match) {
+        // SX-only test build: deliberately do not switch event pages to LiveTV904.
         return "";
     }
 
@@ -1976,7 +2325,9 @@ public class MainActivity extends Activity {
         String[] p = f.substring(1).split("\\|", -1);
         if (p.length < 7) return "";
 
-        String host = "https://livetv.sx";
+        String host = eventUrl.contains("livetv904.me")
+                ? "https://livetv904.me"
+                : "https://livetv.sx";
 
         String selector = p[0];
         String provider = selector.startsWith("webplayer_")
@@ -1999,10 +2350,12 @@ public class MainActivity extends Activity {
     }
 
     private void collectWebPlayerUrls(String html, String eventUrl, ArrayList<String> found) {
-        if (html == null || html.isEmpty() || eventUrl == null || eventUrl.isEmpty() || found == null) return;
+        if (html == null || html.isEmpty() || eventUrl == null || eventUrl.isEmpty()) return;
 
-        // Keep the working extraction paths: LiveTV.sx may provide direct
-        // webplayer.php URLs rather than #webplayer_ fragments in raw HTML.
+        // Use the same Browser Link and #webplayer_ extraction algorithm for both
+        // providers. The event URL only determines the host for relative links.
+        browserLinkCountryFlags.clear();
+
         String source = html
                 .replace("\\\\/", "/")
                 .replace("\\/", "/")
@@ -2039,6 +2392,8 @@ public class MainActivity extends Activity {
             }
 
             if (!found.contains(u)) found.add(u);
+            String flag = browserLinkFlagNear(source, wm.start(), wm.end());
+            if (!"🌐".equals(flag)) browserLinkCountryFlags.put(u, flag);
         }
 
         Pattern frag = Pattern.compile(
@@ -2048,6 +2403,8 @@ public class MainActivity extends Activity {
         while (fm.find()) {
             String u = webPlayerFromFragment(eventUrl, fm.group(0));
             if (!u.isEmpty() && !found.contains(u)) found.add(u);
+            String flag = browserLinkFlagNear(source, fm.start(), fm.end());
+            if (!u.isEmpty() && !"🌐".equals(flag)) browserLinkCountryFlags.put(u, flag);
         }
     }
 
@@ -2087,7 +2444,7 @@ public class MainActivity extends Activity {
         if (lower.contains("/webplayer")
                 || lower.contains("/eventinfo/")
                 || lower.contains("livetv.sx/")
-                || lower.contains("livetv.sx/")) {
+                || lower.contains("livetv904.me/")) {
             return false;
         }
 
@@ -2142,14 +2499,23 @@ public class MainActivity extends Activity {
         final ArrayList<String> sourceCandidates = new ArrayList<>();
         final int[] current = {0};
         final boolean[] resolved = {false};
-        final boolean[] fallbackUsed = {false};
+        final boolean[] fallbackUsed = {match.streamFallbackTried};
         final boolean[] playbackAttemptActive = {false};
         final String[] activePlayerUrl = {""};
 
         Runnable finishNoStream = () -> {
             if (resolved[0]) return;
+            String backup = alternateEventUrl(match);
+            if (!fallbackUsed[0] && !backup.isEmpty()) {
+                fallbackUsed[0] = true;
+                match.streamFallbackTried = true;
+                status.setText("Повторная проверка LiveTV.sx...");
+                match.eventUrl = backup;
+                handler.postDelayed(() -> startLiveTvResolver(match), 100);
+                return;
+            }
             resolved[0] = true;
-            status.setText("Рабочая трансляция не найдена. Проверь ссылки Browser Links.");
+            status.setText("Рабочая трансляция не найдена.");
         };
 
         final Runnable[] tryNext = new Runnable[1];
@@ -2179,17 +2545,20 @@ public class MainActivity extends Activity {
 
                 activePlayerUrl[0] = playerUrl;
 
-                // LiveTV browser links are web-player pages, not direct media URLs.
-                // Let the page's own JavaScript player handle playback in a full-screen
-                // WebView instead of trying to extract an HLS/MP4 URL from a hidden view.
                 String lowerPlayerUrl = playerUrl.toLowerCase(Locale.US);
-                if ((lowerPlayerUrl.contains("livetv.sx/") || lowerPlayerUrl.contains("livetv904.me/"))
-                        && (lowerPlayerUrl.contains("/webplayer.php")
-                        || lowerPlayerUrl.contains("/webplayer2.php"))) {
-                    status.setText("Открытие веб-плеера LiveTV.sx...");
-                    resolved[0] = true;
-                    showLiveTvWebPlayer(match, playerUrl, sourceCandidates, current[0] - 1);
-                    return;
+
+                // t=ifr is a wrapper around another player. Keep this WebView visible
+                // while it loads so its nested player can initialize and its network
+                // requests can be inspected for the actual HLS/MP4 stream. A hidden
+                // 1x1 WebView can leave the player uninitialized and the TV on black.
+                if (lowerPlayerUrl.contains("t=ifr")) {
+                    status.setVisibility(View.GONE);
+                    web.setVisibility(View.VISIBLE);
+                    root.removeView(web);
+                    LinearLayout.LayoutParams playerParams =
+                            new LinearLayout.LayoutParams(-1, 0, 1f);
+                    root.addView(web, playerParams);
+                    setContentView(root);
                 }
 
                 // YouTube Browser Links are not ordinary HLS/MP4 sources.
@@ -2218,6 +2587,7 @@ public class MainActivity extends Activity {
                 status.setText("Открытие ссылки трансляции " + current[0] + " из "
                         + sourceCandidates.size() + "...");
 
+                final String resolvedPlayerUrl = playerUrl;
                 Map<String, String> headers = new HashMap<>();
                 headers.put("Referer", match.eventUrl);
                 headers.put(
@@ -2271,12 +2641,42 @@ public class MainActivity extends Activity {
 
                                 if (!media.isEmpty() && !playbackAttemptActive[0]) {
                                     playbackAttemptActive[0] = true;
-                                    playStreamCandidates(match, media, 0, playbackAttemptActive);
+                                    playStreamCandidates(match, media, 0, playbackAttemptActive, () -> {
+                                        if (!resolved[0] && resolverWebView == web) {
+                                            playbackAttemptActive[0] = false;
+                                            // Restore the resolver screen before trying the next source.
+                                            // playStreamCandidates temporarily replaces it with the video view.
+                                            setContentView(root);
+                                            web.setVisibility(View.GONE);
+                                            tryNext[0].run();
+                                        }
+                                    });
                                 } else if (!frames.isEmpty()) {
-                                    sourceCandidates.addAll(frames);
-                                    tryNext[0].run();
+                                    // These are player-page URLs, not media streams.
+                                    // Never navigate to them as top-level candidates: doing so
+                                    // sends the user back to a website instead of playing video.
+                                    if (resolvedPlayerUrl.toLowerCase(Locale.US).contains("t=ifr")) {
+                                        resolved[0] = true;
+                                        web.stopLoading();
+                                        web.setVisibility(View.GONE);
+                                        status.setVisibility(View.VISIBLE);
+                                        status.setText("Вложенный плеер найден, но прямой видеопоток не обнаружен.");
+                                    } else {
+                                        sourceCandidates.addAll(frames);
+                                        tryNext[0].run();
+                                    }
                                 } else {
-                                    tryNext[0].run();
+                                    // Do not fall back to opening the LiveTV wrapper as a website.
+                                    // Only start playback when a real media URL was captured.
+                                    if (resolvedPlayerUrl.toLowerCase(Locale.US).contains("t=ifr")) {
+                                        resolved[0] = true;
+                                        web.stopLoading();
+                                        web.setVisibility(View.GONE);
+                                        status.setVisibility(View.VISIBLE);
+                                        status.setText("Не удалось извлечь прямой видеопоток из этого плеера.");
+                                    } else {
+                                        tryNext[0].run();
+                                    }
                                 }
                             }
                     );
@@ -2285,6 +2685,37 @@ public class MainActivity extends Activity {
         };
 
         web.setWebViewClient(new WebViewClient() {
+            @Override
+            public void onPageFinished(WebView view, String url) {
+                super.onPageFinished(view, url);
+                if (resolved[0] || resolverWebView != web || url == null) return;
+
+                // First visit to an event page: scrape its rendered DOM for player links.
+                if (url.equals(match.eventUrl) || url.equalsIgnoreCase(match.eventUrl)) {
+                    view.evaluateJavascript("(function(){return document.documentElement.outerHTML;})()", value -> {
+                        if (resolved[0] || resolverWebView != web) return;
+                        String html = value == null ? "" : value;
+                        if (html.length() >= 2 && html.startsWith("\"") && html.endsWith("\"")) {
+                            html = html.substring(1, html.length() - 1)
+                                    .replace("\\\"", "\"")
+                                    .replace("\\\\", "\\")
+                                    .replace("\\n", "\n")
+                                    .replace("\\r", "\r");
+                        }
+                        ArrayList<String> browserLinks = new ArrayList<>();
+                        collectWebPlayerUrls(html, match.eventUrl, browserLinks);
+                        if (!browserLinks.isEmpty()) {
+                            status.setText("Найдено ссылок: " + browserLinks.size() + ". Запуск поиска...");
+                            startCandidates(browserLinks, status, sourceCandidates, current, resolved, tryNext);
+                        } else {
+                            // Use the existing LiveTV904 resolver flow unchanged:
+                            // when the shared extractor finds no player links, try the backup host.
+                            finishNoStream.run();
+                        }
+                    });
+                }
+            }
+
             @Override
             public void onPageStarted(WebView view, String url, android.graphics.Bitmap favicon) {
                 super.onPageStarted(view, url, favicon);
@@ -2307,10 +2738,10 @@ public class MainActivity extends Activity {
                     String cookie = CookieManager.getInstance().getCookie(url);
 
                     String candidate = url
-                            + "\\tREFERER=" + activePlayerUrl[0]
-                            + "\\tUA=Mozilla/5.0 (Linux; Android 11; Android TV) AppleWebKit/537.36 Chrome/124.0.0.0 Safari/537.36";
+                            + "\tREFERER=" + activePlayerUrl[0]
+                            + "\tUA=Mozilla/5.0 (Linux; Android 11; Android TV) AppleWebKit/537.36 Chrome/124.0.0.0 Safari/537.36";
                     if (cookie != null && !cookie.isEmpty()) {
-                        candidate += "\\tCOOKIE=" + cookie;
+                        candidate += "\tCOOKIE=" + cookie;
                     }
 
                     String origin = "";
@@ -2322,11 +2753,20 @@ public class MainActivity extends Activity {
                     } catch (Exception ignored) {}
 
                     if (!origin.isEmpty()) {
-                        candidate += "\\tORIGIN=" + origin;
+                        candidate += "\tORIGIN=" + origin;
                     }
 
                     media.add(candidate);
-                    playStreamCandidates(match, media, 0, playbackAttemptActive);
+                    playStreamCandidates(match, media, 0, playbackAttemptActive, () -> {
+                                        if (!resolved[0] && resolverWebView == web) {
+                                            playbackAttemptActive[0] = false;
+                                            // Restore the resolver screen before trying the next source.
+                                            // playStreamCandidates temporarily replaces it with the video view.
+                                            setContentView(root);
+                                            web.setVisibility(View.GONE);
+                                            tryNext[0].run();
+                                        }
+                                    });
                 }
             }
 
@@ -2386,19 +2826,28 @@ public class MainActivity extends Activity {
                             playbackAttemptActive[0] = true;
                             ArrayList<String> media = new ArrayList<>();
                             String candidate = mediaUrl
-                                    + "\\tREFERER=" + finalReferer
-                                    + "\\tUA=" + finalUserAgent;
+                                    + "\tREFERER=" + finalReferer
+                                    + "\tUA=" + finalUserAgent;
 
                             if (finalCookie != null && !finalCookie.isEmpty()) {
-                                candidate += "\\tCOOKIE=" + finalCookie;
+                                candidate += "\tCOOKIE=" + finalCookie;
                             }
                             if (finalOrigin != null && !finalOrigin.isEmpty()) {
-                                candidate += "\\tORIGIN=" + finalOrigin;
+                                candidate += "\tORIGIN=" + finalOrigin;
                             }
 
                             media.add(candidate);
                             status.setText("Трансляция найдена. Запуск плеера...");
-                            playStreamCandidates(match, media, 0, playbackAttemptActive);
+                            playStreamCandidates(match, media, 0, playbackAttemptActive, () -> {
+                                        if (!resolved[0] && resolverWebView == web) {
+                                            playbackAttemptActive[0] = false;
+                                            // Restore the resolver screen before trying the next source.
+                                            // playStreamCandidates temporarily replaces it with the video view.
+                                            setContentView(root);
+                                            web.setVisibility(View.GONE);
+                                            tryNext[0].run();
+                                        }
+                                    });
                         });
                     }
                 }
@@ -2456,8 +2905,18 @@ public class MainActivity extends Activity {
                 if (!found.isEmpty()) {
                     startCandidates(found, status, sourceCandidates, current, resolved, tryNext);
                 } else {
-                    resolved[0] = true;
-                    status.setText("В разделе Browser Links ссылки не найдены.");
+                    // Direct HTTP can be blocked or return a shell page. Load the event in
+                    // WebView as the fallback so JavaScript-generated Browser Links are visible.
+                    status.setText("Загрузка страницы матча для поиска трансляций...");
+                    web.setVisibility(View.VISIBLE);
+                    if (web.getParent() == null) {
+                        root.addView(web, new LinearLayout.LayoutParams(-1, 0, 1f));
+                    }
+                    setContentView(root);
+                    Map<String, String> eventHeaders = new HashMap<>();
+                    eventHeaders.put("User-Agent",
+                            "Mozilla/5.0 (Linux; Android 11; Android TV) AppleWebKit/537.36 Chrome/124.0.0.0 Safari/537.36");
+                    web.loadUrl(match.eventUrl, eventHeaders);
                 }
             });
         }).start();
@@ -2480,37 +2939,174 @@ public class MainActivity extends Activity {
     ) {
         if (resolved[0]) return;
 
-        // Keep every detected Browser Link. The number varies by match.
-        // Do not sort by "lang=ua": that is the page language, not broadcaster country.
+        // Keep the website's order, but sort Ukrainian/Russian options first.
+        found.sort((a, b) -> Integer.compare(
+                browserLinkLanguagePriority(a),
+                browserLinkLanguagePriority(b)
+        ));
 
         if (found.isEmpty()) {
             resolved[0] = true;
-            status.setText("В разделе Browser Links ссылки не найдены.");
+            status.setText("Ссылки на трансляции не найдены.");
             return;
         }
 
-        sourceCandidates.clear();
-        sourceCandidates.addAll(found);
-        current[0] = 0;
-
-        String[] labels = new String[sourceCandidates.size()];
-        for (int i = 0; i < labels.length; i++) {
-            labels[i] = "Browser Link " + (i + 1);
+        // The old resolver immediately opened the first link, so viewers could not
+        // choose among LiveTV.sx Browser Links. Let the TV remote choose one first.
+        // Keep every detected option visible; do not silently truncate the list to 12.
+        String[] labels = new String[found.size()];
+        for (int i = 0; i < found.size(); i++) {
+            labels[i] = browserLinkDisplayLabel(found.get(i), i + 1);
         }
 
-        status.setText("Выбери одну из " + sourceCandidates.size() + " ссылок Browser Links.");
         new android.app.AlertDialog.Builder(this)
-                .setTitle("Выбор трансляции")
+                .setTitle("Выберите трансляцию")
                 .setItems(labels, (dialog, which) -> {
-                    if (resolved[0] || which < 0 || which >= sourceCandidates.size()) return;
-                    current[0] = which;
+                    if (resolved[0]) return;
+                    String selected = found.get(which);
+                    sourceCandidates.clear();
+                    sourceCandidates.add(selected);
+                    current[0] = 0;
+                    status.setText("Запуск выбранной трансляции...");
                     tryNext[0].run();
                 })
                 .setOnCancelListener(dialog -> {
-                    resolved[0] = true;
-                    status.setText("Выбор трансляции отменён.");
+                    if (!resolved[0]) status.setText("Выбор трансляции отменён.");
                 })
                 .show();
+        status.setText("Найдено вариантов: " + found.size() + ". Выберите трансляцию.");
+    }
+
+    private String browserLinkDisplayLabel(String url, int number) {
+        String flag = browserLinkCountryFlags.get(url);
+        if (flag == null || flag.isEmpty()) flag = "🌐";
+        return flag + "  Трансляция " + number;
+    }
+
+    // Read the flag attached to this specific Browser Link in the event HTML.
+    // The trailing "|ua" in #webplayer_... is the page language, not broadcaster country.
+    private String browserLinkFlagNear(String html, int start, int end) {
+        if (html == null || html.isEmpty()) return "🌐";
+        int left = Math.max(0, start - 1400);
+        int right = Math.min(html.length(), end + 1400);
+        String area = html.substring(left, right);
+
+        String bestFlag = "🌐";
+        int bestDistance = Integer.MAX_VALUE;
+        Pattern tagPattern = Pattern.compile("(?is)<(?:img|span|i|div|td|a)[^>]{0,700}>");
+        Matcher tags = tagPattern.matcher(area);
+        while (tags.find()) {
+            String tag = tags.group();
+            String low = tag.toLowerCase(Locale.US);
+            if (!(low.contains("flag") || low.contains("country")
+                    || low.contains("alt=") || low.contains("title="))) continue;
+
+            String flag = flagFromFlagMarkup(tag);
+            if ("🌐".equals(flag)) continue;
+            int absolute = left + tags.start();
+            int distance = absolute < start ? start - absolute : absolute > end ? absolute - end : 0;
+            if (distance < bestDistance) {
+                bestDistance = distance;
+                bestFlag = flag;
+            }
+        }
+        return bestFlag;
+    }
+
+    private String flagFromFlagMarkup(String markup) {
+        if (markup == null) return "🌐";
+        String value = markup.toLowerCase(Locale.US);
+
+        Matcher code = Pattern.compile(
+                "(?:flag(?:-icon)?[-_/ ]|country[-_/ ])(ua|uk|ru|hr|pt|gb|us|es|de|it|fr|pl|tr|nl|be|cz|sk|ro|hu|gr|rs|ba|si|bg|se|no|dk|fi|at|ch|mx|br|ar|jp|kr|cn|au)(?:\\b|[-_./ ])",
+                Pattern.CASE_INSENSITIVE).matcher(value);
+        if (code.find()) return countryCodeToFlag(code.group(1));
+
+        Matcher pathCode = Pattern.compile(
+                "(?:/|\\\\|_)(ua|uk|ru|hr|pt|gb|us|es|de|it|fr|pl|tr|nl|be|cz|sk|ro|hu|gr|rs|ba|si|bg|se|no|dk|fi|at|ch|mx|br|ar|jp|kr|cn|au)\\.(?:gif|png|svg|webp)",
+                Pattern.CASE_INSENSITIVE).matcher(value);
+        if (pathCode.find() && (value.contains("flag") || value.contains("country"))) {
+            return countryCodeToFlag(pathCode.group(1));
+        }
+
+        String[] names = {"ukraine", "russia", "croatia", "portugal", "england", "united kingdom",
+                "united states", "spain", "germany", "italy", "france", "poland", "turkey",
+                "netherlands", "belgium", "czech", "slovakia", "romania", "hungary", "greece",
+                "serbia", "bosnia", "slovenia", "bulgaria", "sweden", "norway", "denmark",
+                "finland", "austria", "switzerland", "mexico", "brazil", "argentina", "japan",
+                "korea", "china", "australia"};
+        String[] codes = {"ua", "ru", "hr", "pt", "gb", "gb", "us", "es", "de", "it", "fr", "pl",
+                "tr", "nl", "be", "cz", "sk", "ro", "hu", "gr", "rs", "ba", "si", "bg", "se",
+                "no", "dk", "fi", "at", "ch", "mx", "br", "ar", "jp", "kr", "cn", "au"};
+        for (int i = 0; i < names.length; i++) {
+            if (value.contains(names[i])) return countryCodeToFlag(codes[i]);
+        }
+        return "🌐";
+    }
+
+    private String countryCodeToFlag(String rawCode) {
+        if (rawCode == null) return "🌐";
+        String code = rawCode.toLowerCase(Locale.US);
+        switch (code) {
+            case "ua": case "uk": return "🇺🇦";
+            case "ru": return "🇷🇺";
+            case "hr": return "🇭🇷";
+            case "pt": return "🇵🇹";
+            case "gb": return "🇬🇧";
+            case "us": return "🇺🇸";
+            case "es": return "🇪🇸";
+            case "de": return "🇩🇪";
+            case "it": return "🇮🇹";
+            case "fr": return "🇫🇷";
+            case "pl": return "🇵🇱";
+            case "tr": return "🇹🇷";
+            case "nl": return "🇳🇱";
+            case "be": return "🇧🇪";
+            case "cz": return "🇨🇿";
+            case "sk": return "🇸🇰";
+            case "ro": return "🇷🇴";
+            case "hu": return "🇭🇺";
+            case "gr": return "🇬🇷";
+            case "rs": return "🇷🇸";
+            case "ba": return "🇧🇦";
+            case "si": return "🇸🇮";
+            case "bg": return "🇧🇬";
+            case "se": return "🇸🇪";
+            case "no": return "🇳🇴";
+            case "dk": return "🇩🇰";
+            case "fi": return "🇫🇮";
+            case "at": return "🇦🇹";
+            case "ch": return "🇨🇭";
+            case "mx": return "🇲🇽";
+            case "br": return "🇧🇷";
+            case "ar": return "🇦🇷";
+            case "jp": return "🇯🇵";
+            case "kr": return "🇰🇷";
+            case "cn": return "🇨🇳";
+            case "au": return "🇦🇺";
+            default: return "🌐";
+        }
+    }
+    private int browserLinkLanguagePriority(String url) {
+        if (url == null) return 2;
+
+        String lower = url.toLowerCase(Locale.US);
+        String lang = "";
+
+        int q = lower.indexOf("lang=");
+        if (q >= 0) {
+            int start = q + 5;
+            int end = lower.indexOf('&', start);
+            if (end < 0) end = lower.length();
+            lang = lower.substring(start, end);
+        } else if (lower.startsWith("#webplayer_")) {
+            String[] parts = lower.substring(1).split("\\|", -1);
+            if (parts.length >= 7) lang = parts[6];
+        }
+
+        if ("ua".equals(lang) || "uk".equals(lang) || "ukr".equals(lang)) return 0;
+        if ("ru".equals(lang) || "rus".equals(lang)) return 1;
+        return 2;
     }
 
     private int indexOfIgnoreCase(String text, String needle) {
@@ -2592,11 +3188,11 @@ public class MainActivity extends Activity {
         if (u.startsWith("//")) {
             u = "https:" + u;
         } else if (u.startsWith("/")) {
-            u = "https://livetv.sx" + u;
+            u = "https://livetv904.me" + u;
         }
 
         // Skip normal LiveTV navigation and the event page itself.
-        if (u.startsWith("https://livetv.sx/")) {
+        if (u.startsWith("https://livetv904.me/")) {
             // Only the explicit #webplayer_* fragment is a broadcast selector.
             // Never treat ordinary LiveTV event/broadcast/player pages as a stream.
             if (!u.contains("#webplayer_")) return;
@@ -2629,6 +3225,34 @@ public class MainActivity extends Activity {
             boolean[] playbackAttemptActive,
             Runnable onAllCandidatesFailed
     ) {
+        // Let the viewer choose a detected direct stream before automatic fallback starts.
+        // If a chosen stream fails, the existing retry logic continues with the following ones.
+        if (index == 0 && streams != null && streams.size() > 1) {
+            final String[] choices = new String[streams.size()];
+            for (int i = 0; i < streams.size(); i++) {
+                String item = streams.get(i) == null ? "" : streams.get(i);
+                String lower = item.toLowerCase(Locale.US);
+                String language = "";
+                if (lower.contains("ukrain") || lower.contains("/ua/") || lower.contains("ukr")) language = " 🇺🇦";
+                else if (lower.contains("russian") || lower.contains("/ru/") || lower.contains("rus")) language = " 🇷🇺";
+                else if (lower.contains("english") || lower.contains("eng")) language = " 🇬🇧";
+                else if (lower.contains("arab") || lower.contains("ara")) language = " 🇸🇦";
+                else if (lower.contains("spanish") || lower.contains("esp")) language = " 🇪🇸";
+                else if (lower.contains("portugu") || lower.contains("por")) language = " 🇵🇹";
+                else if (lower.contains("french") || lower.contains("fra")) language = " 🇫🇷";
+                else if (lower.contains("german") || lower.contains("deu")) language = " 🇩🇪";
+                choices[i] = "Поток " + (i + 1) + language;
+            }
+            new android.app.AlertDialog.Builder(this)
+                    .setTitle("Выберите поток")
+                    .setItems(choices, (dialog, which) ->
+                            playStreamCandidates(match, streams, which, playbackAttemptActive, onAllCandidatesFailed))
+                    .setOnCancelListener(dialog -> {
+                        if (playbackAttemptActive != null) playbackAttemptActive[0] = false;
+                    })
+                    .show();
+            return;
+        }
         if (streams == null || index >= streams.size()) {
             if (playbackAttemptActive != null) playbackAttemptActive[0] = false;
             if (onAllCandidatesFailed != null) {
@@ -2753,17 +3377,6 @@ public class MainActivity extends Activity {
     }
 
     private void showLiveTvWebPlayer(Match match, String playerUrl) {
-        ArrayList<String> onlyThisPlayer = new ArrayList<>();
-        if (playerUrl != null && !playerUrl.isEmpty()) onlyThisPlayer.add(playerUrl);
-        showLiveTvWebPlayer(match, playerUrl, onlyThisPlayer, 0);
-    }
-
-    private void showLiveTvWebPlayer(
-            Match match,
-            String playerUrl,
-            ArrayList<String> playerCandidates,
-            int playerIndex
-    ) {
         releasePlayer();
         playerScreen = true;
         youtubePlayerScreen = playerUrl != null
@@ -2792,72 +3405,14 @@ public class MainActivity extends Activity {
         CookieManager.getInstance().setAcceptCookie(true);
         CookieManager.getInstance().setAcceptThirdPartyCookies(web, true);
 
-        // LiveTV's second Browser Link commonly uses target="_blank" / window.open().
-        // Keep that link inside this same in-app player screen instead of losing the popup.
-        web.getSettings().setSupportMultipleWindows(true);
-        web.getSettings().setJavaScriptCanOpenWindowsAutomatically(true);
-        web.setWebChromeClient(new WebChromeClient() {
-            @Override
-            public boolean onCreateWindow(
-                    WebView view,
-                    boolean isDialog,
-                    boolean isUserGesture,
-                    android.os.Message resultMsg
-            ) {
-                WebView popup = new WebView(MainActivity.this);
-                popup.getSettings().setJavaScriptEnabled(true);
-                popup.getSettings().setDomStorageEnabled(true);
-                CookieManager.getInstance().setAcceptThirdPartyCookies(popup, true);
-                popup.setWebViewClient(new WebViewClient() {
-                    @Override
-                    public boolean shouldOverrideUrlLoading(WebView popupView, String url) {
-                        if (url != null && !url.isEmpty() && !"about:blank".equals(url)) {
-                            web.loadUrl(url);
-                            return true;
-                        }
-                        return false;
-                    }
-
-                    @Override
-                    public void onPageStarted(
-                            WebView popupView,
-                            String url,
-                            android.graphics.Bitmap favicon
-                    ) {
-                        if (url != null && !url.isEmpty() && !"about:blank".equals(url)) {
-                            web.loadUrl(url);
-                        }
-                    }
-                });
-                android.webkit.WebView.WebViewTransport transport =
-                        (android.webkit.WebView.WebViewTransport) resultMsg.obj;
-                transport.setWebView(popup);
-                resultMsg.sendToTarget();
-                return true;
-            }
-        });
+        web.setWebChromeClient(new WebChromeClient());
         web.setWebViewClient(new WebViewClient());
 
         FrameLayout playerFrame = new FrameLayout(this);
         playerFrame.setBackgroundColor(Color.BLACK);
         playerFrame.addView(web, new FrameLayout.LayoutParams(-1, -1));
 
-        // Let the viewer switch to every discovered Browser Link if a provider
-        // fails to start. These remain actual LiveTV player URLs, not guessed media URLs.
-        if (playerCandidates != null && playerCandidates.size() > 1) {
-            Button nextPlayer = action("СЛЕДУЮЩИЙ ПЛЕЕР  " + (playerIndex + 1) + "/" + playerCandidates.size());
-            FrameLayout.LayoutParams nextParams = new FrameLayout.LayoutParams(-2, 52, Gravity.TOP | Gravity.LEFT);
-            nextParams.setMargins(16, 16, 0, 0);
-            nextPlayer.setElevation(20f);
-            playerFrame.addView(nextPlayer, nextParams);
-            nextPlayer.setOnClickListener(v -> {
-                int nextIndex = (playerIndex + 1) % playerCandidates.size();
-                String nextUrl = playerCandidates.get(nextIndex);
-                showLiveTvWebPlayer(match, nextUrl, playerCandidates, nextIndex);
-            });
-        }
-
-        // Keep Kyiv time above the LiveTV.sx iframe video while it is playing.
+        // Keep Kyiv time above the LiveTV904 iframe video while it is playing.
         TextView clock = createKyivClock();
         FrameLayout.LayoutParams clockParams =
                 new FrameLayout.LayoutParams(-2, -2, Gravity.TOP | Gravity.RIGHT);
@@ -2880,7 +3435,7 @@ public class MainActivity extends Activity {
         // initial player request instead of loading the player as an
         // unrelated top-level page.
         Map<String, String> webHeaders = new HashMap<>();
-        webHeaders.put("Referer", liveTvSxEventUrl(match.eventUrl));
+        webHeaders.put("Referer", match.eventUrl);
         webHeaders.put(
                 "User-Agent",
                 "Mozilla/5.0 (Linux; Android 11; Android TV) AppleWebKit/537.36 Chrome/124.0.0.0 Safari/537.36"
@@ -2978,7 +3533,7 @@ public class MainActivity extends Activity {
         top.setGravity(Gravity.CENTER_VERTICAL);
         top.setPadding(20, 8, 20, 8);
 
-        TextView title = label("МАКС Футбол Онлайн SX", 19, TEXT);
+        TextView title = label("МАКС Футбол Онлайн", 19, TEXT);
         title.setTypeface(Typeface.DEFAULT, Typeface.BOLD);
 
         top.addView(title, new LinearLayout.LayoutParams(0, 56, 1));
@@ -3020,6 +3575,12 @@ public class MainActivity extends Activity {
 
     @Override
     public boolean dispatchKeyEvent(android.view.KeyEvent event) {
+        if (multiScreen && multiFullscreen
+                && event.getAction() == android.view.KeyEvent.ACTION_DOWN
+                && event.getKeyCode() == android.view.KeyEvent.KEYCODE_BACK) {
+            exitMultiFullscreen();
+            return true;
+        }
         if (youtubePlayerScreen && resolverWebView != null) {
             try {
                 if (resolverWebView.dispatchKeyEvent(event)) {
@@ -3129,7 +3690,7 @@ public class MainActivity extends Activity {
 
         TextView title =
                 label(
-                        "МАКС Футбол Онлайн SX",
+                        "МАКС Футбол Онлайн",
                         28,
                         TEXT
                 );
@@ -3217,12 +3778,16 @@ public class MainActivity extends Activity {
         );
 
         releasePlayer();
+        releaseMultiPlayers();
 
         super.onDestroy();
     }
 
     @Override
     public void onBackPressed() {
+
+        if (multiScreen && multiFullscreen) { exitMultiFullscreen(); return; }
+        if (multiScreen) { leaveMultiScreen(); return; }
 
         if (flashscoreScreen && flashscoreWebView != null) {
             try { flashscoreWebView.stopLoading(); flashscoreWebView.destroy(); } catch (Exception ignored) {}
