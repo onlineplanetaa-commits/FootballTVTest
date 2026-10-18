@@ -1999,43 +1999,36 @@ public class MainActivity extends Activity {
     }
 
     private void collectWebPlayerUrls(String html, String eventUrl, ArrayList<String> found) {
-        if (html == null || html.isEmpty()) return;
+        if (html == null || html.isEmpty() || found == null) return;
 
-        // Browser Links can be encoded as HTML attributes, escaped JavaScript,
-        // or relative URLs. Normalize these forms before queuing player candidates.
-        Pattern wp = Pattern.compile(
-                "(?i)(?:https?:\\/\\/[^\\\"'<>\\s]+|/)?webplayer(?:2)?\\.php\\?[^\\\"'<>\\s]+"
-        );
-        Matcher wm = wp.matcher(html);
-        while (wm.find()) {
-            String u = wm.group(0)
-                    .replace("\\\\/", "/")
-                    .replace("\\u0026", "&")
-                    .replace("&amp;", "&")
-                    .replace("\\\"", "")
-                    .trim();
+        // IMPORTANT: only read selectors inside the Browser Links section.
+        // Never scan the whole page: that also picks up AceStream Links and
+        // unrelated player scripts, which caused duplicate/wrong providers.
+        String lower = html.toLowerCase(Locale.US);
+        int browserStart = lower.indexOf("browser links");
+        if (browserStart < 0) return;
 
-            while (u.endsWith(",") || u.endsWith(";") || u.endsWith(")") || u.endsWith("]")) {
-                u = u.substring(0, u.length() - 1);
-            }
+        int aceStart = lower.indexOf("acestream links", browserStart + "browser links".length());
+        int sectionEnd = aceStart >= 0 ? aceStart : html.length();
+        if (sectionEnd <= browserStart) return;
 
-            if (u.startsWith("/")) {
-                u = "https://livetv.sx" + u;
-            } else if (!u.startsWith("http://") && !u.startsWith("https://")) {
-                u = "https://livetv.sx/" + u;
-            }
+        String browserSection = html.substring(browserStart, sectionEnd)
+                .replace("\\\\/", "/")
+                .replace("\\u0026", "&")
+                .replace("&amp;", "&");
 
-            if (!found.contains(u)) found.add(u);
-        }
-
-        // Browser selectors contain all parameters needed to construct the player URL.
+        // Browser Links are represented by #webplayer selectors. Keep their
+        // page order; the final "ua" field is the page language, not a country flag.
         Pattern frag = Pattern.compile(
                 "(?i)#webplayer_[A-Za-z0-9_-]+(?:\\|[A-Za-z0-9._:%+~-]+)*"
         );
-        Matcher fm = frag.matcher(html);
+        Matcher fm = frag.matcher(browserSection);
         while (fm.find()) {
-            String u = webPlayerFromFragment(eventUrl, fm.group(0));
-            if (!u.isEmpty() && !found.contains(u)) found.add(u);
+            String selector = fm.group(0);
+            String playerUrl = webPlayerFromFragment(eventUrl, selector);
+            if (!playerUrl.isEmpty() && !found.contains(playerUrl)) {
+                found.add(playerUrl);
+            }
         }
     }
 
@@ -2136,16 +2129,8 @@ public class MainActivity extends Activity {
 
         Runnable finishNoStream = () -> {
             if (resolved[0]) return;
-            String backup = alternateEventUrl(match.eventUrl);
-            if (!fallbackUsed[0] && !backup.isEmpty() && !match.eventUrl.contains("livetv904.me")) {
-                fallbackUsed[0] = true;
-                status.setText("Проверка резервного источника...");
-                match.eventUrl = backup;
-                handler.postDelayed(() -> startLiveTvResolver(match), 100);
-                return;
-            }
             resolved[0] = true;
-            status.setText("Рабочая трансляция не найдена.");
+            status.setText("Рабочая трансляция не найдена. Проверь ссылки Browser Links.");
         };
 
         final Runnable[] tryNext = new Runnable[1];
@@ -2184,7 +2169,7 @@ public class MainActivity extends Activity {
                         || lowerPlayerUrl.contains("/webplayer2.php"))) {
                     status.setText("Открытие веб-плеера LiveTV.sx...");
                     resolved[0] = true;
-                    showLiveTvWebPlayer(match, playerUrl);
+                    showLiveTvWebPlayer(match, playerUrl, sourceCandidates, current[0] - 1);
                     return;
                 }
 
@@ -2452,32 +2437,8 @@ public class MainActivity extends Activity {
                 if (!found.isEmpty()) {
                     startCandidates(found, status, sourceCandidates, current, resolved, tryNext);
                 } else {
-                    status.setText("Ссылки трансляций не найдены. Проверка резервного источника...");
-                    String backup = alternateEventUrl(match.eventUrl);
-
-                    if (!fallbackUsed[0] && !backup.isEmpty()) {
-                        fallbackUsed[0] = true;
-                        match.eventUrl = backup;
-
-                        new Thread(() -> {
-                            String backupHtml = downloadPage(backup);
-                            ArrayList<String> backupFound = new ArrayList<>();
-                            collectWebPlayerUrls(backupHtml, backup, backupFound);
-
-                            runOnUiThread(() -> {
-                                if (resolved[0] || resolverWebView != web) return;
-                                if (!backupFound.isEmpty()) {
-                                    startCandidates(backupFound, status, sourceCandidates, current, resolved, tryNext);
-                                } else {
-                                    resolved[0] = true;
-                                    status.setText("Ссылки на трансляции не найдены.");
-                                }
-                            });
-                        }).start();
-                    } else {
-                        resolved[0] = true;
-                        status.setText("Ссылки на трансляции не найдены.");
-                    }
+                    resolved[0] = true;
+                    status.setText("В разделе Browser Links ссылки не найдены.");
                 }
             });
         }).start();
@@ -2500,50 +2461,40 @@ public class MainActivity extends Activity {
     ) {
         if (resolved[0]) return;
 
-        // Put Ukrainian/Russian Browser Links first, then all other links.
-        // If there are no Ukrainian/Russian links, the normal links are used immediately.
-        found.sort((a, b) -> Integer.compare(
-                browserLinkLanguagePriority(a),
-                browserLinkLanguagePriority(b)
-        ));
-
-        if (found.size() > 12) {
-            found.subList(12, found.size()).clear();
+        // The event page's Browser Links menu has six entries. Do not sort by
+        // "lang=ua": that is the page language, not the broadcaster's country.
+        if (found.size() > 6) {
+            found.subList(6, found.size()).clear();
         }
 
         if (found.isEmpty()) {
             resolved[0] = true;
-            status.setText("Ссылки на трансляции не найдены.");
+            status.setText("В разделе Browser Links ссылки не найдены.");
             return;
         }
 
         sourceCandidates.clear();
         sourceCandidates.addAll(found);
         current[0] = 0;
-        status.setText("Найдено " + sourceCandidates.size() + " ссылок. Поиск трансляции...");
-        tryNext[0].run();
-    }
 
-    private int browserLinkLanguagePriority(String url) {
-        if (url == null) return 2;
-
-        String lower = url.toLowerCase(Locale.US);
-        String lang = "";
-
-        int q = lower.indexOf("lang=");
-        if (q >= 0) {
-            int start = q + 5;
-            int end = lower.indexOf('&', start);
-            if (end < 0) end = lower.length();
-            lang = lower.substring(start, end);
-        } else if (lower.startsWith("#webplayer_")) {
-            String[] parts = lower.substring(1).split("\\|", -1);
-            if (parts.length >= 7) lang = parts[6];
+        String[] labels = new String[sourceCandidates.size()];
+        for (int i = 0; i < labels.length; i++) {
+            labels[i] = "Browser Link " + (i + 1);
         }
 
-        if ("ua".equals(lang) || "uk".equals(lang) || "ukr".equals(lang)) return 0;
-        if ("ru".equals(lang) || "rus".equals(lang)) return 1;
-        return 2;
+        status.setText("Выбери одну из " + sourceCandidates.size() + " ссылок Browser Links.");
+        new android.app.AlertDialog.Builder(this)
+                .setTitle("Выбор трансляции")
+                .setItems(labels, (dialog, which) -> {
+                    if (resolved[0] || which < 0 || which >= sourceCandidates.size()) return;
+                    current[0] = which;
+                    tryNext[0].run();
+                })
+                .setOnCancelListener(dialog -> {
+                    resolved[0] = true;
+                    status.setText("Выбор трансляции отменён.");
+                })
+                .show();
     }
 
     private int indexOfIgnoreCase(String text, String needle) {
