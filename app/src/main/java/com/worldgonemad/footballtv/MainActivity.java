@@ -2985,9 +2985,9 @@ public class MainActivity extends Activity {
                 + "cz:'🇨🇿',sk:'🇸🇰',ro:'🇷🇴',hu:'🇭🇺',gr:'🇬🇷',rs:'🇷🇸',ba:'🇧🇦',si:'🇸🇮',bg:'🇧🇬',se:'🇸🇪',no:'🇳🇴',"
                 + "dk:'🇩🇰',fi:'🇫🇮',at:'🇦🇹',ch:'🇨🇭',mx:'🇲🇽',br:'🇧🇷',ar:'🇦🇷',jp:'🇯🇵',kr:'🇰🇷',cn:'🇨🇳',au:'🇦🇺'};"
                 + "for(var k in map){if(k.length>2&&v.indexOf(k)>=0)return map[k];}"
-                + "var m=v.match(/(?:flag(?:-icon)?[-_ ]|country[-_ ])(ua|uk|ru|hr|pt|gb|us|es|de|it|fr|pl|tr|nl|be|cz|sk|ro|hu|gr|rs|ba|si|bg|se|no|dk|fi|at|ch|mx|br|ar|jp|kr|cn|au)\\\\b/i);"
+                + "var m=v.match(/(?:flag(?:-icon)?[-_ ]|country[-_ ])(ua|uk|ru|hr|pt|gb|us|es|de|it|fr|pl|tr|nl|be|cz|sk|ro|hu|gr|rs|ba|si|bg|se|no|dk|fi|at|ch|mx|br|ar|jp|kr|cn|au)\\b/i);"
                 + "if(m){var c=m[1].toLowerCase();return map[c]||'🌐';}"
-                + "m=v.match(/(?:^|[/_])(ua|uk|ru|hr|pt|gb|us|es|de|it|fr|pl|tr|nl|be|cz|sk|ro|hu|gr|rs|ba|si|bg|se|no|dk|fi|at|ch|mx|br|ar|jp|kr|cn|au)\\\\.(?:gif|png|svg|webp)/i);"
+                + "m=v.match(/(?:^|[/_])(ua|uk|ru|hr|pt|gb|us|es|de|it|fr|pl|tr|nl|be|cz|sk|ro|hu|gr|rs|ba|si|bg|se|no|dk|fi|at|ch|mx|br|ar|jp|kr|cn|au)\\.(?:gif|png|svg|webp)/i);"
                 + "if(m){var c=m[1].toLowerCase();return map[c]||'🌐';}return '🌐';}"
                 + "function flagFor(a){var n=a;for(var depth=0;n&&depth<6;depth++,n=n.parentElement){"
                 + "var list=[n];if(n.querySelectorAll){var kids=n.querySelectorAll('img,[class*=flag],[class*=country],[title],[alt],[data-country],[data-flag]');"
@@ -2998,7 +2998,7 @@ public class MainActivity extends Activity {
                 + "var f=codeFromText(v);if(f!=='🌐')return f;}}return '🌐';}"
                 + "var nodes=document.querySelectorAll('a[href*=\"#webplayer_\"],a[onclick*=\"webplayer_\"]');var out=[];var seen={};"
                 + "for(var i=0;i<nodes.length;i++){var a=nodes[i],raw=(a.getAttribute('href')||'')+' '+(a.getAttribute('onclick')||'');"
-                + "var m=raw.match(/#webplayer_[A-Za-z0-9_-]+(?:\\\\|[A-Za-z0-9._:%+~-]+)*/i);if(!m)continue;"
+                + "var m=raw.match(/#webplayer_[A-Za-z0-9_-]+(?:\\|[A-Za-z0-9._:%+~-]+)*/i);if(!m)continue;"
                 + "var frag=m[0].replace(/&amp;/g,'&');if(seen[frag])continue;seen[frag]=1;"
                 + "out.push({fragment:frag,flag:flagFor(a)});}return JSON.stringify(out);})()";
     }
