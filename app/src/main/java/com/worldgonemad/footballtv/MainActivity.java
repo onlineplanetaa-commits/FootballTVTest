@@ -2001,33 +2001,44 @@ public class MainActivity extends Activity {
     private void collectWebPlayerUrls(String html, String eventUrl, ArrayList<String> found) {
         if (html == null || html.isEmpty() || found == null) return;
 
-        // IMPORTANT: only read selectors inside the Browser Links section.
-        // Never scan the whole page: that also picks up AceStream Links and
-        // unrelated player scripts, which caused duplicate/wrong providers.
-        String lower = html.toLowerCase(Locale.US);
-        int browserStart = lower.indexOf("browser links");
-        if (browserStart < 0) return;
-
-        int aceStart = lower.indexOf("acestream links", browserStart + "browser links".length());
-        int sectionEnd = aceStart >= 0 ? aceStart : html.length();
-        if (sectionEnd <= browserStart) return;
-
-        String browserSection = html.substring(browserStart, sectionEnd)
+        // LiveTV.sx does not always include the English menu title in the raw
+        // response (the visible title may be rendered/localized). Browser
+        // entries use #webplayer_ selectors. Collect those in document order.
+        // Browser Links are the first group on the event page; stop at six so
+        // the following AceStream menu can never be added to the choices.
+        String normalized = html
                 .replace("\\\\/", "/")
                 .replace("\\u0026", "&")
                 .replace("&amp;", "&");
+        String lower = normalized.toLowerCase(Locale.US);
 
-        // Browser Links are represented by #webplayer selectors. Keep their
-        // page order; the final "ua" field is the page language, not a country flag.
+        int searchFrom = 0;
+        int browserStart = lower.indexOf("browser links");
+        if (browserStart < 0) browserStart = lower.indexOf("browser");
+        if (browserStart >= 0) searchFrom = browserStart;
+
         Pattern frag = Pattern.compile(
                 "(?i)#webplayer_[A-Za-z0-9_-]+(?:\\|[A-Za-z0-9._:%+~-]+)*"
         );
-        Matcher fm = frag.matcher(browserSection);
-        while (fm.find()) {
-            String selector = fm.group(0);
-            String playerUrl = webPlayerFromFragment(eventUrl, selector);
+        Matcher fm = frag.matcher(normalized);
+        fm.region(searchFrom, normalized.length());
+
+        while (fm.find() && found.size() < 6) {
+            String playerUrl = webPlayerFromFragment(eventUrl, fm.group(0));
             if (!playerUrl.isEmpty() && !found.contains(playerUrl)) {
                 found.add(playerUrl);
+            }
+        }
+
+        // If no selector was found after the title, try from the beginning.
+        // This handles pages where "Browser Links" is only a translated UI label.
+        if (found.isEmpty() && searchFrom > 0) {
+            fm = frag.matcher(normalized);
+            while (fm.find() && found.size() < 6) {
+                String playerUrl = webPlayerFromFragment(eventUrl, fm.group(0));
+                if (!playerUrl.isEmpty() && !found.contains(playerUrl)) {
+                    found.add(playerUrl);
+                }
             }
         }
     }
