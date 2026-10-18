@@ -2408,6 +2408,111 @@ public class MainActivity extends Activity {
         }
     }
 
+    // Read the flag attached to this specific Browser Link in the event HTML.
+    // The trailing "|ua" in #webplayer_... is the page language, not broadcaster country.
+    private String browserLinkFlagNear(String html, int start, int end) {
+        if (html == null || html.isEmpty()) return "🌐";
+        int left = Math.max(0, start - 1400);
+        int right = Math.min(html.length(), end + 1400);
+        String area = html.substring(left, right);
+
+        String bestFlag = "🌐";
+        int bestDistance = Integer.MAX_VALUE;
+        Pattern tagPattern = Pattern.compile("(?is)<(?:img|span|i|div|td|a)[^>]{0,700}>");
+        Matcher tags = tagPattern.matcher(area);
+        while (tags.find()) {
+            String tag = tags.group();
+            String low = tag.toLowerCase(Locale.US);
+            if (!(low.contains("flag") || low.contains("country")
+                    || low.contains("alt=") || low.contains("title="))) continue;
+
+            String flag = flagFromFlagMarkup(tag);
+            if ("🌐".equals(flag)) continue;
+            int absolute = left + tags.start();
+            int distance = absolute < start ? start - absolute : absolute > end ? absolute - end : 0;
+            if (distance < bestDistance) {
+                bestDistance = distance;
+                bestFlag = flag;
+            }
+        }
+        return bestFlag;
+    }
+
+    private String flagFromFlagMarkup(String markup) {
+        if (markup == null) return "🌐";
+        String value = markup.toLowerCase(Locale.US);
+
+        Matcher code = Pattern.compile(
+                "(?:flag(?:-icon)?[-_/ ]|country[-_/ ])(ua|uk|ru|hr|pt|gb|us|es|de|it|fr|pl|tr|nl|be|cz|sk|ro|hu|gr|rs|ba|si|bg|se|no|dk|fi|at|ch|mx|br|ar|jp|kr|cn|au)(?:\\b|[-_./ ])",
+                Pattern.CASE_INSENSITIVE).matcher(value);
+        if (code.find()) return countryCodeToFlag(code.group(1));
+
+        Matcher pathCode = Pattern.compile(
+                "(?:/|\\\\|_)(ua|uk|ru|hr|pt|gb|us|es|de|it|fr|pl|tr|nl|be|cz|sk|ro|hu|gr|rs|ba|si|bg|se|no|dk|fi|at|ch|mx|br|ar|jp|kr|cn|au)\\.(?:gif|png|svg|webp)",
+                Pattern.CASE_INSENSITIVE).matcher(value);
+        if (pathCode.find() && (value.contains("flag") || value.contains("country"))) {
+            return countryCodeToFlag(pathCode.group(1));
+        }
+
+        String[] names = {"ukraine", "russia", "croatia", "portugal", "england", "united kingdom",
+                "united states", "spain", "germany", "italy", "france", "poland", "turkey",
+                "netherlands", "belgium", "czech", "slovakia", "romania", "hungary", "greece",
+                "serbia", "bosnia", "slovenia", "bulgaria", "sweden", "norway", "denmark",
+                "finland", "austria", "switzerland", "mexico", "brazil", "argentina", "japan",
+                "korea", "china", "australia"};
+        String[] codes = {"ua", "ru", "hr", "pt", "gb", "gb", "us", "es", "de", "it", "fr", "pl",
+                "tr", "nl", "be", "cz", "sk", "ro", "hu", "gr", "rs", "ba", "si", "bg", "se",
+                "no", "dk", "fi", "at", "ch", "mx", "br", "ar", "jp", "kr", "cn", "au"};
+        for (int i = 0; i < names.length; i++) {
+            if (value.contains(names[i])) return countryCodeToFlag(codes[i]);
+        }
+        return "🌐";
+    }
+
+    private String countryCodeToFlag(String rawCode) {
+        if (rawCode == null) return "🌐";
+        String code = rawCode.toLowerCase(Locale.US);
+        switch (code) {
+            case "ua": case "uk": return "🇺🇦";
+            case "ru": return "🇷🇺";
+            case "hr": return "🇭🇷";
+            case "pt": return "🇵🇹";
+            case "gb": return "🇬🇧";
+            case "us": return "🇺🇸";
+            case "es": return "🇪🇸";
+            case "de": return "🇩🇪";
+            case "it": return "🇮🇹";
+            case "fr": return "🇫🇷";
+            case "pl": return "🇵🇱";
+            case "tr": return "🇹🇷";
+            case "nl": return "🇳🇱";
+            case "be": return "🇧🇪";
+            case "cz": return "🇨🇿";
+            case "sk": return "🇸🇰";
+            case "ro": return "🇷🇴";
+            case "hu": return "🇭🇺";
+            case "gr": return "🇬🇷";
+            case "rs": return "🇷🇸";
+            case "ba": return "🇧🇦";
+            case "si": return "🇸🇮";
+            case "bg": return "🇧🇬";
+            case "se": return "🇸🇪";
+            case "no": return "🇳🇴";
+            case "dk": return "🇩🇰";
+            case "fi": return "🇫🇮";
+            case "at": return "🇦🇹";
+            case "ch": return "🇨🇭";
+            case "mx": return "🇲🇽";
+            case "br": return "🇧🇷";
+            case "ar": return "🇦🇷";
+            case "jp": return "🇯🇵";
+            case "kr": return "🇰🇷";
+            case "cn": return "🇨🇳";
+            case "au": return "🇦🇺";
+            default: return "🌐";
+        }
+    }
+
     private boolean isLikelyLiveMediaUrl(String url) {
         if (url == null || url.isEmpty()) return false;
 
