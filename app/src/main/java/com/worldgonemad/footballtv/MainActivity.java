@@ -1999,47 +1999,55 @@ public class MainActivity extends Activity {
     }
 
     private void collectWebPlayerUrls(String html, String eventUrl, ArrayList<String> found) {
-        if (html == null || html.isEmpty() || found == null) return;
+        if (html == null || html.isEmpty() || eventUrl == null || eventUrl.isEmpty() || found == null) return;
 
-        // LiveTV.sx does not always include the English menu title in the raw
-        // response (the visible title may be rendered/localized). Browser
-        // entries use #webplayer_ selectors. Collect those in document order.
-        // Browser Links are the first group on the event page; stop at six so
-        // the following AceStream menu can never be added to the choices.
-        String normalized = html
+        // Keep the working extraction paths: LiveTV.sx may provide direct
+        // webplayer.php URLs rather than #webplayer_ fragments in raw HTML.
+        String source = html
                 .replace("\\\\/", "/")
+                .replace("\\/", "/")
                 .replace("\\u0026", "&")
-                .replace("&amp;", "&");
-        String lower = normalized.toLowerCase(Locale.US);
+                .replace("\\x26", "&")
+                .replace("&amp;", "&")
+                .replace("&#38;", "&")
+                .replace("&#x26;", "&");
 
-        int searchFrom = 0;
-        int browserStart = lower.indexOf("browser links");
-        if (browserStart < 0) browserStart = lower.indexOf("browser");
-        if (browserStart >= 0) searchFrom = browserStart;
+        Pattern wp = Pattern.compile(
+                "(?i)(?:https?:\\/\\/[^\\\"'<>\\s]+|/)?webplayer(?:2)?\\.php\\?[^\\\"'<>\\s]+"
+        );
+        Matcher wm = wp.matcher(source);
+        while (wm.find()) {
+            String u = wm.group(0)
+                    .replace("\\\\/", "/")
+                    .replace("\\/", "/")
+                    .replace("&amp;", "&")
+                    .replace("\\\"", "")
+                    .trim();
+
+            if (u.startsWith("//")) {
+                u = "https:" + u;
+            } else if (u.startsWith("/")) {
+                String host = eventUrl.contains("livetv904.me")
+                        ? "https://livetv904.me"
+                        : "https://livetv.sx";
+                u = host + u;
+            } else if (!u.startsWith("http://") && !u.startsWith("https://")) {
+                int hostEnd = eventUrl.indexOf("/", 8);
+                if (hostEnd > 0) {
+                    u = eventUrl.substring(0, hostEnd) + "/" + u;
+                }
+            }
+
+            if (!found.contains(u)) found.add(u);
+        }
 
         Pattern frag = Pattern.compile(
                 "(?i)#webplayer_[A-Za-z0-9_-]+(?:\\|[A-Za-z0-9._:%+~-]+)*"
         );
-        Matcher fm = frag.matcher(normalized);
-        fm.region(searchFrom, normalized.length());
-
-        while (fm.find() && found.size() < 6) {
-            String playerUrl = webPlayerFromFragment(eventUrl, fm.group(0));
-            if (!playerUrl.isEmpty() && !found.contains(playerUrl)) {
-                found.add(playerUrl);
-            }
-        }
-
-        // If no selector was found after the title, try from the beginning.
-        // This handles pages where "Browser Links" is only a translated UI label.
-        if (found.isEmpty() && searchFrom > 0) {
-            fm = frag.matcher(normalized);
-            while (fm.find() && found.size() < 6) {
-                String playerUrl = webPlayerFromFragment(eventUrl, fm.group(0));
-                if (!playerUrl.isEmpty() && !found.contains(playerUrl)) {
-                    found.add(playerUrl);
-                }
-            }
+        Matcher fm = frag.matcher(source);
+        while (fm.find()) {
+            String u = webPlayerFromFragment(eventUrl, fm.group(0));
+            if (!u.isEmpty() && !found.contains(u)) found.add(u);
         }
     }
 
