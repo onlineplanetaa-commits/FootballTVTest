@@ -1,102 +1,22 @@
-# LiveTV resolver build
 name: Build Football TV APK
 
 on:
   workflow_dispatch:
-  push:
-    branches:
-      - main
-      - master
 
 jobs:
-  build:
+  package-existing-apk:
     runs-on: ubuntu-latest
-
     steps:
       - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Set up Java
-        uses: actions/setup-java@v5
-        with:
-          distribution: temurin
-          java-version: '17'
-
-      - name: Set up Android SDK
-        uses: android-actions/setup-android@v3
-        with:
-          packages: 'platform-tools'
-
-      - name: Install Android SDK packages
+      - name: Verify uploaded APK is unchanged
         run: |
-          sdkmanager "platforms;android-35" "build-tools;35.0.0"
+          echo "ae4faff926fc55a943a7f80e2e67b930ba13418460cb99da10487bcea93152dc  prebuilt/FootballTV.apk" | sha256sum --check
 
-      - name: Install Gradle
-        run: |
-          curl -L https://services.gradle.org/distributions/gradle-8.7-bin.zip -o /tmp/gradle.zip
-          unzip -q /tmp/gradle.zip -d /opt
-          echo "/opt/gradle-8.7/bin" >> "$GITHUB_PATH"
-
-      - name: Generate clean PNG football app logo
-        run: |
-          python3 -m pip install --quiet pillow
-          mkdir -p app/src/main/res/drawable-nodpi
-          rm -f app/src/main/res/drawable/max_logo.xml
-          python3 - <<'PY'
-          from PIL import Image, ImageDraw, ImageFont, ImageFilter
-          import math
-          from PIL import ImageFile
-          ImageFile.LOAD_TRUNCATED_IMAGES = True
-          Image.open("assets/app_icon.jpg").convert("RGB").save("app/src/main/res/drawable-nodpi/app_icon.png",optimize=True)
-          raise SystemExit
-          S=512
-          im=Image.new("RGB",(S,S),(6,19,42))
-          px=im.load()
-          for y in range(S):
-              for x in range(S):
-                  glow=max(0,1-math.sqrt((x-256)**2+(y-115)**2)/440)
-                  px[x,y]=(int(5+4*glow),int(17+19*glow),int(37+38*glow))
-          im=im.convert("RGBA")
-          glow=Image.new("RGBA",(S,S),(0,0,0,0))
-          ImageDraw.Draw(glow).ellipse((137,4,375,242),fill=(0,150,255,60))
-          im=Image.alpha_composite(im,glow.filter(ImageFilter.GaussianBlur(25)))
-          d=ImageDraw.Draw(im)
-          d.rounded_rectangle((8,8,504,504),radius=72,outline=(54,143,216,255),width=5)
-          d.rounded_rectangle((18,18,494,494),radius=63,outline=(255,255,255,30),width=2)
-          # Large, unmistakable black-and-white football
-          cx,cy,r=256,119,76
-          d.ellipse((cx-r,cy-r,cx+r,cy+r),fill=(250,251,253,255),outline=(2,10,22,255),width=7)
-          def pentagon(x,y,rad,rotation=-90):
-              return [(x+rad*math.cos(math.radians(rotation+i*72)),y+rad*math.sin(math.radians(rotation+i*72))) for i in range(5)]
-          center=pentagon(cx,cy,25,-90)
-          d.polygon(center,fill=(5,13,26,255))
-          for i in range(5):
-              a=math.radians(-90+i*72)
-              x,y=cx+50*math.cos(a),cy+50*math.sin(a)
-              patch=pentagon(x,y,16,-90+i*72)
-              d.polygon(patch,fill=(5,13,26,255))
-              d.line((center[i][0],center[i][1],x,y),fill=(5,13,26,255),width=4)
-          d.arc((cx-r+11,cy-r+11,cx+r-11,cy+r-11),205,300,fill=(255,255,255,230),width=4)
-          fontpath="/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf"
-          def centered(text,y,font,fill,stroke=0):
-              b=d.textbbox((0,0),text,font=font,stroke_width=stroke)
-              d.text(((S-(b[2]-b[0]))//2,y),text,font=font,fill=fill,stroke_width=stroke,stroke_fill=(0,5,15,255))
-          centered("МАКС",211,ImageFont.truetype(fontpath,82),(255,255,255,255),2)
-          d.rounded_rectangle((72,308,440,318),radius=5,fill=(43,232,105,255))
-          small=ImageFont.truetype(fontpath,30)
-          centered("ФУТБОЛ",333,small,(249,251,255,255))
-          centered("ОНЛАЙН",375,small,(249,251,255,255))
-          im.convert("RGB").save("app/src/main/res/drawable-nodpi/app_icon.png",optimize=True)
-          PY
-
-      - name: Build APK
-        run: gradle --no-daemon assembleDebug
-
-      - name: Upload APK
+      - name: Upload exact APK without rebuilding
         uses: actions/upload-artifact@v4
         with:
           name: FootballTV-debug-apk
-          path: app/build/outputs/apk/debug/app-debug.apk
+          path: prebuilt/FootballTV.apk
           if-no-files-found: error
-
-# trigger rebuild
