@@ -2,17 +2,20 @@ name: Build Football TV APK
 
 on:
   workflow_dispatch:
+  push:
+    branches:
+      - build-432-exact-apk
 
 jobs:
   package-existing-apk:
     runs-on: ubuntu-latest
     steps:
-      - name: Checkout
-        uses: actions/checkout@v4
-
       - name: Verify uploaded APK is unchanged
         run: |
           echo "ae4faff926fc55a943a7f80e2e67b930ba13418460cb99da10487bcea93152dc  prebuilt/FootballTV (1).apk" | sha256sum --check
+
+      - name: Checkout
+        uses: actions/checkout@v4
 
       - name: Upload exact APK without rebuilding
         uses: actions/upload-artifact@v4
