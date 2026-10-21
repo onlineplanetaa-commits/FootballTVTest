@@ -12,11 +12,11 @@ jobs:
 
       - name: Verify uploaded APK is unchanged
         run: |
-          echo "ae4faff926fc55a943a7f80e2e67b930ba13418460cb99da10487bcea93152dc  prebuilt/FootballTV.apk" | sha256sum --check
+          echo "ae4faff926fc55a943a7f80e2e67b930ba13418460cb99da10487bcea93152dc  prebuilt/FootballTV (1).apk" | sha256sum --check
 
       - name: Upload exact APK without rebuilding
         uses: actions/upload-artifact@v4
         with:
           name: FootballTV-debug-apk
-          path: prebuilt/FootballTV.apk
+          path: prebuilt/FootballTV (1).apk
           if-no-files-found: error
